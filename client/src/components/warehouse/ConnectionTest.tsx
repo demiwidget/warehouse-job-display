@@ -17,14 +17,17 @@ export function ConnectionTest() {
   const handleTest = async () => {
     setIsLoading(true);
     try {
-      const result = await refetch();
-      if (result.data) {
-        setResult(result.data.success);
+      const queryResult = await refetch();
+      if (queryResult.data) {
+        const isSuccess = queryResult.data.success === true;
+        setResult(isSuccess);
         setTested(true);
-        if (result.data.success) {
+        if (isSuccess) {
           toast.success("Current-RMS connection successful!");
         } else {
-          toast.error("Current-RMS connection failed. Check your credentials.");
+          toast.error(
+            queryResult.data.error || "Current-RMS connection failed. Check your credentials."
+          );
         }
       }
     } catch (error: any) {

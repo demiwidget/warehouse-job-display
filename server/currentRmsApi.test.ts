@@ -14,17 +14,18 @@ describe("Current-RMS API Integration", () => {
 
   it("should test Current-RMS API connection", async () => {
     // This test validates that the API integration is properly configured
-    // The actual connection test will be performed in the browser UI
     const result = await testCurrentRmsConnection();
 
-    // Test that the function returns a boolean (connection attempt was made)
-    expect(typeof result).toBe("boolean");
+    // Test that the function returns an object with success property
+    expect(typeof result).toBe("object");
+    expect(result).toHaveProperty("success");
+    expect(typeof result.success).toBe("boolean");
 
     // Log result for debugging
-    if (result) {
+    if (result.success) {
       console.log("Current-RMS API connection successful");
     } else {
-      console.log("Current-RMS API connection test returned false - verify credentials in browser UI");
+      console.log(`Current-RMS API connection test failed: ${result.error}`);
     }
   });
 });
