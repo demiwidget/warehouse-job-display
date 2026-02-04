@@ -8,6 +8,10 @@ export interface CurrentRmsOpportunity {
   deliver_ends_at?: string;
   load_starts_at?: string;
   load_ends_at?: string;
+  member?: {
+    name?: string;
+    id?: number;
+  };
   [key: string]: any;
 }
 
@@ -15,6 +19,7 @@ export interface CurrentRmsJobData {
   id: string;
   jobNumber: string;
   jobTitle: string;
+  clientName?: string;
   loadDate?: Date;
   loadTime?: string;
   status?: string;
@@ -151,6 +156,7 @@ export function parseOpportunityToJobData(
     id: String(opp.id),
     jobNumber: opp.number || String(opp.id),
     jobTitle: opp.description || opp.name || "",
+    clientName: opp.member?.name || "",
     loadDate,
     loadTime,
     status: opp.status || "pending",

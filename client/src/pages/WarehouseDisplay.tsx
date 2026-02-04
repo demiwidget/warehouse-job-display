@@ -9,19 +9,23 @@ export default function WarehouseDisplay() {
   const { areaId } = useParams<{ areaId: string }>();
   const [refreshCount, setRefreshCount] = useState(0);
 
+  // Parse areaId safely, converting to number and validating it's not NaN
+  const parsedAreaId = areaId ? parseInt(areaId, 10) : null;
+  const isValidAreaId = parsedAreaId !== null && !isNaN(parsedAreaId) && parsedAreaId > 0;
+
   const { data: area } = trpc.warehouse.getArea.useQuery(
-    { areaId: parseInt(areaId || "0") },
-    { enabled: !!areaId }
+    { areaId: parsedAreaId || 0 },
+    { enabled: isValidAreaId }
   );
 
   const { data: displaySettings } = trpc.warehouse.getDisplaySettings.useQuery(
-    { areaId: parseInt(areaId || "0") },
-    { enabled: !!areaId }
+    { areaId: parsedAreaId || 0 },
+    { enabled: isValidAreaId }
   );
 
   const { data: jobMappings } = trpc.warehouse.getAreaJobs.useQuery(
-    { areaId: parseInt(areaId || "0") },
-    { enabled: !!areaId }
+    { areaId: parsedAreaId || 0 },
+    { enabled: isValidAreaId }
   );
 
   // Set up auto-refresh
@@ -35,13 +39,13 @@ export default function WarehouseDisplay() {
     return () => clearInterval(interval);
   }, [displaySettings]);
 
-  if (!areaId) {
+  if (!isValidAreaId) {
     return (
       <div className="min-h-screen bg-red-900 flex items-center justify-center">
         <div className="text-center">
           <AlertCircle className="w-16 h-16 text-red-200 mx-auto mb-4" />
           <h1 className="text-4xl font-bold text-white mb-2">Invalid Area</h1>
-          <p className="text-red-100">No area ID provided</p>
+          <p className="text-red-100">No valid area ID provided</p>
         </div>
       </div>
     );
@@ -191,6 +195,16 @@ function JobCard({
             <p className={`${secondaryTextColor} text-sm font-semibold mb-2`}>JOB TITLE</p>
             <p className={`${subtitleSize} font-semibold ${textColor} line-clamp-2`}>
               {jobDetails.jobTitle}
+            </p>
+          </div>
+        )}
+
+        {/* Client Name */}
+        {jobDetails?.clientName && (
+          <div>
+            <p className={`${secondaryTextColor} text-sm font-semibold mb-2`}>CLIENT</p>
+            <p className={`${subtitleSize} font-semibold ${textColor} line-clamp-2`}>
+              {jobDetails.clientName}
             </p>
           </div>
         )}

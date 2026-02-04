@@ -86,6 +86,7 @@ export const jobCache = mysqlTable("job_cache", {
   currentRmsJobId: varchar("currentRmsJobId", { length: 255 }).notNull().unique(),
   jobNumber: varchar("jobNumber", { length: 255 }).notNull(),
   jobTitle: text("jobTitle"),
+  clientName: varchar("clientName", { length: 255 }),
   loadDate: timestamp("loadDate"),
   loadTime: varchar("loadTime", { length: 50 }),
   status: varchar("status", { length: 100 }),

@@ -1,0 +1,1 @@
+ALTER TABLE `job_cache` ADD `clientName` varchar(255);

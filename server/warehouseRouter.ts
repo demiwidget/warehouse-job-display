@@ -157,6 +157,7 @@ export const warehouseRouter = router({
           currentRmsJobId: jobData.id,
           jobNumber: jobData.jobNumber,
           jobTitle: jobData.jobTitle,
+          clientName: jobData.clientName,
           loadDate: jobData.loadDate,
           loadTime: jobData.loadTime,
           status: jobData.status,

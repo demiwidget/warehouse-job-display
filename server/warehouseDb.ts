@@ -231,6 +231,7 @@ export async function cacheJobData(data: {
   currentRmsJobId: string;
   jobNumber: string;
   jobTitle?: string;
+  clientName?: string;
   loadDate?: Date;
   loadTime?: string;
   status?: string;
@@ -250,6 +251,7 @@ export async function cacheJobData(data: {
       .set({
         jobNumber: data.jobNumber,
         jobTitle: data.jobTitle,
+        clientName: data.clientName,
         loadDate: data.loadDate,
         loadTime: data.loadTime,
         status: data.status,
@@ -267,6 +269,7 @@ export async function cacheJobData(data: {
       currentRmsJobId: data.currentRmsJobId,
       jobNumber: data.jobNumber,
       jobTitle: data.jobTitle,
+      clientName: data.clientName,
       loadDate: data.loadDate,
       loadTime: data.loadTime,
       status: data.status,

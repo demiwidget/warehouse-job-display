@@ -15,6 +15,13 @@
       "when": 1770034129863,
       "tag": "0001_big_patch",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1770194317414,
+      "tag": "0002_tricky_jazinda",
+      "breakpoints": true
     }
   ]
 }
