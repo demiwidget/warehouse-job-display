@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   warehouseAreas,
   areaJobMappings,
@@ -106,13 +106,27 @@ export async function updateArea(
 /**
  * Get all job mappings for an area
  */
-export async function getAreaJobMappings(areaId: number): Promise<AreaJobMapping[]> {
+export async function getAreaJobMappings(areaId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   return db
-    .select()
+    .select({
+      id: areaJobMappings.id,
+      areaId: areaJobMappings.areaId,
+      currentRmsJobId: areaJobMappings.currentRmsJobId,
+      currentRmsJobNumber: areaJobMappings.currentRmsJobNumber,
+      isActive: areaJobMappings.isActive,
+      sortOrder: areaJobMappings.sortOrder,
+      createdAt: areaJobMappings.createdAt,
+      updatedAt: areaJobMappings.updatedAt,
+      jobTitle: jobCache.jobTitle,
+      clientName: jobCache.clientName,
+      loadDate: jobCache.loadDate,
+      loadTime: jobCache.loadTime,
+    })
     .from(areaJobMappings)
+    .leftJoin(jobCache, eq(areaJobMappings.currentRmsJobId, jobCache.currentRmsJobId))
     .where(and(eq(areaJobMappings.areaId, areaId), eq(areaJobMappings.isActive, 1)))
     .orderBy(areaJobMappings.sortOrder);
 }

@@ -19,6 +19,8 @@
 - [x] Add job information cards (title, number, load date/time)
 - [x] Build responsive design for various screen sizes
 - [x] Add area name and status indicators
+- [x] Display job title/name on warehouse screen
+- [x] Show job title in admin job search interface
 
 ## Phase 4: Real-time Features
 - [x] Implement periodic data refresh (configurable intervals)

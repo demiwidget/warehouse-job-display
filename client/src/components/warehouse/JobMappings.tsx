@@ -136,8 +136,9 @@ export function JobMappings() {
                     key={mapping.id}
                     className="p-3 border-slate-700 bg-slate-700/30 flex items-center justify-between"
                   >
-                    <div>
+                    <div className="flex-1">
                       <p className="font-medium text-white">Job #{mapping.currentRmsJobNumber}</p>
+                      <p className="text-sm text-slate-300">{mapping.jobTitle || 'Loading...'}</p>
                       <p className="text-xs text-slate-400">ID: {mapping.currentRmsJobId}</p>
                     </div>
                     <Button
