@@ -15,7 +15,7 @@
 
 ## Phase 3: Warehouse Display View
 - [x] Create large-format display component
-- [ ] Implement high-contrast, large typography layout
+- [x] Redesign display layout - center content, improve formatting, remove status
 - [x] Add job information cards (title, number, load date/time)
 - [x] Build responsive design for various screen sizes
 - [x] Add area name and status indicators
