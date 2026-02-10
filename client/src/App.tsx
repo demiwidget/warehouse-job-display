@@ -7,13 +7,33 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import AdminDashboard from "./pages/AdminDashboard";
 import WarehouseDisplay from "./pages/WarehouseDisplay";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { Loader2 } from "lucide-react";
+
+function ProtectedRoute({ component: Component }: { component: React.ComponentType<any> }) {
+  const { isAuthenticated, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Home />;
+  }
+
+  return <Component />;
+}
 
 function Router() {
-  // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/admin"} component={AdminDashboard} />
+      <Route path={"//"} component={Home} />
+      <Route path={"/admin"} component={() => <ProtectedRoute component={AdminDashboard} />} />
+      {/* Display view is PUBLIC - no authentication required */}
       <Route path={"/display/:areaId"} component={WarehouseDisplay} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}

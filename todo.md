@@ -26,6 +26,11 @@
 ## Phase 4: Real-time Features
 - [x] Implement periodic data refresh (configurable intervals)
 - [x] Add real-time job status updates
+
+## Phase 5: Authentication Fix
+- [x] Make warehouse display view public (no auth required)
+- [x] Keep admin dashboard protected (auth required)
+- [x] Fix OAuth redirect loop issue with ProtectedRoute wrapper
 - [x] Create error states and fallback UI
 - [x] Add loading indicators for display view
 
