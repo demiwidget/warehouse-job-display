@@ -34,6 +34,13 @@
 - [x] Create error states and fallback UI
 - [x] Add loading indicators for display view
 
+## Phase 6: Local Authentication System
+- [x] Add admin users table to database schema
+- [x] Create login/register endpoints
+- [x] Build login page UI
+- [x] Implement session-based auth (replace OAuth)
+- [x] Keep warehouse display screens public
+
 ## Phase 5: Polish & Testing
 - [x] Test Current-RMS API integration
 - [x] Verify display readability at distance

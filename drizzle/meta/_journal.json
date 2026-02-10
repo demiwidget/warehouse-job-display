@@ -22,6 +22,13 @@
       "when": 1770194317414,
       "tag": "0002_tricky_jazinda",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1770753662751,
+      "tag": "0003_crazy_gambit",
+      "breakpoints": true
     }
   ]
 }

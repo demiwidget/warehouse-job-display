@@ -99,3 +99,19 @@ export const jobCache = mysqlTable("job_cache", {
 
 export type JobCache = typeof jobCache.$inferSelect;
 export type InsertJobCache = typeof jobCache.$inferInsert;
+
+/**
+ * Admin users for local authentication (username/password)
+ */
+export const adminUsers = mysqlTable("admin_users", {
+  id: int("id").autoincrement().primaryKey(),
+  username: varchar("username", { length: 255 }).notNull().unique(),
+  email: varchar("email", { length: 320 }),
+  passwordHash: varchar("passwordHash", { length: 255 }).notNull(),
+  isActive: int("isActive").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AdminUser = typeof adminUsers.$inferSelect;
+export type InsertAdminUser = typeof adminUsers.$inferInsert;
