@@ -74,6 +74,24 @@ export const warehouseRouter = router({
       })
     )
     .mutation(async ({ input }) => {
+      try {
+        const opp = await fetchCurrentRmsOpportunityById(input.currentRmsJobId);
+        if (opp) {
+          const jobData = parseOpportunityToJobData(opp);
+          await cacheJobData({
+            currentRmsJobId: jobData.id,
+            jobNumber: jobData.jobNumber,
+            jobTitle: jobData.jobTitle,
+            clientName: jobData.clientName,
+            loadDate: jobData.loadDate,
+            loadTime: jobData.loadTime,
+            status: jobData.status,
+            rawData: JSON.stringify(opp),
+          });
+        }
+      } catch (error) {
+        console.error("Error fetching job details for caching:", error);
+      }
       return addJobToArea(input);
     }),
 
