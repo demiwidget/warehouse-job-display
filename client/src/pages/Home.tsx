@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
+  const utils = trpc.useUtils();
   const { data: hasUsers } = trpc.auth.hasAdminUsers.useQuery();
   const loginMutation = trpc.auth.login.useMutation();
   const registerMutation = trpc.auth.register.useMutation();
@@ -22,9 +23,15 @@ export default function Home() {
   const { data: session } = trpc.auth.me.useQuery();
 
   // Determine initial mode based on whether admin users exist
-  if (mode === "login" && hasUsers === false) {
-    setMode("register");
-  }
+  useEffect(() => {
+    if (hasUsers === false && mode === "login") {
+      setMode("register");
+    }
+
+    if (hasUsers === true && mode === "register") {
+      setMode("login");
+    }
+  }, [hasUsers, mode]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,6 +40,7 @@ export default function Home() {
 
     try {
       await loginMutation.mutateAsync({ username, password });
+      await utils.auth.me.invalidate();
       setMode("authenticated");
       setLocation("/admin");
     } catch (err: any) {
@@ -49,6 +57,8 @@ export default function Home() {
 
     try {
       await registerMutation.mutateAsync({ username, password, email: email || undefined });
+      utils.auth.hasAdminUsers.setData(undefined, true);
+      await Promise.all([utils.auth.hasAdminUsers.invalidate(), utils.auth.me.invalidate()]);
       setMode("authenticated");
       setLocation("/admin");
     } catch (err: any) {
@@ -62,6 +72,7 @@ export default function Home() {
     setIsLoading(true);
     try {
       await logoutMutation.mutateAsync();
+      await Promise.all([utils.auth.me.invalidate(), utils.auth.hasAdminUsers.invalidate()]);
       setMode("login");
       setUsername("");
       setPassword("");
@@ -190,13 +201,7 @@ export default function Home() {
 
         {mode === "login" && hasUsers && (
           <p className="text-center text-slate-400 text-sm mt-4">
-            Don't have an account?{" "}
-            <button
-              onClick={() => setMode("register")}
-              className="text-blue-400 hover:text-blue-300 font-medium"
-            >
-              Contact administrator
-            </button>
+            Need access? Contact your administrator to create your account.
           </p>
         )}
       </Card>

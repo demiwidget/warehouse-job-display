@@ -31,7 +31,7 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
 function Router() {
   return (
     <Switch>
-      <Route path={"//"} component={Home} />
+      <Route path={"/"} component={Home} />
       <Route path={"/admin"} component={() => <ProtectedRoute component={AdminDashboard} />} />
       {/* Display view is PUBLIC - no authentication required */}
       <Route path={"/display/:areaId"} component={WarehouseDisplay} />

@@ -45,9 +45,9 @@
 - [x] Test Current-RMS API integration
 - [x] Verify display readability at distance
 - [x] Test configuration workflows
-- [ ] Add keyboard shortcuts for display mode
+- [x] Add keyboard shortcuts for display mode
 - [ ] Create checkpoint
 
 ## Phase 6: Delivery
-- [ ] Document setup and usage
-- [ ] Provide deployment instructions
+- [x] Document setup and usage
+- [x] Provide deployment instructions
