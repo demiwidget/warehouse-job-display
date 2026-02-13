@@ -65,6 +65,29 @@ CURRENT_RMS_SUBDOMAIN=your-subdomain
    - Admin: `http://localhost:3000/admin`
    - Display: `http://localhost:3000/display/1`
 
+## One-command Bootstrap
+
+To install dependencies, run migrations, run checks/tests, and start the app automatically:
+
+```bash
+./scripts/bootstrap.sh
+```
+
+Useful variants:
+
+```bash
+# Build first, then run dev server
+./scripts/bootstrap.sh --build
+
+# Production flow (build + start)
+./scripts/bootstrap.sh --prod
+
+# If you do not have database access yet
+./scripts/bootstrap.sh --skip-db
+```
+
+Run `./scripts/bootstrap.sh --help` for all options.
+
 ## Testing and Checks
 
 ```bash
