@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+warehouse_env/
+
+# Device-local configuration and runtime output
+viewer_config.json
+viewer.log
+*.log
+
+# Legacy/generated update artifacts
+warehouse_pi/
+warehouse_update_extract/
+warehouse_update.zip
+*.zip
+
+# Local editor/OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

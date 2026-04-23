@@ -1,0 +1,8 @@
+{
+  "server": "http://192.168.1.90:8765",
+  "device_id": "warehouse-screen-1",
+  "device_name": "Warehouse Screen 1",
+  "version": "2.0.1",
+  "screen": "today",
+  "allow_all_screens": true
+}
