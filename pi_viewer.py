@@ -27,7 +27,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "viewer_config.json"
 
 DEFAULT_CONFIG = {
-    "server": "http://192.168.1.90:8765",
+    "server": "http://MANAGER_PC_IP:8765",
     "device_id": "pi-1",
     "device_name": "Warehouse Screen 1",
     "version": "2.0.1",

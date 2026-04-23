@@ -4,14 +4,12 @@ import shutil
 import subprocess
 import sys
 import time
-import zipfile
 from pathlib import Path
 
 import requests
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = BASE_DIR / "viewer_config.json"
-UPDATE_SCRIPT = BASE_DIR / "scripts" / "update_pi.sh"
 
 
 def load_config():
@@ -87,71 +85,30 @@ def restart_viewer():
     start_viewer()
 
 
-def trigger_git_update():
-    refresh_service = os.environ.get("WAREHOUSE_REFRESH_SERVICE", "warehouse-refresh.service")
-    if run_systemctl("start", refresh_service):
-        return True
+def reboot_pi():
+    reboot = shutil.which("reboot") or "/usr/sbin/reboot"
+    command = [reboot]
+    if os.name != "nt" and os.geteuid() != 0:
+        sudo = shutil.which("sudo")
+        if sudo:
+            command = [sudo, reboot]
 
-    if UPDATE_SCRIPT.exists():
-        try:
-            subprocess.Popen(
-                ["bash", str(UPDATE_SCRIPT), "--restart-display"],
-                cwd=str(BASE_DIR),
-                start_new_session=True,
-            )
-            return True
-        except Exception:
-            return False
-
-    return False
-
-
-def apply_legacy_zip_update(cfg, filename):
-    package_url = url(cfg, f"/updates/{filename}")
-    tmp_zip = Path.home() / "warehouse_update.zip"
-    tmp_dir = Path.home() / "warehouse_update_extract"
-
-    response = requests.get(package_url, timeout=30)
-    response.raise_for_status()
-    tmp_zip.write_bytes(response.content)
-
-    if tmp_dir.exists():
-        shutil.rmtree(tmp_dir)
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-
-    with zipfile.ZipFile(tmp_zip, "r") as package:
-        package.extractall(tmp_dir)
-
-    for name in ("pi_viewer.py", "pi_agent.py"):
-        src = tmp_dir / name
-        if src.exists():
-            shutil.copy2(src, BASE_DIR / name)
-
-    version_file = tmp_dir / "version.txt"
-    if version_file.exists():
-        cfg["version"] = version_file.read_text(encoding="utf-8").strip()
-        save_config(cfg)
-
-    restart_viewer()
+    try:
+        subprocess.Popen(command, start_new_session=True)
+    except Exception:
+        pass
 
 
 def handle_command(cfg, cmd):
     action = cmd.get("action")
     if action == "reboot":
-        os.system("sudo reboot")
+        reboot_pi()
     elif action == "restart":
         restart_viewer()
     elif action == "set_screen":
         cfg["screen"] = cmd.get("screen", cfg.get("screen", "today"))
         save_config(cfg)
         restart_viewer()
-    elif action == "update":
-        if trigger_git_update():
-            return
-
-        filename = cmd.get("filename")
-        if filename:
-            apply_legacy_zip_update(cfg, filename)
 
 
 def main():

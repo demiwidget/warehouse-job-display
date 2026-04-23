@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 venv/
 warehouse_env/
+manager_data/
 
 # Device-local configuration and runtime output
 viewer_config.json

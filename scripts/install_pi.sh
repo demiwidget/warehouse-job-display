@@ -19,7 +19,8 @@ APP_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 PYTHON_BIN="/usr/bin/python3"
 VENV_DIR="$APP_DIR/.venv"
 SYSTEMCTL_BIN="$(command -v systemctl)"
-MANAGER_IP="${WAREHOUSE_MANAGER_IP:-192.168.1.90}"
+REBOOT_BIN="$(command -v reboot)"
+MANAGER_IP="${WAREHOUSE_MANAGER_IP:-}"
 MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.1')"
 
@@ -29,6 +30,10 @@ fi
 
 if [[ -z "$SYSTEMCTL_BIN" ]]; then
     fail "Could not find systemctl on this Raspberry Pi."
+fi
+
+if [[ -z "$REBOOT_BIN" ]]; then
+    fail "Could not find reboot on this Raspberry Pi."
 fi
 
 chmod +x "$SCRIPT_DIR/update_pi.sh"
@@ -86,6 +91,10 @@ run_as_app_user "$VENV_DIR/bin/python" -m pip install --upgrade pip
 run_as_app_user "$VENV_DIR/bin/python" -m pip install PySide6 requests
 
 if [[ ! -f "$APP_DIR/viewer_config.json" ]]; then
+    if [[ -z "$MANAGER_IP" ]]; then
+        fail "Set the PC manager address first, for example: WAREHOUSE_MANAGER_IP=192.168.1.90 ./install_pi.sh"
+    fi
+
     HOSTNAME_VALUE="$(hostname)"
     log "Writing initial viewer_config.json..."
     tee "$APP_DIR/viewer_config.json" >/dev/null <<CONFIG
@@ -109,14 +118,13 @@ WAREHOUSE_APP_DIR=$APP_DIR
 WAREHOUSE_APP_USER=$APP_USER
 WAREHOUSE_DISPLAY_SERVICE=warehouse-viewer.service
 WAREHOUSE_AGENT_SERVICE=warehouse-agent.service
-WAREHOUSE_REFRESH_SERVICE=warehouse-refresh.service
 ENVFILE
 
-log "Writing limited service permissions for the agent..."
+log "Writing limited restart and reboot permissions for the agent..."
 "${SUDO[@]}" tee /etc/sudoers.d/warehouse-dashboard >/dev/null <<SUDOERS
-# Allow the warehouse dashboard agent to restart the viewer and trigger Git update checks only.
+# Allow the warehouse dashboard agent to restart the viewer and reboot the Pi only.
 $APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL_BIN restart warehouse-viewer.service
-$APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL_BIN start warehouse-refresh.service
+$APP_USER ALL=(root) NOPASSWD: $REBOOT_BIN
 SUDOERS
 "${SUDO[@]}" chmod 440 /etc/sudoers.d/warehouse-dashboard
 if command -v visudo >/dev/null 2>&1; then
@@ -124,10 +132,16 @@ if command -v visudo >/dev/null 2>&1; then
 fi
 
 log "Writing systemd services..."
+if [[ -f /etc/systemd/system/warehouse-refresh.service ]]; then
+    log "Removing legacy warehouse-refresh.service..."
+    "${SUDO[@]}" systemctl disable --now warehouse-refresh.service >/dev/null 2>&1 || true
+    "${SUDO[@]}" rm -f /etc/systemd/system/warehouse-refresh.service
+fi
+
 "${SUDO[@]}" tee /etc/systemd/system/warehouse-viewer.service >/dev/null <<SERVICE
 [Unit]
 Description=Warehouse Dashboard Viewer
-After=graphical.target network-online.target
+After=graphical.target network-online.target warehouse-update-on-boot.service
 Wants=network-online.target
 
 [Service]
@@ -150,7 +164,7 @@ SERVICE
 "${SUDO[@]}" tee /etc/systemd/system/warehouse-agent.service >/dev/null <<SERVICE
 [Unit]
 Description=Warehouse Dashboard Agent
-After=network-online.target
+After=network-online.target warehouse-update-on-boot.service
 Wants=network-online.target
 
 [Service]
@@ -166,19 +180,6 @@ RestartSec=5
 WantedBy=multi-user.target
 SERVICE
 
-"${SUDO[@]}" tee /etc/systemd/system/warehouse-refresh.service >/dev/null <<SERVICE
-[Unit]
-Description=Warehouse Dashboard Refresh
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-EnvironmentFile=/etc/default/warehouse-dashboard
-WorkingDirectory=$APP_DIR
-ExecStart=/usr/bin/env bash "$APP_DIR/scripts/update_pi.sh" --restart-display
-SERVICE
-
 "${SUDO[@]}" tee /etc/systemd/system/warehouse-update.service >/dev/null <<SERVICE
 [Unit]
 Description=Warehouse Dashboard Auto Update
@@ -190,6 +191,23 @@ Type=oneshot
 EnvironmentFile=/etc/default/warehouse-dashboard
 WorkingDirectory=$APP_DIR
 ExecStart=/usr/bin/env bash "$APP_DIR/scripts/update_pi.sh" --scheduled
+SERVICE
+
+"${SUDO[@]}" tee /etc/systemd/system/warehouse-update-on-boot.service >/dev/null <<SERVICE
+[Unit]
+Description=Warehouse Dashboard Update On Boot
+After=network-online.target
+Wants=network-online.target
+Before=warehouse-viewer.service warehouse-agent.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/default/warehouse-dashboard
+WorkingDirectory=$APP_DIR
+ExecStart=/usr/bin/env bash "$APP_DIR/scripts/update_pi.sh" --scheduled
+
+[Install]
+WantedBy=multi-user.target
 SERVICE
 
 "${SUDO[@]}" tee /etc/systemd/system/warehouse-update.timer >/dev/null <<SERVICE
@@ -211,6 +229,7 @@ log "Enabling and starting services..."
 "${SUDO[@]}" systemctl daemon-reload
 "${SUDO[@]}" systemctl enable warehouse-viewer.service
 "${SUDO[@]}" systemctl enable warehouse-agent.service
+"${SUDO[@]}" systemctl enable warehouse-update-on-boot.service
 "${SUDO[@]}" systemctl enable warehouse-update.timer
 "${SUDO[@]}" systemctl start warehouse-update.timer
 "${SUDO[@]}" systemctl restart warehouse-agent.service

@@ -1,0 +1,15 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8765
+  },
+  "current_rms": {
+    "api_base": "https://api.current-rms.com/api/v1",
+    "api_key": "",
+    "subdomain": "",
+    "view_id": "",
+    "per_page": 100,
+    "max_pages": 2,
+    "item_detail_limit": 12
+  }
+}

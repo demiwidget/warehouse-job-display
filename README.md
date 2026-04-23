@@ -1,40 +1,42 @@
 # Warehouse Dashboard System
 
-Fullscreen Raspberry Pi dashboard for warehouse job boards fed by a local manager/API service that exposes Current RMS job information.
+Fullscreen Raspberry Pi warehouse job board plus a PC management app. The PC manager stores Current RMS details locally, serves dashboard data to multiple Pis, and controls which screen each Pi shows.
 
 ## What This Contains
+- `manager_app/`: PC management app and local Flask server for Pi connections and Current RMS data.
 - `pi_viewer.py`: PySide6 fullscreen dashboard showing today, tomorrow, prep, outstanding items, and notifications.
-- `pi_agent.py`: Background agent that registers the screen, accepts remote commands, and triggers updates/restarts.
+- `pi_agent.py`: Background Pi agent that registers the screen and accepts screen/restart/reboot commands.
 - `scripts/install_pi.sh`: Raspberry Pi installer that creates services and the local Python environment.
 - `scripts/update_pi.sh`: Git-based updater modelled on the noticeboard app.
 
-## Expected Manager API
-The viewer expects a manager server such as `http://192.168.1.90:8765` with these endpoints:
+## PC Manager Setup
+On Windows, double-click `Warehouse Manager.vbs` from the project folder. It creates `.venv`, installs the PC dependencies, starts the local API server, and opens the manager window.
 
-- `POST /register`: records each screen with id, name, current screen, and version.
-- `GET /poll/<device_id>`: returns commands such as `set_screen`, `restart`, `reboot`, or `update`.
-- `GET /screen/today`
-- `GET /screen/tomorrow`
-- `GET /screen/prep`
-- `GET /screen/outstanding`
-- `GET /screen/notifications`
+Use the manager tabs:
 
-The Current RMS import/backend code is not currently in this folder; this repository is the Pi display/client side.
+- `Connection`: shows the PC addresses that Pis should connect to.
+- `Current RMS`: enter the API base URL, subdomain, API key, and optional opportunity view ID.
+- `Pi Screens`: shows every registered Pi and lets you switch selected Pis between Today, Tomorrow, Prep, Outstanding, and Notifications.
+
+There is deliberately no update tab. Code updates are handled by Git on the Pi during boot/reboot and by the updater service.
+
+## Local Secrets
+Current RMS credentials are not stored in committed files. The manager writes real API settings to:
+
+```text
+manager_data/settings.json
+```
+
+`manager_data/` is ignored by Git. `manager_settings.example.json` is only a blank reference file.
 
 ## Raspberry Pi Setup
-Clone the GitHub repo onto the Pi, then run the installer:
+Clone the GitHub repo onto each Pi, then run the installer with the PC manager IP shown in the Connection tab:
 
 ```bash
 git clone https://github.com/demiwidget/warehouse-dashboard-system.git ~/warehouse-dashboard-system
 cd ~/warehouse-dashboard-system/scripts
 chmod +x install_pi.sh
-./install_pi.sh
-```
-
-To point at a different manager host during install:
-
-```bash
-WAREHOUSE_MANAGER_IP=192.168.1.90 WAREHOUSE_MANAGER_PORT=8765 ./install_pi.sh
+WAREHOUSE_MANAGER_IP=YOUR_PC_MANAGER_IP WAREHOUSE_MANAGER_PORT=8765 ./install_pi.sh
 ```
 
 Useful checks:
@@ -49,10 +51,10 @@ sudo journalctl -u warehouse-viewer -u warehouse-agent -f
 This now follows the same broad update pattern as the noticeboard app:
 
 - The Pi runs from a Git clone rather than copied files.
-- `scripts/install_pi.sh` installs a `warehouse-update.timer`.
-- The timer checks GitHub every 6 hours, pulls clean fast-forward updates, reruns the installer, and restarts services.
+- `scripts/install_pi.sh` installs an update-on-boot service and a `warehouse-update.timer`.
+- On reboot, the Pi checks GitHub, pulls clean fast-forward updates, reruns the installer, and restarts services.
+- The timer also checks every 6 hours as a safety net.
 - If tracked local files on the Pi have been edited, auto-update is skipped to avoid overwriting work.
-- A manager command with `{"action": "update"}` starts `warehouse-refresh.service`, which checks GitHub immediately and restarts the viewer.
 
 Manual update:
 
