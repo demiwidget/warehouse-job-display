@@ -191,7 +191,7 @@ class PiScreensTab(QWidget):
         layout.addLayout(screen_buttons)
 
         command_buttons = QHBoxLayout()
-        restart_btn = QPushButton("Restart Display")
+        restart_btn = QPushButton("Restart Display App")
         reboot_btn = QPushButton("Reboot Pi")
         refresh_btn = QPushButton("Refresh List")
         restart_btn.clicked.connect(lambda: self.send_action("restart"))

@@ -36,6 +36,76 @@ function Invoke-CheckedCommand {
     }
 }
 
+function Invoke-QuietCommand {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    $output = & $FilePath @Arguments 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        return $null
+    }
+
+    return ($output | Out-String).Trim()
+}
+
+function Test-GitRepoCanAutoUpdate {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$GitExe,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectDir
+    )
+
+    if (-not (Test-Path (Join-Path $ProjectDir ".git"))) {
+        return $false
+    }
+
+    $upstream = Invoke-QuietCommand $GitExe @("-C", $ProjectDir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    if (-not $upstream) {
+        return $false
+    }
+
+    $changes = Invoke-QuietCommand $GitExe @("-C", $ProjectDir, "status", "--porcelain", "--untracked-files=no")
+    if ($changes) {
+        return $false
+    }
+
+    return $true
+}
+
+function Update-RepoIfNeeded {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$GitExe,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectDir
+    )
+
+    if (-not (Test-GitRepoCanAutoUpdate -GitExe $GitExe -ProjectDir $ProjectDir)) {
+        return $false
+    }
+
+    & $GitExe -C $ProjectDir fetch --quiet origin 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        return $false
+    }
+
+    $behind = Invoke-QuietCommand $GitExe @("-C", $ProjectDir, "rev-list", "--count", "HEAD..@{u}")
+    if (-not $behind -or [int]$behind -le 0) {
+        return $false
+    }
+
+    Invoke-CheckedCommand $GitExe @("-C", $ProjectDir, "pull", "--ff-only")
+    return $true
+}
+
 try {
     $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
     $ProjectDir = Split-Path -Parent $ScriptDir
@@ -45,6 +115,11 @@ try {
     $RequirementsPath = Join-Path $ProjectDir "requirements.txt"
 
     Set-Location $ProjectDir
+
+    $Git = Get-Command git -ErrorAction SilentlyContinue
+    if ($Git) {
+        [void](Update-RepoIfNeeded -GitExe $Git.Source -ProjectDir $ProjectDir)
+    }
 
     if (-not (Test-Path $VenvPython)) {
         $PyLauncher = Get-Command py -ErrorAction SilentlyContinue
