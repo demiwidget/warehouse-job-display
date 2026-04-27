@@ -48,6 +48,8 @@ SYSTEMCTL_BIN="$(command -v systemctl)"
 REBOOT_BIN="$(command -v reboot)"
 MANAGER_IP="${WAREHOUSE_MANAGER_IP:-}"
 MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
+DISABLE_LEGACY_KIOSK="${WAREHOUSE_DISABLE_LEGACY_KIOSK:-1}"
+DISABLE_LEGACY_STACK="${WAREHOUSE_DISABLE_LEGACY_STACK:-0}"
 VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.1')"
 
 if [[ ! -f "$APP_DIR/pi_viewer.py" || ! -f "$APP_DIR/pi_agent.py" ]]; then
@@ -95,8 +97,87 @@ run_as_app_user() {
     fi
 }
 
+disable_service_if_present() {
+    local service_name="$1"
+    if "${SUDO[@]}" systemctl list-unit-files "$service_name" >/dev/null 2>&1; then
+        log "Disabling legacy service: $service_name"
+        "${SUDO[@]}" systemctl disable --now "$service_name" >/dev/null 2>&1 || true
+    fi
+}
+
+sanitize_autostart_file() {
+    local autostart_file="$1"
+    local backup_file=""
+
+    if [[ ! -f "$autostart_file" ]]; then
+        return 0
+    fi
+
+    backup_file="${autostart_file}.warehouse-backup-$(date +%Y%m%d%H%M%S)"
+    cp "$autostart_file" "$backup_file"
+
+    python3 - "$autostart_file" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+pattern = re.compile(r"(chromium|google-chrome|firefox|midori|kiosk|dashboard|node-red|homeassistant)", re.I)
+kept = []
+changed = False
+for line in lines:
+    if pattern.search(line):
+        changed = True
+        continue
+    kept.append(line)
+
+if changed:
+    path.write_text("\n".join(kept).rstrip() + "\n", encoding="utf-8")
+PY
+
+    log "Backed up legacy autostart file to: $backup_file"
+}
+
+disable_legacy_kiosk() {
+    if [[ "$DISABLE_LEGACY_KIOSK" != "1" ]]; then
+        return 0
+    fi
+
+    update_status 70 "Disabling old kiosk startup" "Stopping any old browser dashboard startup so the new viewer can take over."
+    log "Disabling legacy browser kiosk startup if present..."
+
+    disable_service_if_present kiosk.service
+    disable_service_if_present chromium-kiosk.service
+    disable_service_if_present browser-kiosk.service
+    disable_service_if_present dashboard-kiosk.service
+    disable_service_if_present autostart-browser.service
+    disable_service_if_present chromium.service
+
+    sanitize_autostart_file "$APP_HOME/.config/lxsession/LXDE-pi/autostart"
+    sanitize_autostart_file "$APP_HOME/.config/lxsession/LXDE/autostart"
+
+    run_as_app_user pkill -f "chromium|google-chrome|firefox|midori|matchbox" >/dev/null 2>&1 || true
+}
+
+disable_legacy_stack() {
+    if [[ "$DISABLE_LEGACY_STACK" != "1" ]]; then
+        return 0
+    fi
+
+    update_status 72 "Disabling old Home Assistant stack" "Stopping local Node-RED and Home Assistant services on this Pi."
+    log "Disabling legacy local Node-RED / Home Assistant services if present..."
+    disable_service_if_present nodered.service
+    disable_service_if_present node-red.service
+    disable_service_if_present home-assistant.service
+    disable_service_if_present home-assistant@homeassistant.service
+}
+
 log "Installing Warehouse Dashboard from: $APP_DIR"
 log "Services will run as user: $APP_USER"
+
+disable_legacy_kiosk
+disable_legacy_stack
 
 if [[ "${WAREHOUSE_SKIP_APT:-0}" != "1" ]]; then
     update_status 60 "Updating Raspberry Pi packages" "Refreshing apt package lists."
