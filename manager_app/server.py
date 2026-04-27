@@ -18,6 +18,10 @@ def create_app(state):
     def poll(device_id):
         return jsonify(state.poll_command(device_id))
 
+    @app.get("/alerts/<device_id>")
+    def alerts(device_id):
+        return jsonify(state.poll_alert(device_id))
+
     @app.get("/screen/<screen>")
     def screen(screen):
         return jsonify(state.screen_payload(screen))

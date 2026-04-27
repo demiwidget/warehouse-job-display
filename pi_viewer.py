@@ -1,27 +1,31 @@
 import json
-import os
 import sys
 from pathlib import Path
 
 import requests
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QTimer, Qt, QUrl
 from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QApplication,
     QLabel,
     QMainWindow,
     QMessageBox,
-    QProgressBar,
     QStatusBar,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
     QHeaderView,
     QDialog,
     QPushButton,
 )
+
+try:
+    from PySide6.QtMultimedia import QSoundEffect
+except Exception:
+    QSoundEffect = None
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "viewer_config.json"
@@ -65,19 +69,10 @@ class DashboardTable(QTableWidget):
             row_color = row.get("__row_color")
             for column_index, header in enumerate(headers):
                 value = row.get(header, "")
-                progress = row.get("__progress") if header == "Prep Progress" else None
-                if progress is not None:
-                    bar = QProgressBar()
-                    bar.setRange(0, 100)
-                    bar.setValue(int(progress))
-                    bar.setFormat(f"{int(progress)}%")
-                    bar.setMinimumHeight(28)
-                    self.setCellWidget(row_index, column_index, bar)
-                else:
-                    item = QTableWidgetItem(str(value))
-                    if row_color:
-                        item.setBackground(QColor(row_color))
-                    self.setItem(row_index, column_index, item)
+                item = QTableWidgetItem(str(value))
+                if row_color:
+                    item.setBackground(QColor(row_color))
+                self.setItem(row_index, column_index, item)
 
         self.resizeColumnsToContents()
         if headers:
@@ -131,6 +126,25 @@ class UnpreppedItemsDialog(QDialog):
         layout.addWidget(close_btn)
 
 
+class AlertDialog(QDialog):
+    def __init__(self, title, html, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title or "Notification")
+        self.resize(1200, 760)
+
+        layout = QVBoxLayout(self)
+        heading = QLabel(f"<h1>{title or 'Notification'}</h1>")
+        body = QTextBrowser()
+        body.setHtml(html or "")
+        body.setOpenExternalLinks(True)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+
+        layout.addWidget(heading)
+        layout.addWidget(body, 1)
+        layout.addWidget(close_btn)
+
+
 class SummaryCard(QWidget):
     def __init__(self, title, accent="#5bc0eb"):
         super().__init__()
@@ -173,6 +187,9 @@ class ViewerWindow(QMainWindow):
         super().__init__()
         self.config = load_config()
         self.current_screen = self.config.get("screen", "today")
+        self.pending_alerts = []
+        self.active_alert_dialog = None
+        self.sound_effect = QSoundEffect(self) if QSoundEffect else None
         self.setWindowTitle(self.config.get("device_name", "Warehouse Viewer"))
         self.resize(1600, 900)
         self.build_ui()
@@ -187,10 +204,11 @@ class ViewerWindow(QMainWindow):
         self.refresh_timer.timeout.connect(self.refresh_all)
         self.refresh_timer.start(3000)
 
-        self.command_timer = QTimer(self)
-        self.command_timer.timeout.connect(self.poll_commands)
-        self.command_timer.start(2500)
+        self.alert_timer = QTimer(self)
+        self.alert_timer.timeout.connect(self.poll_alerts)
+        self.alert_timer.start(2500)
 
+        self.set_current_tab()
         self.register()
         self.refresh_all()
 
@@ -216,8 +234,8 @@ class ViewerWindow(QMainWindow):
         root.addLayout(cards)
 
         self.tabs = QTabWidget()
-        self.today_page = CombinedJobsPage("Jobs Out Today", "Jobs In Today")
-        self.tomorrow_page = CombinedJobsPage("Jobs Out Tomorrow", "Jobs In Tomorrow")
+        self.today_page = CombinedJobsPage("Jobs Collecting / Delivering Today", "Jobs Returning Today")
+        self.tomorrow_page = CombinedJobsPage("Jobs Collecting / Delivering Tomorrow", "Jobs Returning Tomorrow")
         self.prep_table = DashboardTable()
         self.outstanding_table = DashboardTable()
         self.notifications_table = DashboardTable()
@@ -226,7 +244,7 @@ class ViewerWindow(QMainWindow):
         self.tabs.addTab(self.tomorrow_page, "Tomorrow")
         self.tabs.addTab(self.prep_table, "Prep Status")
         self.tabs.addTab(self.outstanding_table, "Outstanding Items")
-        self.tabs.addTab(self.notifications_table, "Notifications")
+        self.tabs.addTab(self.notifications_table, "Notification History")
         self.prep_table.cellDoubleClicked.connect(self.open_unprepped_items_dialog)
 
         root.addWidget(self.tabs)
@@ -263,8 +281,7 @@ class ViewerWindow(QMainWindow):
             QLabel { color: #f3f3f3; }
             QLabel#sectionHeading { font-size: 22px; font-weight: 700; padding: 8px 4px; }
             QStatusBar { background-color: #15181b; }
-            QProgressBar { border: 1px solid #2a2f35; border-radius: 8px; background: #111315; text-align: center; min-height: 26px; }
-            QProgressBar::chunk { background-color: #3ba55d; border-radius: 7px; }
+            QTextBrowser { background-color: #171a1d; border: 1px solid #2a2f35; border-radius: 12px; padding: 16px; font-size: 18px; }
             """
         )
 
@@ -289,26 +306,51 @@ class ViewerWindow(QMainWindow):
         except Exception:
             pass
 
-    def poll_commands(self):
+    def set_current_tab(self):
+        mapping = {"today": 0, "tomorrow": 1, "prep": 2, "outstanding": 3, "notifications": 4}
+        if self.current_screen in mapping:
+            self.tabs.setCurrentIndex(mapping[self.current_screen])
+
+    def poll_alerts(self):
         try:
-            cmd = requests.get(self.server_url(f"/poll/{self.config['device_id']}"), timeout=5).json()
-            if not cmd:
+            alert = requests.get(self.server_url(f"/alerts/{self.config['device_id']}"), timeout=5).json()
+            if not alert:
                 return
-            action = cmd.get("action")
-            if action == "set_screen":
-                self.current_screen = cmd.get("screen", self.current_screen)
-                self.config["screen"] = self.current_screen
-                self.save_config()
-                mapping = {"today": 0, "tomorrow": 1, "prep": 2, "outstanding": 3, "notifications": 4}
-                if self.current_screen in mapping:
-                    self.tabs.setCurrentIndex(mapping[self.current_screen])
-                self.refresh_all()
-            elif action == "restart":
-                QApplication.quit()
-            elif action == "reboot":
-                os.system("sudo reboot")
+            self.pending_alerts.append(alert)
+            self.show_next_alert()
         except Exception:
             pass
+
+    def show_next_alert(self):
+        if self.active_alert_dialog or not self.pending_alerts:
+            return
+
+        alert = self.pending_alerts.pop(0)
+        if alert.get("play_sound"):
+            self.play_alert_sound(alert.get("sound", ""))
+
+        if not alert.get("show_popup", True):
+            QTimer.singleShot(0, self.finish_current_alert)
+            return
+
+        self.active_alert_dialog = AlertDialog(alert.get("title", "Notification"), alert.get("html", ""), self)
+        self.active_alert_dialog.finished.connect(self.finish_current_alert)
+        self.active_alert_dialog.open()
+
+    def finish_current_alert(self, *_args):
+        self.active_alert_dialog = None
+        self.show_next_alert()
+
+    def play_alert_sound(self, sound_name):
+        sound_path = BASE_DIR / "sounds" / str(sound_name or "").strip()
+        if self.sound_effect and sound_path.exists():
+            self.sound_effect.stop()
+            self.sound_effect.setSource(QUrl.fromLocalFile(str(sound_path)))
+            self.sound_effect.setLoopCount(1)
+            self.sound_effect.setVolume(0.9)
+            self.sound_effect.play()
+            return
+        QApplication.beep()
 
     def fetch_screen(self, name):
         try:
@@ -345,39 +387,42 @@ class ViewerWindow(QMainWindow):
             f"{prepared_qty}/{total_qty}",
             f"{prepped_pct}% prepped / {unprepped_pct}% unprepped",
         )
-        self.card_outstanding.set_data(outstanding.get("summary", {}).get("Outstanding", 0), "Outstanding items")
+        self.card_outstanding.set_data(
+            outstanding.get("summary", {}).get("Outstanding", 0),
+            "Booked out items still awaiting check-in",
+        )
 
-        today_out = [row for row in today.get("rows", []) if row.get("Section") == "Out"]
-        today_in = [row for row in today.get("rows", []) if row.get("Section") == "In"]
-        tomorrow_out = [row for row in tomorrow.get("rows", []) if row.get("Section") == "Out"]
-        tomorrow_in = [row for row in tomorrow.get("rows", []) if row.get("Section") == "In"]
+        today_out = today.get("out_rows", [])
+        today_in = today.get("in_rows", [])
+        tomorrow_out = tomorrow.get("out_rows", [])
+        tomorrow_in = tomorrow.get("in_rows", [])
 
         self.today_page.out_table.set_rows(
-            ["Job Name", "Job Number", "Customer", "Time", "Client", "Owner", "Status"],
+            ["Job Name", "Job Number", "Customer collecting", "Time", "Client", "Owner", "Booked Out"],
             today_out,
         )
         self.today_page.in_table.set_rows(
-            ["Job Name", "Job Number", "Customer", "Time", "Client", "Owner", "Status"],
+            ["Job Name", "Job Number", "Customer Returning", "Time", "Client", "Owner", "Job Returned"],
             today_in,
         )
         self.tomorrow_page.out_table.set_rows(
-            ["Job Name", "Job Number", "Customer", "Time", "Client", "Owner", "Status"],
+            ["Job Name", "Job Number", "Customer collecting", "Time", "Client", "Owner"],
             tomorrow_out,
         )
         self.tomorrow_page.in_table.set_rows(
-            ["Job Name", "Job Number", "Customer", "Time", "Client", "Owner", "Status"],
+            ["Job Name", "Job Number", "Customer Returning", "Time", "Client", "Owner", "Job Returned"],
             tomorrow_in,
         )
         self.prep_table.set_rows(
-            ["Job Name", "Job Number", "Delivery Date", "Prepped", "Remaining", "Prep Progress", "Owner"],
+            ["Job Name", "Job Number", "Delivery Date", "Prep Status", "Owner"],
             prep.get("rows", []),
         )
         self.outstanding_table.set_rows(
-            ["Job Number", "Job Name", "Booked Out", "Checked In", "Outstanding", "Total Items", "Owner"],
+            ["Job Number", "Job Name", "Booked Out", "Checked In", "Total Items", "Owner"],
             outstanding.get("rows", []),
         )
         self.notifications_table.set_rows(
-            ["Time", "Title", "Job Number", "Job Name", "Owner"],
+            ["Time", "Title", "Source", "Details"],
             notifications.get("rows", []),
         )
         self.last_refresh.setText(

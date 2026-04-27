@@ -9,9 +9,11 @@ class ManagerState:
     def __init__(self, store=None):
         self.store = store or SettingsStore()
         self.lock = RLock()
+        self.dashboard_lock = RLock()
         self.settings = self.store.load_settings()
         self.devices = self.store.load_devices()
         self.commands = {}
+        self.alerts = {device_id: [] for device_id in self.devices}
         self.dashboard = DashboardBuilder()
 
     def get_settings(self, include_secret=False):
@@ -38,8 +40,9 @@ class ManagerState:
                 else:
                     merged[section] = values
             self.settings = self.store.save_settings(merged)
+        with self.dashboard_lock:
             self.dashboard.refresh()
-            return self.settings
+        return self.settings
 
     def test_current_rms(self, api_settings=None):
         with self.lock:
@@ -67,6 +70,7 @@ class ManagerState:
                 }
             )
             self.devices[device_id] = existing
+            self.alerts.setdefault(device_id, [])
             self.store.save_devices(self.devices)
             return dict(existing)
 
@@ -87,11 +91,39 @@ class ManagerState:
         with self.lock:
             return self.commands.pop(str(device_id), None)
 
+    def poll_alert(self, device_id):
+        with self.lock:
+            queue = self.alerts.setdefault(str(device_id), [])
+            if not queue:
+                return None
+            return queue.pop(0)
+
     def screen_payload(self, screen):
         with self.lock:
             settings = self.store.load_settings()
             self.settings = settings
-        return self.dashboard.build(screen, settings)
+        with self.dashboard_lock:
+            payload = self.dashboard.build(screen, settings)
+        return payload
 
     def refresh_dashboard(self):
-        self.dashboard.refresh()
+        with self.lock:
+            settings = self.store.load_settings()
+            self.settings = settings
+        with self.dashboard_lock:
+            _, new_alerts = self.dashboard.refresh_data(settings)
+        if not new_alerts:
+            return
+
+        deliverable = [
+            alert
+            for alert in new_alerts
+            if alert and (alert.get("show_popup") or alert.get("play_sound"))
+        ]
+        if not deliverable:
+            return
+
+        with self.lock:
+            for device_id in self.devices:
+                queue = self.alerts.setdefault(str(device_id), [])
+                queue.extend(dict(alert) for alert in deliverable)

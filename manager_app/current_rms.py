@@ -1,6 +1,46 @@
-from datetime import datetime, timedelta
+from datetime import datetime
+import re
 
 import requests
+
+
+EVENT_META = {
+    "new_job_today": {
+        "source": "new job today",
+        "title": "New Job Added for Today",
+        "sound_suppressed": True,
+    },
+    "new_job_tomorrow": {
+        "source": "new job tomorrow",
+        "title": "New Job Added for Tomorrow",
+        "sound_suppressed": True,
+    },
+    "new_job_next_7_days": {
+        "source": "new job next 7 days",
+        "title": "New Job Added Within The Next 7 Days",
+        "sound_suppressed": True,
+    },
+    "job_returned": {
+        "source": "job returned",
+        "title": "Job Returned",
+        "sound_suppressed": False,
+    },
+    "job_changed_today": {
+        "source": "job changed",
+        "title": "Today's Job Has Been Updated",
+        "sound_suppressed": False,
+    },
+    "job_changed_tomorrow": {
+        "source": "job changed",
+        "title": "Tomorrow's Job Has Been Updated",
+        "sound_suppressed": False,
+    },
+    "job_changed_next_7_days": {
+        "source": "job changed",
+        "title": "A Job Within The Next 7 Days Has Been Updated",
+        "sound_suppressed": False,
+    },
+}
 
 
 def parse_datetime(value):
@@ -61,14 +101,24 @@ def safe_int(value, default=0):
         return default
 
 
+def as_bool(value):
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def strip_html(html):
+    text = re.sub(r"<[^>]*>", " ", str(html or ""))
+    return re.sub(r"\s+", " ", text).strip()
+
+
 class CurrentRMSClient:
     def __init__(self, settings):
         rms = settings.get("current_rms", {})
         self.api_base = rms.get("api_base", "https://api.current-rms.com/api/v1").rstrip("/")
         self.api_key = rms.get("api_key", "")
         self.subdomain = rms.get("subdomain", "")
-        self.view_id = str(rms.get("view_id", "") or "").strip()
-        self.per_page = safe_int(rms.get("per_page"), 100)
+        self.per_page = max(1, safe_int(rms.get("per_page"), 48))
         self.max_pages = max(1, safe_int(rms.get("max_pages"), 2))
 
     @property
@@ -96,20 +146,22 @@ class CurrentRMSClient:
         except requests.RequestException as error:
             return False, f"Could not reach Current RMS: {error}"
 
-    def fetch_opportunities(self):
-        if not self.configured:
-            return []
+    def fetch_view(self, view_id):
+        if not self.configured or not str(view_id or "").strip():
+            return {"opportunities": [], "meta": {"total_row_count": 0}}
 
         opportunities = []
-        for page in range(1, self.max_pages + 1):
-            params = {"page": page, "per_page": self.per_page}
-            if self.view_id:
-                params["view_id"] = self.view_id
+        meta = {"total_row_count": 0}
 
+        for page in range(1, self.max_pages + 1):
             response = requests.get(
                 f"{self.api_base}/opportunities",
                 headers=self.headers(),
-                params=params,
+                params={
+                    "page": page,
+                    "per_page": self.per_page,
+                    "view_id": str(view_id).strip(),
+                },
                 timeout=15,
             )
             response.raise_for_status()
@@ -117,12 +169,15 @@ class CurrentRMSClient:
             page_items = payload.get("opportunities", [])
             opportunities.extend(page_items)
 
-            meta = payload.get("meta", {})
-            total_rows = safe_int(meta.get("total_row_count"), len(opportunities))
+            payload_meta = payload.get("meta", {}) or {}
+            if page == 1:
+                meta = dict(payload_meta)
+            total_rows = safe_int(payload_meta.get("total_row_count"), len(opportunities))
             if len(opportunities) >= total_rows or not page_items:
                 break
 
-        return opportunities
+        meta["total_row_count"] = safe_int(meta.get("total_row_count"), len(opportunities))
+        return {"opportunities": opportunities, "meta": meta}
 
     def fetch_opportunity_items(self, opportunity_id):
         response = requests.get(
@@ -136,228 +191,199 @@ class CurrentRMSClient:
 
 class DashboardBuilder:
     def __init__(self):
-        self._cache_key = None
-        self._cache_time = None
-        self._cache = None
+        self._payloads = {}
         self._last_error = ""
+        self._history = []
+        self._history_day = datetime.now().date()
+        self._new_job_snapshots = {}
+        self._returned_job_ids = None
+        self._item_snapshots = {}
+        self._sound_gate_started_at = datetime.now()
 
     def build(self, screen, settings):
-        cache_key = self._settings_cache_key(settings)
-        now = datetime.now()
-        if self._cache and self._cache_key == cache_key and self._cache_time:
-            if (now - self._cache_time).total_seconds() < 60:
-                return self._cache.get(screen, self._empty_payload(screen))
-
-        payloads = self._build_all(settings)
-        self._cache = payloads
-        self._cache_key = cache_key
-        self._cache_time = now
-        return payloads.get(screen, self._empty_payload(screen))
+        if not self._payloads:
+            self.refresh_data(settings)
+        return self._payloads.get(screen, self._empty_payload(screen))
 
     def test_connection(self, settings):
         return CurrentRMSClient(settings).test_connection()
 
     def refresh(self):
-        self._cache = None
-        self._cache_time = None
+        self._payloads = {}
 
-    def _settings_cache_key(self, settings):
-        rms = settings.get("current_rms", {})
-        return (
-            rms.get("api_base", ""),
-            rms.get("api_key", ""),
-            rms.get("subdomain", ""),
-            str(rms.get("view_id", "")),
-            str(rms.get("per_page", "")),
-            str(rms.get("max_pages", "")),
-        )
+    def refresh_data(self, settings):
+        self._reset_history_if_new_day(settings)
 
-    def _build_all(self, settings):
         client = CurrentRMSClient(settings)
         if not client.configured:
-            return self._payloads_with_notice("Current RMS is not configured in the PC manager yet.")
+            self._last_error = "Current RMS is not configured in the PC manager yet."
+            self._payloads = self._payloads_with_notice(self._last_error)
+            return self._payloads, []
 
         try:
-            opportunities = client.fetch_opportunities()
+            views = self._fetch_views(client, settings)
+            item_cache = {}
+            payloads = {
+                "today": self._today_payload(views.get("today_out"), views.get("today_in"), settings),
+                "tomorrow": self._tomorrow_payload(views.get("tomorrow_out"), views.get("tomorrow_in")),
+                "prep": self._prep_payload(views.get("prep"), client, item_cache, settings),
+                "outstanding": self._outstanding_payload(views.get("outstanding"), client, item_cache),
+            }
+
+            alerts = []
+            alerts.extend(self._new_job_alerts("today", "new_job_today", views.get("today_out", {}), settings))
+            alerts.extend(
+                self._new_job_alerts("tomorrow", "new_job_tomorrow", views.get("tomorrow_out", {}), settings)
+            )
+            alerts.extend(self._new_job_alerts("next_7_days", "new_job_next_7_days", views.get("prep", {}), settings))
+            alerts.extend(self._job_returned_alerts(views.get("today_in", {}), settings))
+            alerts.extend(
+                self._job_change_alerts(
+                    "today",
+                    "job_changed_today",
+                    views.get("today_out", {}),
+                    client,
+                    item_cache,
+                    settings,
+                )
+            )
+            alerts.extend(
+                self._job_change_alerts(
+                    "tomorrow",
+                    "job_changed_tomorrow",
+                    views.get("tomorrow_out", {}),
+                    client,
+                    item_cache,
+                    settings,
+                )
+            )
+            alerts.extend(
+                self._job_change_alerts(
+                    "next_7_days",
+                    "job_changed_next_7_days",
+                    views.get("prep", {}),
+                    client,
+                    item_cache,
+                    settings,
+                )
+            )
+
+            payloads["notifications"] = self._history_payload()
             self._last_error = ""
+            self._payloads = payloads
+            return payloads, alerts
         except Exception as error:
             self._last_error = str(error)
-            return self._payloads_with_notice(f"Current RMS sync failed: {error}")
+            self._payloads = self._payloads_with_notice(f"Current RMS sync failed: {error}")
+            return self._payloads, []
 
-        today = datetime.now().date()
-        tomorrow = today + timedelta(days=1)
-        item_limit = safe_int(settings.get("current_rms", {}).get("item_detail_limit"), 12)
-        active_opportunities = self._active_opportunities(opportunities)
-        active_job_details = self._build_job_details(active_opportunities, client)
-        detail_map = {
-            detail["opportunity"].get("id"): detail
-            for detail in active_job_details
-            if detail.get("opportunity", {}).get("id") is not None
+    def _fetch_views(self, client, settings):
+        rms = settings.get("current_rms", {})
+        view_settings = rms.get("views", {}) or {}
+        requested = {
+            "today_out": str(view_settings.get("today_out", "")).strip(),
+            "today_in": str(view_settings.get("today_in", "")).strip(),
+            "tomorrow_out": str(view_settings.get("tomorrow_out", "")).strip(),
+            "tomorrow_in": str(view_settings.get("tomorrow_in", "")).strip(),
+            "prep": str(view_settings.get("prep", "")).strip(),
+            "outstanding": str(view_settings.get("outstanding", "")).strip(),
         }
 
+        by_view_id = {}
+        results = {}
+        for name, view_id in requested.items():
+            if view_id not in by_view_id:
+                by_view_id[view_id] = client.fetch_view(view_id)
+            results[name] = by_view_id[view_id]
+        return results
+
+    def _today_payload(self, out_view, in_view, settings):
+        out_rows = [self._today_out_row(opportunity, settings) for opportunity in (out_view or {}).get("opportunities", [])]
+        in_rows = [self._return_row(opportunity) for opportunity in (in_view or {}).get("opportunities", [])]
         return {
-            "today": self._jobs_payload("Today", opportunities, today),
-            "tomorrow": self._jobs_payload("Tomorrow", opportunities, tomorrow),
-            "prep": self._prep_payload(opportunities, client, item_limit, detail_map),
-            "outstanding": self._outstanding_payload(active_job_details),
-            "notifications": self._notifications_payload(active_job_details, today, tomorrow),
-        }
-
-    def _payloads_with_notice(self, message):
-        notification = {
-            "Time": datetime.now().strftime("%H:%M"),
-            "Title": message,
-            "Job Number": "",
-            "Job Name": "",
-            "Owner": "PC Manager",
-        }
-        return {
-            "today": self._empty_payload("Today"),
-            "tomorrow": self._empty_payload("Tomorrow"),
-            "prep": self._empty_payload("Prep Status"),
-            "outstanding": self._empty_payload("Outstanding Items"),
-            "notifications": {
-                "title": "Notifications",
-                "summary": {"Notifications": 1},
-                "rows": [notification],
-            },
-        }
-
-    def _empty_payload(self, title):
-        return {"title": str(title).title(), "summary": {}, "rows": []}
-
-    def _jobs_payload(self, title, opportunities, target_date):
-        rows = []
-        for opportunity in opportunities:
-            start_dt = self._opportunity_start(opportunity)
-            end_dt = self._opportunity_end(opportunity)
-            if start_dt and start_dt.date() == target_date:
-                rows.append(self._job_row(opportunity, "Out", start_dt))
-            if end_dt and end_dt.date() == target_date:
-                rows.append(self._job_row(opportunity, "In", end_dt))
-
-        rows.sort(key=lambda row: (row.get("Time") or "99:99", row.get("Job Name") or ""))
-        return {
-            "title": title,
+            "title": "Today",
             "summary": {
-                "Jobs Out": sum(1 for row in rows if row.get("Section") == "Out"),
-                "Jobs In": sum(1 for row in rows if row.get("Section") == "In"),
+                "Jobs Out": safe_int((out_view or {}).get("meta", {}).get("total_row_count"), len(out_rows)),
+                "Jobs In": safe_int((in_view or {}).get("meta", {}).get("total_row_count"), len(in_rows)),
             },
-            "rows": rows,
+            "out_rows": out_rows,
+            "in_rows": in_rows,
         }
 
-    def _active_opportunities(self, opportunities):
-        return [
-            opportunity
-            for opportunity in opportunities
-            if str(first_value(opportunity, "status_name", "status", default="")).strip().lower() == "active"
-        ]
+    def _tomorrow_payload(self, out_view, in_view):
+        out_rows = [self._tomorrow_out_row(opportunity) for opportunity in (out_view or {}).get("opportunities", [])]
+        in_rows = [self._return_row(opportunity) for opportunity in (in_view or {}).get("opportunities", [])]
+        return {
+            "title": "Tomorrow",
+            "summary": {
+                "Jobs Out": safe_int((out_view or {}).get("meta", {}).get("total_row_count"), len(out_rows)),
+                "Jobs In": safe_int((in_view or {}).get("meta", {}).get("total_row_count"), len(in_rows)),
+            },
+            "out_rows": out_rows,
+            "in_rows": in_rows,
+        }
 
-    def _build_job_details(self, opportunities, client):
-        details = []
-        for opportunity in opportunities:
-            opportunity_id = opportunity.get("id")
-            if not opportunity_id:
-                continue
-
-            item_error = ""
-            try:
-                items = client.fetch_opportunity_items(opportunity_id)
-            except Exception as error:
-                items = []
-                item_error = str(error)
-
-            booked_out_qty, checked_in_qty, total_items = self._outstanding_totals(items)
-            prepared_qty, prep_total_qty, unprepped_items = self._prep_totals(items)
-            details.append(
-                {
-                    "opportunity": opportunity,
-                    "items": items,
-                    "item_error": item_error,
-                    "booked_out_qty": booked_out_qty,
-                    "checked_in_qty": checked_in_qty,
-                    "outstanding_qty": booked_out_qty,
-                    "total_items": total_items,
-                    "prepared_qty": prepared_qty,
-                    "prep_total_qty": prep_total_qty,
-                    "prep_remaining_qty": max(prep_total_qty - prepared_qty, 0),
-                    "unprepped_items": unprepped_items,
-                }
-            )
-        return details
-
-    def _prep_payload(self, opportunities, client, item_limit, detail_map=None):
+    def _prep_payload(self, prep_view, client, item_cache, settings):
         rows = []
         prepared_total = 0
-        remaining_total = 0
-        detail_map = detail_map or {}
+        total_total = 0
 
-        for opportunity in opportunities[:item_limit]:
+        for opportunity in (prep_view or {}).get("opportunities", []):
             opportunity_id = opportunity.get("id")
             if not opportunity_id:
                 continue
 
-            detail = detail_map.get(opportunity_id)
-            if detail:
-                prepared = detail["prepared_qty"]
-                total = detail["prep_total_qty"]
-                unprepped_items = detail["unprepped_items"]
-            else:
-                try:
-                    items = client.fetch_opportunity_items(opportunity_id)
-                except Exception:
-                    items = []
-                prepared, total, unprepped_items = self._prep_totals(items)
-
-            remaining = max(total - prepared, 0)
-            if total <= 0:
+            items = self._opportunity_items(client, item_cache, opportunity_id)
+            prep = self._prep_totals(items, settings)
+            if prep["total_qty"] <= 0:
                 continue
 
-            prepared_total += prepared
-            remaining_total += remaining
+            prepared_total += prep["prepared_qty"]
+            total_total += prep["total_qty"]
+            prep_status = "Booked Out" if prep["booked_out"] else f"{prep['prepared_qty']}/{prep['total_qty']}"
             rows.append(
                 {
                     "Job Name": self._opportunity_name(opportunity),
                     "Job Number": self._opportunity_number(opportunity),
-                    "Delivery Date": self._format_date(self._opportunity_start(opportunity)),
-                    "Prepped": prepared,
-                    "Remaining": remaining,
-                    "Prep Progress": f"{round((prepared / total) * 100) if total else 0}%",
+                    "Delivery Date": self._format_date(parse_datetime(first_value(opportunity, "deliver_starts_at"))),
+                    "Prep Status": prep_status,
                     "Owner": self._opportunity_owner(opportunity),
-                    "__progress": round((prepared / total) * 100) if total else 0,
-                    "__unprepped_items": unprepped_items,
+                    "__unprepped_items": prep["unprepped_items"],
+                    "__prepared_qty": prep["prepared_qty"],
+                    "__total_qty": prep["total_qty"],
+                    "__remaining_qty": max(prep["total_qty"] - prep["prepared_qty"], 0),
                 }
             )
 
-        rows.sort(key=lambda row: (row.get("Delivery Date") or "", row.get("Job Name") or ""))
         return {
             "title": "Prep Status",
             "summary": {
                 "Prepared Qty": prepared_total,
-                "Remaining Qty": remaining_total,
+                "Remaining Qty": max(total_total - prepared_total, 0),
             },
             "rows": rows,
         }
 
-    def _outstanding_payload(self, active_job_details):
+    def _outstanding_payload(self, outstanding_view, client, item_cache):
         rows = []
-        for detail in active_job_details:
-            opportunity = detail["opportunity"]
-            booked_out_qty = detail["booked_out_qty"]
-            checked_in_qty = detail["checked_in_qty"]
-            total_items = detail["total_items"]
-            outstanding_qty = detail["outstanding_qty"]
+        opportunities = (outstanding_view or {}).get("opportunities", [])
 
-            if outstanding_qty <= 0:
+        for opportunity in opportunities:
+            if str(first_value(opportunity, "status_name", "status", default="")).strip().lower() != "active":
                 continue
 
+            opportunity_id = opportunity.get("id")
+            if not opportunity_id:
+                continue
+
+            items = self._opportunity_items(client, item_cache, opportunity_id)
+            booked_out_qty, checked_in_qty, total_items = self._outstanding_totals(items)
             rows.append(
                 {
                     "Job Number": self._opportunity_number(opportunity),
                     "Job Name": self._opportunity_name(opportunity),
                     "Booked Out": booked_out_qty,
                     "Checked In": checked_in_qty,
-                    "Outstanding": outstanding_qty,
                     "Total Items": total_items,
                     "Owner": self._opportunity_owner(opportunity),
                 }
@@ -365,7 +391,6 @@ class DashboardBuilder:
 
         rows.sort(
             key=lambda row: (
-                -safe_int(row.get("Outstanding"), 0),
                 -safe_int(row.get("Total Items"), 0),
                 str(row.get("Job Number") or ""),
             )
@@ -373,84 +398,386 @@ class DashboardBuilder:
 
         return {
             "title": "Outstanding Items",
-            "summary": {"Outstanding": sum(safe_int(row.get("Outstanding"), 0) for row in rows)},
+            "summary": {
+                "Outstanding": sum(safe_int(row.get("Booked Out"), 0) for row in rows),
+                "Jobs": safe_int((outstanding_view or {}).get("meta", {}).get("total_row_count"), len(rows)),
+            },
             "rows": rows,
         }
 
-    def _notifications_payload(self, active_job_details, today, tomorrow):
-        rows = []
-        now_text = datetime.now().strftime("%H:%M")
-
-        for detail in active_job_details:
-            opportunity = detail["opportunity"]
-            job_number = self._opportunity_number(opportunity)
-            job_name = self._opportunity_name(opportunity)
-            owner = self._opportunity_owner(opportunity)
-            start_dt = self._opportunity_start(opportunity)
-            end_dt = self._opportunity_end(opportunity)
-
-            if detail["prep_remaining_qty"] > 0 and start_dt and start_dt.date() <= tomorrow:
-                rows.append(
-                    {
-                        "Time": self._format_time(start_dt) or now_text,
-                        "Title": f"{detail['prep_remaining_qty']} item(s) still to prep",
-                        "Job Number": job_number,
-                        "Job Name": job_name,
-                        "Owner": owner,
-                    }
-                )
-
-            if detail["outstanding_qty"] > 0:
-                rows.append(
-                    {
-                        "Time": self._format_time(end_dt) or self._format_time(start_dt) or now_text,
-                        "Title": f"{detail['outstanding_qty']} item(s) still unchecked in",
-                        "Job Number": job_number,
-                        "Job Name": job_name,
-                        "Owner": owner,
-                    }
-                )
-
-            if detail["item_error"]:
-                rows.append(
-                    {
-                        "Time": now_text,
-                        "Title": "Could not load opportunity items",
-                        "Job Number": job_number,
-                        "Job Name": job_name,
-                        "Owner": owner,
-                    }
-                )
-
-        rows.sort(
-            key=lambda row: (
-                row.get("Time") or "",
-                str(row.get("Job Number") or ""),
-                str(row.get("Title") or ""),
-            )
-        )
-
-        if not rows:
-            rows = [
-                {
-                    "Time": now_text,
-                    "Title": "No outstanding or prep alerts right now.",
-                    "Job Number": "",
-                    "Job Name": "",
-                    "Owner": "PC Manager",
-                }
-            ]
-
+    def _history_payload(self):
+        rows = [
+            {
+                "Time": entry["Time"],
+                "Title": entry["Title"],
+                "Source": entry["Source"],
+                "Details": entry["Details"],
+            }
+            for entry in self._history
+        ]
         return {
-            "title": "Notifications",
+            "title": "Notification History",
             "summary": {"Notifications": len(rows)},
             "rows": rows,
         }
 
+    def _payloads_with_notice(self, message):
+        rows = self._history_payload().get("rows", [])
+        if not rows:
+            rows = [
+                {
+                    "Time": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+                    "Title": message,
+                    "Source": "pc manager",
+                    "Details": "",
+                }
+            ]
+        return {
+            "today": self._empty_payload("Today"),
+            "tomorrow": self._empty_payload("Tomorrow"),
+            "prep": self._empty_payload("Prep Status"),
+            "outstanding": self._empty_payload("Outstanding Items"),
+            "notifications": {
+                "title": "Notification History",
+                "summary": {"Notifications": len(rows)},
+                "rows": rows,
+            },
+        }
+
+    def _empty_payload(self, title):
+        return {"title": str(title).title(), "summary": {}, "rows": [], "out_rows": [], "in_rows": []}
+
+    def _today_out_row(self, opportunity, settings):
+        locations = settings.get("current_rms", {}).get("collection_locations", {}) or {}
+        location_id = str(first_value(opportunity.get("custom_fields", {}), "collection_location", default="")).strip()
+        customer_collecting = "No"
+        if as_bool(opportunity.get("customer_collecting")):
+            location_name = locations.get(location_id, "Unknown")
+            customer_collecting = f"Yes - {location_name}"
+
+        status_code = safe_int(first_value(opportunity, "status", "status_id", default=0), 0)
+        status_name = str(first_value(opportunity, "status_name", default="")).strip().lower()
+        booked_out = "Yes" if status_code == 20 or status_name == "booked out" else ""
+
+        return {
+            "Job Name": self._opportunity_name(opportunity),
+            "Job Number": self._opportunity_number(opportunity),
+            "Customer collecting": customer_collecting,
+            "Time": self._format_time_range(
+                parse_datetime(first_value(opportunity, "deliver_starts_at")),
+                parse_datetime(first_value(opportunity, "deliver_ends_at")),
+            ),
+            "Client": self._opportunity_customer(opportunity),
+            "Owner": self._opportunity_owner(opportunity),
+            "Booked Out": booked_out,
+        }
+
+    def _tomorrow_out_row(self, opportunity):
+        return {
+            "Job Name": self._opportunity_name(opportunity),
+            "Job Number": self._opportunity_number(opportunity),
+            "Customer collecting": "Yes" if as_bool(opportunity.get("customer_collecting")) else "No",
+            "Time": self._format_time_range(
+                parse_datetime(first_value(opportunity, "deliver_starts_at")),
+                parse_datetime(first_value(opportunity, "deliver_ends_at")),
+            ),
+            "Client": self._opportunity_customer(opportunity),
+            "Owner": self._opportunity_owner(opportunity),
+        }
+
+    def _return_row(self, opportunity):
+        returned_field = str(first_value(opportunity.get("custom_fields", {}), "job_returned_but_unchecked", default=""))
+        return {
+            "Job Name": self._opportunity_name(opportunity),
+            "Job Number": self._opportunity_number(opportunity),
+            "Customer Returning": "Yes" if as_bool(opportunity.get("customer_returning")) else "No",
+            "Time": self._format_time_range(
+                parse_datetime(first_value(opportunity, "deliver_starts_at")),
+                parse_datetime(first_value(opportunity, "deliver_ends_at")),
+            ),
+            "Client": self._opportunity_customer(opportunity),
+            "Owner": self._opportunity_owner(opportunity),
+            "Job Returned": "Yes" if returned_field.strip().lower() == "yes" else "No",
+        }
+
+    def _new_job_alerts(self, bucket, event_type, view_payload, settings):
+        jobs = (view_payload or {}).get("opportunities", [])
+        current_ids = [str(self._opportunity_number(job) or job.get("id") or "").strip() for job in jobs]
+        current_ids = [item for item in current_ids if item]
+        previous_ids = self._new_job_snapshots.get(bucket)
+
+        self._new_job_snapshots[bucket] = current_ids
+        if previous_ids is None:
+            return []
+
+        previous_set = set(previous_ids)
+        new_jobs = [job for job in jobs if str(self._opportunity_number(job) or job.get("id") or "").strip() not in previous_set]
+        return [self._emit_alert(event_type, self._new_job_popup(event_type, job), settings) for job in new_jobs]
+
+    def _job_returned_alerts(self, view_payload, settings):
+        jobs = (view_payload or {}).get("opportunities", [])
+        returned_jobs = [
+            job
+            for job in jobs
+            if str(first_value(job.get("custom_fields", {}), "job_returned_but_unchecked", default="")).strip().lower()
+            == "yes"
+        ]
+        current_ids = [str(job.get("id") or "") for job in returned_jobs if job.get("id")]
+        previous_ids = self._returned_job_ids
+        self._returned_job_ids = current_ids
+        if previous_ids is None:
+            return []
+
+        previous_set = set(previous_ids)
+        alerts = []
+        for job in returned_jobs:
+            job_id = str(job.get("id") or "")
+            if job_id and job_id not in previous_set:
+                alerts.append(self._emit_alert("job_returned", self._job_returned_popup(job), settings))
+        return alerts
+
+    def _job_change_alerts(self, bucket, event_type, view_payload, client, item_cache, settings):
+        jobs = (view_payload or {}).get("opportunities", [])
+        snapshot = self._item_snapshots.setdefault(bucket, {})
+        alerts = []
+
+        if not snapshot:
+            for job in jobs:
+                opportunity_id = job.get("id")
+                if opportunity_id:
+                    snapshot[str(opportunity_id)] = self._item_snapshot(self._opportunity_items(client, item_cache, opportunity_id))
+            return []
+
+        next_snapshot = {}
+        for job in jobs:
+            opportunity_id = job.get("id")
+            if not opportunity_id:
+                continue
+
+            key = str(opportunity_id)
+            current_items = self._item_snapshot(self._opportunity_items(client, item_cache, opportunity_id))
+            changes = self._compare_items(snapshot.get(key, {}), current_items)
+            if changes:
+                alert = self._emit_alert(
+                    event_type,
+                    self._job_change_popup(event_type, self._opportunity_name(job), changes),
+                    settings,
+                )
+                if alert:
+                    alerts.append(alert)
+            next_snapshot[key] = current_items
+
+        self._item_snapshots[bucket] = next_snapshot
+        return alerts
+
+    def _compare_items(self, previous_items, current_items):
+        changes = []
+
+        for item_id, item in current_items.items():
+            previous = previous_items.get(item_id)
+            if not previous and safe_int(item.get("status"), 0) == 5:
+                changes.append({"type": "added", "item": item})
+            elif previous and str(previous.get("quantity")) != str(item.get("quantity")):
+                changes.append({"type": "updated", "item": item, "old_quantity": previous.get("quantity", 0)})
+
+        for item_id, item in previous_items.items():
+            if item_id not in current_items:
+                changes.append({"type": "removed", "item": item})
+
+        displayable = []
+        for change in changes:
+            quantity = safe_int(change.get("item", {}).get("quantity"), 0)
+            if change["type"] in {"added", "updated"} and quantity == 0:
+                continue
+            displayable.append(change)
+        return displayable
+
+    def _emit_alert(self, event_type, popup, settings):
+        if not popup:
+            return None
+
+        event_config = self._event_settings(settings, event_type)
+        if not event_config.get("enabled", True):
+            return None
+
+        show_popup = event_config.get("show_popup", True)
+        play_sound = event_config.get("play_sound", True) and bool(event_config.get("sound", "").strip())
+        if EVENT_META.get(event_type, {}).get("sound_suppressed"):
+            play_sound = play_sound and self._sound_allowed(settings)
+
+        history_entry = {
+            "ts": datetime.now().timestamp(),
+            "Time": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            "Title": popup.get("title") or EVENT_META.get(event_type, {}).get("title", "Notification"),
+            "Source": EVENT_META.get(event_type, {}).get("source", event_type),
+            "Details": strip_html(popup.get("html", "")),
+        }
+        self._history.append(history_entry)
+        self._history.sort(key=lambda item: item["ts"], reverse=True)
+        history_limit = max(1, safe_int(settings.get("alerts", {}).get("history_limit"), 500))
+        self._history = self._history[:history_limit]
+
+        return {
+            "type": event_type,
+            "title": popup.get("title", ""),
+            "html": popup.get("html", ""),
+            "show_popup": show_popup,
+            "play_sound": play_sound,
+            "sound": str(event_config.get("sound", "")).strip(),
+        }
+
+    def _event_settings(self, settings, event_type):
+        default = {
+            "enabled": True,
+            "show_popup": True,
+            "play_sound": True,
+            "sound": "",
+        }
+        values = settings.get("alerts", {}).get("event_types", {}).get(event_type, {})
+        merged = dict(default)
+        merged.update(values or {})
+        return merged
+
+    def _sound_allowed(self, settings):
+        alerts = settings.get("alerts", {})
+        quiet_start = max(0, min(23, safe_int(alerts.get("quiet_hours_start"), 21)))
+        quiet_end = max(0, min(23, safe_int(alerts.get("quiet_hours_end"), 7)))
+        suppress_seconds = max(0, safe_int(alerts.get("startup_sound_suppress_seconds"), 20))
+        now = datetime.now()
+
+        if suppress_seconds and (now - self._sound_gate_started_at).total_seconds() < suppress_seconds:
+            return False
+
+        hour = now.hour
+        if quiet_start == quiet_end:
+            return True
+        if quiet_start < quiet_end:
+            return not (quiet_start <= hour < quiet_end)
+        return not (hour >= quiet_start or hour < quiet_end)
+
+    def _new_job_popup(self, event_type, opportunity):
+        meta = EVENT_META.get(event_type, {})
+        job_name = self._opportunity_name(opportunity)
+        job_number = self._opportunity_number(opportunity)
+        owner = self._opportunity_owner(opportunity) or "Unassigned"
+
+        if event_type == "new_job_next_7_days":
+            html = (
+                "<ul style=\"font-size: 2.0em; line-height: 1.6; padding-left: 1em;\">"
+                f"<li><b>Job Name:</b> {job_name}</li>"
+                f"<li><b>Job #:</b> {job_number}</li>"
+                f"<li><b>Load:</b> {self._format_popup_datetime(parse_datetime(first_value(opportunity, 'load_starts_at')))}</li>"
+                f"<li><b>Owner:</b> {owner}</li>"
+                f"<li><b>Client:</b> {self._opportunity_customer(opportunity) or 'Unknown'}</li>"
+                "</ul>"
+            )
+        else:
+            html = (
+                "<ul style=\"font-size: 2.0em; line-height: 1.6; padding-left: 1em;\">"
+                f"<li><b>Job Name:</b> {job_name}</li>"
+                f"<li><b>Job #:</b> {job_number}</li>"
+                f"<li><b>Load:</b> {self._format_popup_datetime(parse_datetime(first_value(opportunity, 'load_starts_at')))}</li>"
+                f"<li><b>Start:</b> {self._format_popup_datetime(parse_datetime(first_value(opportunity, 'deliver_starts_at')))}</li>"
+                f"<li><b>Owner:</b> {owner}</li>"
+                "</ul>"
+            )
+
+        return {
+            "title": meta.get("title", "New Job Added"),
+            "html": html,
+        }
+
+    def _job_returned_popup(self, opportunity):
+        local_time = datetime.now().strftime("%d %b %Y %H:%M")
+        html = (
+            "<div style=\"font-size: 2.0em; text-align: center; padding: 1em;\">"
+            "<b>A job has been returned:</b><br>"
+            f"Job: {self._opportunity_name(opportunity)}<br>"
+            f"Job Number: {self._opportunity_number(opportunity)}<br>"
+            f"Returned at: {local_time}"
+            "</div>"
+        )
+        return {
+            "title": EVENT_META["job_returned"]["title"],
+            "html": html,
+        }
+
+    def _job_change_popup(self, event_type, job_name, changes):
+        if not changes:
+            return None
+
+        lines = []
+        for change in changes:
+            item = change.get("item", {})
+            item_name = item.get("name") or "Item"
+            quantity = self._format_quantity(item.get("quantity"))
+            if change["type"] == "added":
+                lines.append(f"<li><b>Added</b>: {item_name} (Qty: {quantity})</li>")
+            elif change["type"] == "updated":
+                old_quantity = self._format_quantity(change.get("old_quantity"))
+                lines.append(f"<li><b>Updated</b>: {item_name} Qty from {old_quantity} to {quantity}</li>")
+            elif change["type"] == "removed":
+                lines.append(f"<li><b>Removed</b>: {item_name} (Qty: {quantity})</li>")
+
+        if not lines:
+            return None
+
+        if event_type == "job_changed_today":
+            title = f"Today's Job \"{job_name}\" Has Been Updated"
+            html = (
+                f"<b>Changes detected in job: {job_name}</b>"
+                "<ul style=\"margin-top: 8px;\">"
+                f"{''.join(lines)}"
+                "</ul>"
+            )
+            return {"title": title, "html": html}
+
+        if event_type == "job_changed_tomorrow":
+            title = f"Tomorrow's Job \"{job_name}\" Has Been Updated"
+            html = (
+                "<ul style=\"margin-top: 10px;\">"
+                f"{''.join(lines)}"
+                "</ul>"
+            )
+            return {"title": title, "html": html}
+
+        html = (
+            "<div style=\"font-size: 24px; line-height: 1.5; margin-top: 10px;\">"
+            "<div style=\"font-size: 28px;\">A Job Within The Next 7 Days Has Been Updated:</div>"
+            f"<div style=\"font-size: 32px; font-weight: bold; margin-bottom: 15px;\">\"{job_name}\"</div>"
+            "<ul style=\"margin-top: 10px; padding-left: 25px;\">"
+            f"{''.join(lines)}"
+            "</ul>"
+            "</div>"
+        )
+        return {"title": "", "html": html}
+
+    def _item_snapshot(self, items):
+        snapshot = {}
+        for item in items:
+            item_id = item.get("id")
+            if item_id in (None, ""):
+                continue
+            snapshot[str(item_id)] = {
+                "id": item_id,
+                "name": first_value(item, ("item", "name"), "name", "description", default="Item"),
+                "quantity": first_value(item, "quantity", "quantity_total", "booked_quantity", default=0),
+                "status": first_value(item, "status", "status_id", default=0),
+            }
+        return snapshot
+
+    def _opportunity_items(self, client, item_cache, opportunity_id):
+        key = str(opportunity_id)
+        if key not in item_cache:
+            try:
+                item_cache[key] = client.fetch_opportunity_items(opportunity_id)
+            except Exception:
+                item_cache[key] = []
+        return item_cache[key]
+
     def _outstanding_totals(self, items):
         booked_out_qty = 0
         checked_in_qty = 0
-
         for item in items:
             qty = safe_int(first_value(item, "quantity", "quantity_total", "booked_quantity", "total_quantity"), 0)
             if qty <= 0:
@@ -461,30 +788,40 @@ class DashboardBuilder:
                 booked_out_qty += qty
             elif status_code == 30:
                 checked_in_qty += qty
-
         return booked_out_qty, checked_in_qty, booked_out_qty + checked_in_qty
 
-    def _prep_totals(self, items):
+    def _prep_totals(self, items, settings):
+        excluded_ids = {
+            str(item_id).strip()
+            for item_id in settings.get("current_rms", {}).get("excluded_item_ids", [])
+            if str(item_id).strip()
+        }
+
         prepared_total = 0
         total_qty = 0
+        booked_out_qty = 0
         unprepped_items = []
 
         for item in items:
-            total = safe_int(first_value(item, "quantity", "quantity_total", "booked_quantity", "total_quantity"), 1)
-            prepared = safe_int(
-                first_value(item, "prepared_quantity", "quantity_prepared", "prepped_quantity", "prepared"),
-                0,
-            )
-            status = str(first_value(item, "status_name", "status", default="")).lower()
-            if prepared == 0 and total > 0 and "prepared" in status:
-                prepared = total
+            item_id = str(item.get("id", "")).strip()
+            if item_id and item_id in excluded_ids:
+                continue
 
-            prepared = min(prepared, total)
+            total = safe_int(first_value(item, "quantity", "quantity_total", "booked_quantity", "total_quantity"), 0)
+            status_code = safe_int(first_value(item, "status", "status_id", default=0), 0)
+            status_name = str(first_value(item, "status_name", default="")).strip().lower()
+            prepared = 0
+
+            if status_code == 15 or status_name == "prepared":
+                prepared = total
+            if status_code == 20:
+                booked_out_qty += total
+
             total_qty += total
             prepared_total += prepared
 
             remaining = max(total - prepared, 0)
-            if remaining:
+            if remaining > 0:
                 unprepped_items.append(
                     {
                         "Item": first_value(item, ("item", "name"), "name", "description", default="Item"),
@@ -496,18 +833,12 @@ class DashboardBuilder:
                     }
                 )
 
-        return prepared_total, total_qty, unprepped_items
-
-    def _job_row(self, opportunity, section, event_dt):
+        booked_out = total_qty > 0 and (booked_out_qty / total_qty) >= 0.5
         return {
-            "Section": section,
-            "Job Name": self._opportunity_name(opportunity),
-            "Job Number": self._opportunity_number(opportunity),
-            "Customer": self._opportunity_customer(opportunity),
-            "Time": self._format_time(event_dt),
-            "Client": self._opportunity_customer(opportunity),
-            "Owner": self._opportunity_owner(opportunity),
-            "Status": first_value(opportunity, "status_name", "status", default=""),
+            "prepared_qty": prepared_total,
+            "total_qty": total_qty,
+            "booked_out": booked_out,
+            "unprepped_items": unprepped_items,
         }
 
     def _opportunity_name(self, opportunity):
@@ -522,40 +853,40 @@ class DashboardBuilder:
     def _opportunity_owner(self, opportunity):
         return first_value(
             opportunity,
-            ("owned_by", "name"),
             ("owner", "name"),
+            ("owned_by", "name"),
             ("member", "name"),
             "owner_name",
             default="",
         )
 
-    def _opportunity_start(self, opportunity):
-        return parse_datetime(
-            first_value(
-                opportunity,
-                "starts_at",
-                "delivery_starts_at",
-                "deliver_starts_at",
-                "out_at",
-                "pickup_at",
-                default="",
-            )
-        )
+    def _format_time_range(self, start, end):
+        if not start or not end:
+            return "No time given"
+        return f"{start.strftime('%H:%M')} - {end.strftime('%H:%M')}"
 
-    def _opportunity_end(self, opportunity):
-        return parse_datetime(
-            first_value(
-                opportunity,
-                "ends_at",
-                "return_starts_at",
-                "collect_starts_at",
-                "in_at",
-                default="",
-            )
-        )
-
-    def _format_time(self, value):
-        return value.strftime("%H:%M") if value else ""
+    def _format_popup_datetime(self, value):
+        if not value:
+            return "N/A"
+        return value.strftime("%d %b %Y %H:%M")
 
     def _format_date(self, value):
-        return value.strftime("%d/%m/%Y") if value else ""
+        if not value:
+            return "Unknown"
+        return value.strftime("%d-%m-%Y")
+
+    def _format_quantity(self, value):
+        try:
+            number = float(value)
+        except Exception:
+            return str(value)
+        if number.is_integer():
+            return str(int(number))
+        return f"{number:.2f}".rstrip("0").rstrip(".")
+
+    def _reset_history_if_new_day(self, settings):
+        today = datetime.now().date()
+        if self._history_day == today:
+            return
+        self._history_day = today
+        self._history = []
