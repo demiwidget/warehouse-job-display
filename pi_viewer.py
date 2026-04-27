@@ -129,20 +129,41 @@ class UnpreppedItemsDialog(QDialog):
 class AlertDialog(QDialog):
     def __init__(self, title, html, parent=None):
         super().__init__(parent)
+        self.acknowledged = False
         self.setWindowTitle(title or "Notification")
         self.resize(1200, 760)
+        self.setModal(True)
+        flags = self.windowFlags()
+        flags |= Qt.WindowStaysOnTopHint
+        flags &= ~Qt.WindowCloseButtonHint
+        self.setWindowFlags(flags)
 
         layout = QVBoxLayout(self)
         heading = QLabel(f"<h1>{title or 'Notification'}</h1>")
         body = QTextBrowser()
         body.setHtml(html or "")
         body.setOpenExternalLinks(True)
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.accept)
+        close_btn = QPushButton("Confirm Notification")
+        close_btn.setDefault(True)
+        close_btn.clicked.connect(self.confirm_notification)
 
         layout.addWidget(heading)
         layout.addWidget(body, 1)
         layout.addWidget(close_btn)
+
+    def confirm_notification(self):
+        self.acknowledged = True
+        self.accept()
+
+    def reject(self):
+        # Notification popups require an explicit acknowledgement.
+        return
+
+    def closeEvent(self, event):
+        if self.acknowledged:
+            event.accept()
+            return
+        event.ignore()
 
 
 class SummaryCard(QWidget):

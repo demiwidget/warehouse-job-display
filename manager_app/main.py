@@ -401,7 +401,7 @@ class PiScreensTab(QWidget):
             ("Show Tomorrow", "tomorrow"),
             ("Show Prep", "prep"),
             ("Show Outstanding", "outstanding"),
-            ("Show Notifications", "notifications"),
+            ("Show Notification History", "notifications"),
         ):
             btn = QPushButton(label)
             btn.clicked.connect(lambda _checked=False, target=screen: self.send_screen(target))
