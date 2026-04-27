@@ -144,6 +144,7 @@ class SummaryCard(QWidget):
         self.caption = QLabel("")
         self.caption.setAlignment(Qt.AlignCenter)
         self.caption.setStyleSheet("font-size:13px; color:#bbb;")
+        self.caption.setWordWrap(True)
 
         layout.addWidget(self.title)
         layout.addWidget(self.value)
@@ -340,7 +341,10 @@ class ViewerWindow(QMainWindow):
             prepped_pct = 0
             unprepped_pct = 0
 
-        self.card_prep.set_data(f"{prepped_pct}% / {unprepped_pct}%", "Prepped / Unprepped")
+        self.card_prep.set_data(
+            f"{prepared_qty}/{total_qty}",
+            f"{prepped_pct}% prepped / {unprepped_pct}% unprepped",
+        )
         self.card_outstanding.set_data(outstanding.get("summary", {}).get("Outstanding", 0), "Outstanding items")
 
         today_out = [row for row in today.get("rows", []) if row.get("Section") == "Out"]
