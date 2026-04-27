@@ -1,4 +1,5 @@
 from datetime import datetime
+import html
 import re
 
 import requests
@@ -210,6 +211,35 @@ class DashboardBuilder:
 
     def refresh(self):
         self._payloads = {}
+
+    def create_manual_alert(self, title, message, settings, sound_name="", play_sound=True, source="manual test"):
+        clean_title = str(title or "").strip() or "Test Notification"
+        clean_message = str(message or "").strip()
+        if not clean_message:
+            return None
+
+        html_message = "<br>".join(html.escape(line) for line in clean_message.splitlines()) or html.escape(clean_message)
+        popup = {
+            "title": clean_title,
+            "html": (
+                "<div style=\"font-size: 2.0em; line-height: 1.6; padding: 0.6em 0.8em;\">"
+                f"{html_message}"
+                "</div>"
+            ),
+        }
+
+        self._append_history(clean_title, source, popup.get("html", ""), settings, details=clean_message)
+        if self._payloads is not None:
+            self._payloads["notifications"] = self._history_payload()
+
+        return {
+            "type": "manual_test",
+            "title": clean_title,
+            "html": popup.get("html", ""),
+            "show_popup": True,
+            "play_sound": bool(play_sound and str(sound_name or "").strip()),
+            "sound": str(sound_name or "").strip(),
+        }
 
     def refresh_data(self, settings):
         self._reset_history_if_new_day(settings)
@@ -605,17 +635,12 @@ class DashboardBuilder:
         if EVENT_META.get(event_type, {}).get("sound_suppressed"):
             play_sound = play_sound and self._sound_allowed(settings)
 
-        history_entry = {
-            "ts": datetime.now().timestamp(),
-            "Time": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-            "Title": popup.get("title") or EVENT_META.get(event_type, {}).get("title", "Notification"),
-            "Source": EVENT_META.get(event_type, {}).get("source", event_type),
-            "Details": strip_html(popup.get("html", "")),
-        }
-        self._history.append(history_entry)
-        self._history.sort(key=lambda item: item["ts"], reverse=True)
-        history_limit = max(1, safe_int(settings.get("alerts", {}).get("history_limit"), 500))
-        self._history = self._history[:history_limit]
+        self._append_history(
+            popup.get("title") or EVENT_META.get(event_type, {}).get("title", "Notification"),
+            EVENT_META.get(event_type, {}).get("source", event_type),
+            popup.get("html", ""),
+            settings,
+        )
 
         return {
             "type": event_type,
@@ -625,6 +650,19 @@ class DashboardBuilder:
             "play_sound": play_sound,
             "sound": str(event_config.get("sound", "")).strip(),
         }
+
+    def _append_history(self, title, source, html_content, settings, details=None):
+        history_entry = {
+            "ts": datetime.now().timestamp(),
+            "Time": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            "Title": title,
+            "Source": source,
+            "Details": details if details is not None else strip_html(html_content),
+        }
+        self._history.append(history_entry)
+        self._history.sort(key=lambda item: item["ts"], reverse=True)
+        history_limit = max(1, safe_int(settings.get("alerts", {}).get("history_limit"), 500))
+        self._history = self._history[:history_limit]
 
     def _event_settings(self, settings, event_type):
         default = {

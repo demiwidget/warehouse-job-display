@@ -300,6 +300,43 @@ class AlertsTab(QWidget):
         buttons.addWidget(refresh_btn)
         buttons.addStretch(1)
         layout.addLayout(buttons)
+
+        test_box = QWidget()
+        test_layout = QVBoxLayout(test_box)
+        test_layout.setContentsMargins(0, 12, 0, 0)
+
+        test_heading = QLabel("Test Notification")
+        test_heading.setStyleSheet("font-size: 18px; font-weight: 700;")
+        test_layout.addWidget(test_heading)
+
+        test_form = QFormLayout()
+        self.test_title_input = QLineEdit("Test Notification")
+        self.test_message_input = QTextEdit()
+        self.test_message_input.setPlaceholderText("Type the popup text you want to show on the Pis.")
+        self.test_message_input.setMinimumHeight(120)
+        self.test_sound_input = QLineEdit("job-today.wav")
+        self.test_sound_enabled = QCheckBox("Play sound")
+        self.test_sound_enabled.setChecked(True)
+
+        test_form.addRow("Title", self.test_title_input)
+        test_form.addRow("Message", self.test_message_input)
+        test_form.addRow("Sound file", self.test_sound_input)
+        test_form.addRow("", self.test_sound_enabled)
+        test_layout.addLayout(test_form)
+
+        test_buttons = QHBoxLayout()
+        send_test_btn = QPushButton("Send Test Notification To All Pis")
+        send_test_btn.clicked.connect(self.send_test_notification)
+        test_buttons.addWidget(send_test_btn)
+        test_buttons.addStretch(1)
+        test_layout.addLayout(test_buttons)
+
+        test_note = QLabel(
+            "This uses the same popup route as the live Pi alerts and sends the message to all registered Pis."
+        )
+        test_note.setWordWrap(True)
+        test_layout.addWidget(test_note)
+        layout.addWidget(test_box)
         layout.addStretch(1)
 
     def settings_payload(self):
@@ -329,6 +366,18 @@ class AlertsTab(QWidget):
         self.state.save_settings({"alerts": self.settings_payload()})
         self.state.refresh_dashboard()
         QMessageBox.information(self, "Applied", "Alert settings were saved and the manager refreshed immediately.")
+
+    def send_test_notification(self):
+        success, message = self.state.send_test_notification(
+            title=self.test_title_input.text().strip(),
+            message=self.test_message_input.toPlainText(),
+            sound_name=self.test_sound_input.text().strip(),
+            play_sound=self.test_sound_enabled.isChecked(),
+        )
+        if success:
+            QMessageBox.information(self, "Test Notification", message)
+        else:
+            QMessageBox.warning(self, "Test Notification", message)
 
 
 class PiScreensTab(QWidget):

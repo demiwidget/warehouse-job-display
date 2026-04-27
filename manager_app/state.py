@@ -127,3 +127,31 @@ class ManagerState:
             for device_id in self.devices:
                 queue = self.alerts.setdefault(str(device_id), [])
                 queue.extend(dict(alert) for alert in deliverable)
+
+    def send_test_notification(self, title, message, sound_name="", play_sound=True, device_ids=None):
+        with self.lock:
+            settings = self.store.load_settings()
+            self.settings = settings
+            target_ids = [str(device_id) for device_id in (device_ids or self.devices.keys()) if str(device_id)]
+
+        if not target_ids:
+            return False, "No Pi screens are registered yet."
+
+        with self.dashboard_lock:
+            alert = self.dashboard.create_manual_alert(
+                title=title,
+                message=message,
+                settings=settings,
+                sound_name=sound_name,
+                play_sound=play_sound,
+            )
+
+        if not alert:
+            return False, "Enter some notification text first."
+
+        with self.lock:
+            for device_id in target_ids:
+                queue = self.alerts.setdefault(str(device_id), [])
+                queue.append(dict(alert))
+
+        return True, f"Queued a test notification for {len(target_ids)} Pi screen(s)."
