@@ -187,13 +187,20 @@ class DashboardBuilder:
         today = datetime.now().date()
         tomorrow = today + timedelta(days=1)
         item_limit = safe_int(settings.get("current_rms", {}).get("item_detail_limit"), 12)
+        active_opportunities = self._active_opportunities(opportunities)
+        active_job_details = self._build_job_details(active_opportunities, client)
+        detail_map = {
+            detail["opportunity"].get("id"): detail
+            for detail in active_job_details
+            if detail.get("opportunity", {}).get("id") is not None
+        }
 
         return {
             "today": self._jobs_payload("Today", opportunities, today),
             "tomorrow": self._jobs_payload("Tomorrow", opportunities, tomorrow),
-            "prep": self._prep_payload(opportunities, client, item_limit),
-            "outstanding": self._outstanding_payload(opportunities),
-            "notifications": self._notifications_payload(opportunities),
+            "prep": self._prep_payload(opportunities, client, item_limit, detail_map),
+            "outstanding": self._outstanding_payload(active_job_details),
+            "notifications": self._notifications_payload(active_job_details, today, tomorrow),
         }
 
     def _payloads_with_notice(self, message):
@@ -239,22 +246,69 @@ class DashboardBuilder:
             "rows": rows,
         }
 
-    def _prep_payload(self, opportunities, client, item_limit):
+    def _active_opportunities(self, opportunities):
+        return [
+            opportunity
+            for opportunity in opportunities
+            if str(first_value(opportunity, "status_name", "status", default="")).strip().lower() == "active"
+        ]
+
+    def _build_job_details(self, opportunities, client):
+        details = []
+        for opportunity in opportunities:
+            opportunity_id = opportunity.get("id")
+            if not opportunity_id:
+                continue
+
+            item_error = ""
+            try:
+                items = client.fetch_opportunity_items(opportunity_id)
+            except Exception as error:
+                items = []
+                item_error = str(error)
+
+            booked_out_qty, checked_in_qty, total_items = self._outstanding_totals(items)
+            prepared_qty, prep_total_qty, unprepped_items = self._prep_totals(items)
+            details.append(
+                {
+                    "opportunity": opportunity,
+                    "items": items,
+                    "item_error": item_error,
+                    "booked_out_qty": booked_out_qty,
+                    "checked_in_qty": checked_in_qty,
+                    "outstanding_qty": booked_out_qty,
+                    "total_items": total_items,
+                    "prepared_qty": prepared_qty,
+                    "prep_total_qty": prep_total_qty,
+                    "prep_remaining_qty": max(prep_total_qty - prepared_qty, 0),
+                    "unprepped_items": unprepped_items,
+                }
+            )
+        return details
+
+    def _prep_payload(self, opportunities, client, item_limit, detail_map=None):
         rows = []
         prepared_total = 0
         remaining_total = 0
+        detail_map = detail_map or {}
 
         for opportunity in opportunities[:item_limit]:
             opportunity_id = opportunity.get("id")
             if not opportunity_id:
                 continue
 
-            try:
-                items = client.fetch_opportunity_items(opportunity_id)
-            except Exception:
-                items = []
+            detail = detail_map.get(opportunity_id)
+            if detail:
+                prepared = detail["prepared_qty"]
+                total = detail["prep_total_qty"]
+                unprepped_items = detail["unprepped_items"]
+            else:
+                try:
+                    items = client.fetch_opportunity_items(opportunity_id)
+                except Exception:
+                    items = []
+                prepared, total, unprepped_items = self._prep_totals(items)
 
-            prepared, total, unprepped_items = self._prep_totals(items)
             remaining = max(total - prepared, 0)
             if total <= 0:
                 continue
@@ -285,44 +339,130 @@ class DashboardBuilder:
             "rows": rows,
         }
 
-    def _outstanding_payload(self, opportunities):
+    def _outstanding_payload(self, active_job_details):
         rows = []
-        for opportunity in opportunities:
-            status = str(first_value(opportunity, "status_name", "status", default="")).lower()
-            if "complete" in status or "cancel" in status:
+        for detail in active_job_details:
+            opportunity = detail["opportunity"]
+            booked_out_qty = detail["booked_out_qty"]
+            checked_in_qty = detail["checked_in_qty"]
+            total_items = detail["total_items"]
+            outstanding_qty = detail["outstanding_qty"]
+
+            if outstanding_qty <= 0:
                 continue
+
             rows.append(
                 {
                     "Job Number": self._opportunity_number(opportunity),
                     "Job Name": self._opportunity_name(opportunity),
-                    "Booked Out": self._format_date(self._opportunity_start(opportunity)),
-                    "Checked In": self._format_date(self._opportunity_end(opportunity)),
-                    "Outstanding": "",
-                    "Total Items": "",
+                    "Booked Out": booked_out_qty,
+                    "Checked In": checked_in_qty,
+                    "Outstanding": outstanding_qty,
+                    "Total Items": total_items,
                     "Owner": self._opportunity_owner(opportunity),
                 }
             )
+
+        rows.sort(
+            key=lambda row: (
+                -safe_int(row.get("Outstanding"), 0),
+                -safe_int(row.get("Total Items"), 0),
+                str(row.get("Job Number") or ""),
+            )
+        )
+
         return {
             "title": "Outstanding Items",
-            "summary": {"Outstanding": len(rows)},
+            "summary": {"Outstanding": sum(safe_int(row.get("Outstanding"), 0) for row in rows)},
             "rows": rows,
         }
 
-    def _notifications_payload(self, opportunities):
-        rows = [
-            {
-                "Time": datetime.now().strftime("%H:%M"),
-                "Title": f"Current RMS sync complete. {len(opportunities)} jobs loaded.",
-                "Job Number": "",
-                "Job Name": "",
-                "Owner": "PC Manager",
-            }
-        ]
+    def _notifications_payload(self, active_job_details, today, tomorrow):
+        rows = []
+        now_text = datetime.now().strftime("%H:%M")
+
+        for detail in active_job_details:
+            opportunity = detail["opportunity"]
+            job_number = self._opportunity_number(opportunity)
+            job_name = self._opportunity_name(opportunity)
+            owner = self._opportunity_owner(opportunity)
+            start_dt = self._opportunity_start(opportunity)
+            end_dt = self._opportunity_end(opportunity)
+
+            if detail["prep_remaining_qty"] > 0 and start_dt and start_dt.date() <= tomorrow:
+                rows.append(
+                    {
+                        "Time": self._format_time(start_dt) or now_text,
+                        "Title": f"{detail['prep_remaining_qty']} item(s) still to prep",
+                        "Job Number": job_number,
+                        "Job Name": job_name,
+                        "Owner": owner,
+                    }
+                )
+
+            if detail["outstanding_qty"] > 0:
+                rows.append(
+                    {
+                        "Time": self._format_time(end_dt) or self._format_time(start_dt) or now_text,
+                        "Title": f"{detail['outstanding_qty']} item(s) still unchecked in",
+                        "Job Number": job_number,
+                        "Job Name": job_name,
+                        "Owner": owner,
+                    }
+                )
+
+            if detail["item_error"]:
+                rows.append(
+                    {
+                        "Time": now_text,
+                        "Title": "Could not load opportunity items",
+                        "Job Number": job_number,
+                        "Job Name": job_name,
+                        "Owner": owner,
+                    }
+                )
+
+        rows.sort(
+            key=lambda row: (
+                row.get("Time") or "",
+                str(row.get("Job Number") or ""),
+                str(row.get("Title") or ""),
+            )
+        )
+
+        if not rows:
+            rows = [
+                {
+                    "Time": now_text,
+                    "Title": "No outstanding or prep alerts right now.",
+                    "Job Number": "",
+                    "Job Name": "",
+                    "Owner": "PC Manager",
+                }
+            ]
+
         return {
             "title": "Notifications",
             "summary": {"Notifications": len(rows)},
             "rows": rows,
         }
+
+    def _outstanding_totals(self, items):
+        booked_out_qty = 0
+        checked_in_qty = 0
+
+        for item in items:
+            qty = safe_int(first_value(item, "quantity", "quantity_total", "booked_quantity", "total_quantity"), 0)
+            if qty <= 0:
+                continue
+
+            status_code = safe_int(first_value(item, "status", "status_id", default=0), 0)
+            if status_code == 20:
+                booked_out_qty += qty
+            elif status_code == 30:
+                checked_in_qty += qty
+
+        return booked_out_qty, checked_in_qty, booked_out_qty + checked_in_qty
 
     def _prep_totals(self, items):
         prepared_total = 0
