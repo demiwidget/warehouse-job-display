@@ -8,6 +8,7 @@ from pathlib import Path
 
 import requests
 
+from app_version import sync_config_version
 from pi_identity import registration_id, registration_payload
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -16,8 +17,9 @@ CONFIG_FILE = BASE_DIR / "viewer_config.json"
 
 def load_config():
     cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-    cfg, changed, _payload = registration_payload(cfg)
-    if changed:
+    changed = sync_config_version(cfg)
+    cfg, identity_changed, _payload = registration_payload(cfg)
+    if changed or identity_changed:
         save_config(cfg)
     return cfg
 

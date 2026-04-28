@@ -3,6 +3,8 @@ import socket
 import uuid
 from pathlib import Path
 
+from app_version import CURRENT_VERSION
+
 
 PLACEHOLDER_DEVICE_NAMES = {"", "Warehouse Screen 1"}
 PLACEHOLDER_DEVICE_IDS = {"", "pi-1"}
@@ -104,7 +106,7 @@ def registration_payload(cfg, screen=None):
         "id": device_uid,
         "name": str(cfg.get("device_name", "")).strip() or device_uid,
         "screen": screen if screen is not None else cfg.get("screen", "today"),
-        "version": cfg.get("version", "1.0.0"),
+        "version": str(cfg.get("version", "")).strip() or CURRENT_VERSION,
     }
     if legacy_device_id and legacy_device_id != device_uid:
         payload["legacy_id"] = legacy_device_id

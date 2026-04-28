@@ -30,6 +30,7 @@ try:
 except Exception:
     QSoundEffect = None
 
+from app_version import CURRENT_VERSION, sync_config_version
 from pi_identity import registration_id, registration_payload
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -39,7 +40,7 @@ DEFAULT_CONFIG = {
     "server": "http://MANAGER_PC_IP:8765",
     "device_id": "pi-1",
     "device_name": "Warehouse Screen 1",
-    "version": "2.0.1",
+    "version": CURRENT_VERSION,
     "screen": "today",
     "allow_all_screens": True,
 }
@@ -198,12 +199,15 @@ class SummaryCard(QWidget):
 
 def load_config():
     cfg = DEFAULT_CONFIG.copy()
+    changed = False
     if CONFIG_PATH.exists():
         try:
             cfg.update(json.loads(CONFIG_PATH.read_text(encoding="utf-8")))
         except Exception:
             pass
-    cfg, changed, _payload = registration_payload(cfg)
+    changed = sync_config_version(cfg) or changed
+    cfg, identity_changed, _payload = registration_payload(cfg)
+    changed = changed or identity_changed
     if changed or not CONFIG_PATH.exists():
         CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     return cfg

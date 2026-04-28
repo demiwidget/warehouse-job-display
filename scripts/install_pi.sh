@@ -51,7 +51,7 @@ MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 DISABLE_LEGACY_KIOSK="${WAREHOUSE_DISABLE_LEGACY_KIOSK:-1}"
 DISABLE_LEGACY_STACK="${WAREHOUSE_DISABLE_LEGACY_STACK:-1}"
 SKIP_SERVICE_RESTART="${WAREHOUSE_SKIP_SERVICE_RESTART:-0}"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.1')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.2')"
 
 if [[ ! -f "$APP_DIR/pi_viewer.py" || ! -f "$APP_DIR/pi_agent.py" ]]; then
     fail "Cannot find pi_viewer.py and pi_agent.py. Run this from the repository scripts directory."
@@ -349,6 +349,38 @@ CONFIG
 else
     log "Keeping existing viewer_config.json."
 fi
+
+update_status 86 "Syncing device version" "Applying the current dashboard version to this Pi configuration."
+run_as_app_user env \
+    WAREHOUSE_CONFIG_PATH="$APP_DIR/viewer_config.json" \
+    WAREHOUSE_VERSION="$VERSION" \
+    WAREHOUSE_MANAGER_IP="$MANAGER_IP" \
+    WAREHOUSE_MANAGER_PORT="$MANAGER_PORT" \
+    "$PYTHON_BIN" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+path = Path(os.environ["WAREHOUSE_CONFIG_PATH"])
+cfg = json.loads(path.read_text(encoding="utf-8"))
+changed = False
+
+version = str(os.environ.get("WAREHOUSE_VERSION", "")).strip()
+if version and str(cfg.get("version", "")).strip() != version:
+    cfg["version"] = version
+    changed = True
+
+manager_ip = str(os.environ.get("WAREHOUSE_MANAGER_IP", "")).strip()
+manager_port = str(os.environ.get("WAREHOUSE_MANAGER_PORT", "8765")).strip() or "8765"
+if manager_ip:
+    desired_server = f"http://{manager_ip}:{manager_port}"
+    if str(cfg.get("server", "")).strip() != desired_server:
+        cfg["server"] = desired_server
+        changed = True
+
+if changed:
+    path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+PY
 
 update_status 88 "Writing updater environment" "Saving the dashboard service environment."
 log "Writing updater environment..."
