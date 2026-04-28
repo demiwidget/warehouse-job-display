@@ -32,6 +32,7 @@ except Exception:
 
 from app_version import CURRENT_VERSION, sync_config_version
 from pi_identity import registration_id, registration_payload
+from pi_status import post_status
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "viewer_config.json"
@@ -244,6 +245,7 @@ class ViewerWindow(QMainWindow):
         self.set_current_tab()
         self.register()
         self.refresh_all()
+        QTimer.singleShot(1200, self.report_online_status)
 
     def build_ui(self):
         from PySide6.QtWidgets import QGridLayout
@@ -350,6 +352,17 @@ class ViewerWindow(QMainWindow):
             )
         except Exception:
             pass
+
+    def report_online_status(self):
+        screen_name = str(self.current_screen or "today").replace("_", " ").title()
+        post_status(
+            self.config,
+            "online",
+            f"Display app online on {screen_name}.",
+            source="viewer",
+            timeout=4,
+            screen=self.current_screen,
+        )
 
     def set_current_tab(self):
         mapping = {"today": 0, "tomorrow": 1, "prep": 2, "outstanding": 3, "notifications": 4}

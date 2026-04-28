@@ -4,6 +4,28 @@ from threading import RLock
 from manager_app.current_rms import DashboardBuilder
 from manager_app.settings_store import SettingsStore
 
+OFFLINE_AFTER_SECONDS = 35
+TRANSITIONAL_STATUS_SECONDS = 180
+STATUS_LABELS = {
+    "online": "Online",
+    "display_restarting": "Display Restarting",
+    "rebooting": "Rebooting",
+    "renaming": "Renaming",
+    "switching_screen": "Switching Screen",
+    "viewer_starting": "Display Starting",
+    "updating": "Updating",
+}
+TRANSITIONAL_STATES = {"display_restarting", "rebooting", "renaming", "switching_screen", "viewer_starting", "updating"}
+
+
+def parse_iso(ts):
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(str(ts))
+    except Exception:
+        return None
+
 
 class ManagerState:
     def __init__(self, store=None):
@@ -51,6 +73,35 @@ class ManagerState:
                 settings.setdefault("current_rms", {}).update(api_settings)
         return self.dashboard.test_connection(settings)
 
+    def _remove_legacy_device(self, legacy_id, device_id):
+        if legacy_id and legacy_id != device_id:
+            self.devices.pop(legacy_id, None)
+            self.alerts.pop(legacy_id, None)
+            self.commands.pop(legacy_id, None)
+
+    def _merge_device_identity(self, existing, payload, remote_addr, now):
+        existing.update(
+            {
+                "id": payload.get("id") or existing.get("id") or "",
+                "name": payload.get("name") or existing.get("name") or payload.get("id") or "",
+                "screen": payload.get("screen") or existing.get("screen") or "today",
+                "version": payload.get("version") or existing.get("version") or "",
+                "ip": remote_addr or existing.get("ip") or "",
+                "last_seen": now,
+            }
+        )
+
+    def _apply_status_update(self, existing, payload, now):
+        state = str(payload.get("state", "")).strip()
+        if not state:
+            return
+        message = str(payload.get("message", "")).strip() or STATUS_LABELS.get(state, state.replace("_", " ").title())
+        source = str(payload.get("source", "")).strip() or "agent"
+        existing["status_state"] = state
+        existing["status_message"] = message
+        existing["status_source"] = source
+        existing["status_updated_at"] = now
+
     def register_device(self, payload, remote_addr):
         device_id = str(payload.get("id", "")).strip()
         if not device_id:
@@ -59,21 +110,27 @@ class ManagerState:
 
         now = datetime.now().isoformat(timespec="seconds")
         with self.lock:
-            if legacy_id and legacy_id != device_id:
-                self.devices.pop(legacy_id, None)
-                self.alerts.pop(legacy_id, None)
-                self.commands.pop(legacy_id, None)
+            self._remove_legacy_device(legacy_id, device_id)
             existing = self.devices.get(device_id, {})
-            existing.update(
-                {
-                    "id": device_id,
-                    "name": payload.get("name") or existing.get("name") or device_id,
-                    "screen": payload.get("screen") or existing.get("screen") or "today",
-                    "version": payload.get("version") or existing.get("version") or "",
-                    "ip": remote_addr or existing.get("ip") or "",
-                    "last_seen": now,
-                }
-            )
+            self._merge_device_identity(existing, payload, remote_addr, now)
+            self._apply_status_update(existing, payload, now)
+            self.devices[device_id] = existing
+            self.alerts.setdefault(device_id, [])
+            self.store.save_devices(self.devices)
+            return dict(existing)
+
+    def report_device_status(self, payload, remote_addr):
+        device_id = str(payload.get("id", "")).strip()
+        if not device_id:
+            return None
+        legacy_id = str(payload.get("legacy_id", "")).strip()
+
+        now = datetime.now().isoformat(timespec="seconds")
+        with self.lock:
+            self._remove_legacy_device(legacy_id, device_id)
+            existing = self.devices.get(device_id, {})
+            self._merge_device_identity(existing, payload, remote_addr, now)
+            self._apply_status_update(existing, payload, now)
             self.devices[device_id] = existing
             self.alerts.setdefault(device_id, [])
             self.store.save_devices(self.devices)
@@ -81,8 +138,41 @@ class ManagerState:
 
     def list_devices(self):
         with self.lock:
+            now = datetime.now()
+            devices = []
+            for raw in self.devices.values():
+                item = dict(raw)
+                last_seen_dt = parse_iso(item.get("last_seen"))
+                status_updated_dt = parse_iso(item.get("status_updated_at")) or last_seen_dt
+                status_state = str(item.get("status_state", "")).strip() or "online"
+                status_message = str(item.get("status_message", "")).strip()
+                stale_seconds = None
+                if last_seen_dt:
+                    stale_seconds = max(0, int((now - last_seen_dt).total_seconds()))
+
+                if stale_seconds is None:
+                    display_state = "Unknown"
+                elif stale_seconds <= OFFLINE_AFTER_SECONDS:
+                    display_state = STATUS_LABELS.get(status_state, status_state.replace("_", " ").title())
+                elif status_state in TRANSITIONAL_STATES and status_updated_dt and (now - status_updated_dt).total_seconds() <= TRANSITIONAL_STATUS_SECONDS:
+                    display_state = STATUS_LABELS.get(status_state, status_state.replace("_", " ").title())
+                else:
+                    display_state = "Offline"
+
+                if display_state == "Offline":
+                    status_message = f"No heartbeat for {stale_seconds}s." if stale_seconds is not None else "No heartbeat received."
+                elif not status_message:
+                    status_message = "Heartbeat active."
+
+                if status_updated_dt:
+                    status_message = f"{status_message} ({status_updated_dt.strftime('%d/%m/%Y %H:%M:%S')})"
+
+                item["state"] = display_state
+                item["activity"] = status_message
+                devices.append(item)
+
             return sorted(
-                self.devices.values(),
+                devices,
                 key=lambda item: (item.get("name", item.get("id", "")), item.get("id", "")),
             )
 

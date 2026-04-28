@@ -10,6 +10,7 @@ import requests
 
 from app_version import sync_config_version
 from pi_identity import registration_id, registration_payload
+from pi_status import post_status
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = BASE_DIR / "viewer_config.json"
@@ -79,7 +80,9 @@ def start_viewer():
         )
 
 
-def restart_viewer():
+def restart_viewer(cfg=None, reason="Restarting display app.", state="display_restarting"):
+    if cfg:
+        post_status(cfg, state, reason, source="agent", timeout=3)
     display_service = os.environ.get("WAREHOUSE_DISPLAY_SERVICE", "warehouse-viewer.service")
     if run_systemctl("restart", display_service):
         return
@@ -89,7 +92,9 @@ def restart_viewer():
     start_viewer()
 
 
-def reboot_pi():
+def reboot_pi(cfg=None):
+    if cfg:
+        post_status(cfg, "rebooting", "Rebooting Pi.", source="agent", timeout=3)
     reboot = shutil.which("reboot") or "/usr/sbin/reboot"
     command = [reboot]
     if os.name != "nt" and os.geteuid() != 0:
@@ -106,20 +111,21 @@ def reboot_pi():
 def handle_command(cfg, cmd):
     action = cmd.get("action")
     if action == "reboot":
-        reboot_pi()
+        reboot_pi(cfg)
     elif action == "restart":
-        restart_viewer()
+        restart_viewer(cfg, "Restarting display app.")
     elif action == "rename":
         new_name = str(cmd.get("device_name", "")).strip()
         if new_name:
             cfg["device_name"] = new_name
             save_config(cfg)
             register(cfg)
-            restart_viewer()
+            restart_viewer(cfg, f"Restarting display app after rename to {new_name}.", state="renaming")
     elif action == "set_screen":
-        cfg["screen"] = cmd.get("screen", cfg.get("screen", "today"))
+        new_screen = str(cmd.get("screen", cfg.get("screen", "today"))).strip() or cfg.get("screen", "today")
+        cfg["screen"] = new_screen
         save_config(cfg)
-        restart_viewer()
+        restart_viewer(cfg, f"Restarting display app on {new_screen.title()} screen.", state="switching_screen")
 
 
 def main():

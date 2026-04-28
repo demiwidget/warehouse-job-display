@@ -14,6 +14,14 @@ def create_app(state):
             return jsonify({"error": "Device id is required."}), 400
         return jsonify({"ok": True, "device": device})
 
+    @app.post("/status")
+    def device_status():
+        payload = request.get_json(silent=True) or {}
+        device = state.report_device_status(payload, request.remote_addr)
+        if not device:
+            return jsonify({"error": "Device id is required."}), 400
+        return jsonify({"ok": True, "device": device})
+
     @app.get("/poll/<device_id>")
     def poll(device_id):
         return jsonify(state.poll_command(device_id))

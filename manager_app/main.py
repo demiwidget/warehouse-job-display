@@ -3,6 +3,7 @@ import sys
 from threading import Event, Thread
 
 from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -382,7 +383,18 @@ class AlertsTab(QWidget):
 
 
 class PiScreensTab(QWidget):
-    COLUMNS = ["ID", "Name", "IP", "Screen", "Version", "Last Seen"]
+    COLUMNS = ["ID", "Name", "IP", "Screen", "Version", "State", "Activity", "Last Seen"]
+    STATUS_COLORS = {
+        "Online": "#2e7d32",
+        "Display Restarting": "#f9a825",
+        "Display Starting": "#1e88e5",
+        "Rebooting": "#ef6c00",
+        "Renaming": "#8e24aa",
+        "Switching Screen": "#6d4c41",
+        "Updating": "#00897b",
+        "Offline": "#616161",
+        "Unknown": "#455a64",
+    }
 
     def __init__(self, state):
         super().__init__()
@@ -461,6 +473,8 @@ class PiScreensTab(QWidget):
     def refresh(self):
         devices = self.state.list_devices()
         self.table.setRowCount(len(devices))
+        online_count = 0
+        offline_count = 0
         for row, device in enumerate(devices):
             values = [
                 device.get("id", ""),
@@ -468,14 +482,26 @@ class PiScreensTab(QWidget):
                 device.get("ip", ""),
                 device.get("screen", ""),
                 device.get("version", ""),
+                device.get("state", ""),
+                device.get("activity", ""),
                 device.get("last_seen", ""),
             ]
+            state_value = str(device.get("state", "")).strip()
+            if state_value == "Offline":
+                offline_count += 1
+            elif state_value:
+                online_count += 1
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                if self.COLUMNS[column] == "State":
+                    color = self.STATUS_COLORS.get(str(value), "")
+                    if color:
+                        item.setBackground(QColor(color))
+                        item.setForeground(QColor("#ffffff"))
                 self.table.setItem(row, column, item)
         self.table.resizeColumnsToContents()
-        self.status.setText(f"{len(devices)} Pi screen(s) registered.")
+        self.status.setText(f"{len(devices)} Pi screen(s) registered. {online_count} active / {offline_count} offline.")
 
     def send_screen(self, screen):
         self.send_action("set_screen", screen=screen)
