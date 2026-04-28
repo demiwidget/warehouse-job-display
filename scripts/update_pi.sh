@@ -164,17 +164,17 @@ restart_services() {
 
     log "Restarting warehouse viewer and agent services..."
     if [[ "$(id -u)" -eq 0 ]]; then
-        if ! "$SYSTEMCTL_BIN" restart "$AGENT_SERVICE"; then
+        if ! "$SYSTEMCTL_BIN" restart --no-block "$AGENT_SERVICE"; then
             log "Agent service restart did not complete cleanly."
         fi
-        if ! "$SYSTEMCTL_BIN" restart "$VIEWER_SERVICE"; then
+        if ! "$SYSTEMCTL_BIN" restart --no-block "$VIEWER_SERVICE"; then
             log "Viewer service restart did not complete cleanly yet."
         fi
     else
-        if ! sudo "$SYSTEMCTL_BIN" restart "$AGENT_SERVICE"; then
+        if ! sudo "$SYSTEMCTL_BIN" restart --no-block "$AGENT_SERVICE"; then
             log "Agent service restart did not complete cleanly."
         fi
-        if ! sudo "$SYSTEMCTL_BIN" restart "$VIEWER_SERVICE"; then
+        if ! sudo "$SYSTEMCTL_BIN" restart --no-block "$VIEWER_SERVICE"; then
             log "Viewer service restart did not complete cleanly yet."
         fi
     fi

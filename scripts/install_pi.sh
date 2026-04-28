@@ -108,8 +108,7 @@ disable_service_if_present() {
     for service_path in \
         "/etc/systemd/system/$service_name" \
         "/etc/systemd/system/multi-user.target.wants/$service_name" \
-        "/etc/systemd/system/graphical.target.wants/$service_name" \
-        "/lib/systemd/system/$service_name"
+        "/etc/systemd/system/graphical.target.wants/$service_name"
     do
         if [[ -e "$service_path" || -L "$service_path" ]]; then
             log "Removing legacy service file: $service_path"
@@ -482,9 +481,9 @@ log "Enabling and starting services..."
 if [[ "$SKIP_SERVICE_RESTART" == "1" ]]; then
     log "Skipping immediate viewer and agent restart; the updater will relaunch them after the update screen closes."
 else
-    "${SUDO[@]}" systemctl restart warehouse-agent.service
+    "${SUDO[@]}" systemctl restart --no-block warehouse-agent.service
 
-    if ! "${SUDO[@]}" systemctl restart warehouse-viewer.service; then
+    if ! "${SUDO[@]}" systemctl restart --no-block warehouse-viewer.service; then
         log "The agent was installed, but the fullscreen viewer did not start yet."
         log "This usually means the Raspberry Pi desktop session is not running or auto-login is disabled."
     fi
