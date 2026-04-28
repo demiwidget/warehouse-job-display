@@ -8,12 +8,18 @@ from pathlib import Path
 
 import requests
 
+from pi_identity import registration_id, registration_payload
+
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = BASE_DIR / "viewer_config.json"
 
 
 def load_config():
-    return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    cfg, changed, _payload = registration_payload(cfg)
+    if changed:
+        save_config(cfg)
+    return cfg
 
 
 def save_config(cfg):
@@ -26,14 +32,10 @@ def url(cfg, path):
 
 def register(cfg):
     try:
+        _cfg, _changed, payload = registration_payload(dict(cfg))
         requests.post(
             url(cfg, "/register"),
-            json={
-                "id": cfg["device_id"],
-                "name": cfg["device_name"],
-                "screen": cfg.get("screen", "today"),
-                "version": cfg.get("version", "1.0.0"),
-            },
+            json=payload,
             timeout=5,
         )
     except Exception:
@@ -116,7 +118,7 @@ def main():
         try:
             cfg = load_config()
             register(cfg)
-            cmd = requests.get(url(cfg, f"/poll/{cfg['device_id']}"), timeout=10).json()
+            cmd = requests.get(url(cfg, f"/poll/{registration_id(cfg)}"), timeout=10).json()
             if cmd:
                 handle_command(cfg, cmd)
         except Exception:

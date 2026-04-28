@@ -55,9 +55,14 @@ class ManagerState:
         device_id = str(payload.get("id", "")).strip()
         if not device_id:
             return None
+        legacy_id = str(payload.get("legacy_id", "")).strip()
 
         now = datetime.now().isoformat(timespec="seconds")
         with self.lock:
+            if legacy_id and legacy_id != device_id:
+                self.devices.pop(legacy_id, None)
+                self.alerts.pop(legacy_id, None)
+                self.commands.pop(legacy_id, None)
             existing = self.devices.get(device_id, {})
             existing.update(
                 {
@@ -76,7 +81,10 @@ class ManagerState:
 
     def list_devices(self):
         with self.lock:
-            return sorted(self.devices.values(), key=lambda item: item.get("name", item.get("id", "")))
+            return sorted(
+                self.devices.values(),
+                key=lambda item: (item.get("name", item.get("id", "")), item.get("id", "")),
+            )
 
     def queue_command(self, device_ids, action, **extra):
         command = {"action": action}

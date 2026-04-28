@@ -30,6 +30,8 @@ try:
 except Exception:
     QSoundEffect = None
 
+from pi_identity import registration_id, registration_payload
+
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "viewer_config.json"
 
@@ -201,7 +203,8 @@ def load_config():
             cfg.update(json.loads(CONFIG_PATH.read_text(encoding="utf-8")))
         except Exception:
             pass
-    else:
+    cfg, changed, _payload = registration_payload(cfg)
+    if changed or not CONFIG_PATH.exists():
         CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     return cfg
 
@@ -335,14 +338,10 @@ class ViewerWindow(QMainWindow):
 
     def register(self):
         try:
+            _cfg, _changed, payload = registration_payload(dict(self.config), screen=self.current_screen)
             requests.post(
                 self.server_url("/register"),
-                json={
-                    "id": self.config["device_id"],
-                    "name": self.config["device_name"],
-                    "screen": self.current_screen,
-                    "version": self.config["version"],
-                },
+                json=payload,
                 timeout=5,
             )
         except Exception:
@@ -355,7 +354,7 @@ class ViewerWindow(QMainWindow):
 
     def poll_alerts(self):
         try:
-            alert = requests.get(self.server_url(f"/alerts/{self.config['device_id']}"), timeout=5).json()
+            alert = requests.get(self.server_url(f"/alerts/{registration_id(self.config)}"), timeout=5).json()
             if not alert:
                 self.remote_alert_queue_remaining = 0
                 self.update_notification_queue_badge()

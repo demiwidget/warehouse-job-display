@@ -208,13 +208,24 @@ if [[ ! -f "$APP_DIR/viewer_config.json" ]]; then
     fi
 
     HOSTNAME_VALUE="$(hostname)"
+    DEVICE_ID_VALUE="$(WAREHOUSE_APP_DIR="$APP_DIR" WAREHOUSE_DEVICE_LABEL="$HOSTNAME_VALUE" "$PYTHON_BIN" - <<'PY'
+import os
+import sys
+
+sys.path.insert(0, os.environ["WAREHOUSE_APP_DIR"])
+from pi_identity import build_device_uid
+
+print(build_device_uid(os.environ.get("WAREHOUSE_DEVICE_LABEL", "")))
+PY
+)"
     update_status 84 "Writing device configuration" "Creating the initial viewer settings for this Pi."
     log "Writing initial viewer_config.json..."
     tee "$APP_DIR/viewer_config.json" >/dev/null <<CONFIG
 {
   "server": "http://${MANAGER_IP}:${MANAGER_PORT}",
-  "device_id": "${HOSTNAME_VALUE}",
+  "device_id": "${DEVICE_ID_VALUE}",
   "device_name": "${HOSTNAME_VALUE}",
+  "device_uid": "${DEVICE_ID_VALUE}",
   "version": "${VERSION}",
   "screen": "today",
   "allow_all_screens": true
