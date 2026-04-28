@@ -107,6 +107,13 @@ def handle_command(cfg, cmd):
         reboot_pi()
     elif action == "restart":
         restart_viewer()
+    elif action == "rename":
+        new_name = str(cmd.get("device_name", "")).strip()
+        if new_name:
+            cfg["device_name"] = new_name
+            save_config(cfg)
+            register(cfg)
+            restart_viewer()
     elif action == "set_screen":
         cfg["screen"] = cmd.get("screen", cfg.get("screen", "today"))
         save_config(cfg)

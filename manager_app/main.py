@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -409,12 +410,15 @@ class PiScreensTab(QWidget):
         layout.addLayout(screen_buttons)
 
         command_buttons = QHBoxLayout()
+        rename_btn = QPushButton("Rename Pi")
         restart_btn = QPushButton("Restart Display App")
         reboot_btn = QPushButton("Reboot Pi")
         refresh_btn = QPushButton("Refresh List")
+        rename_btn.clicked.connect(self.rename_selected_pi)
         restart_btn.clicked.connect(lambda: self.send_action("restart"))
         reboot_btn.clicked.connect(lambda: self.send_action("reboot"))
         refresh_btn.clicked.connect(self.refresh)
+        command_buttons.addWidget(rename_btn)
         command_buttons.addWidget(restart_btn)
         command_buttons.addWidget(reboot_btn)
         command_buttons.addStretch(1)
@@ -438,6 +442,22 @@ class PiScreensTab(QWidget):
                 ids.append(item.text())
         return ids
 
+    def selected_devices(self):
+        rows = {index.row() for index in self.table.selectedIndexes()}
+        devices = []
+        for row in sorted(rows):
+            device_id_item = self.table.item(row, 0)
+            device_name_item = self.table.item(row, 1)
+            if not device_id_item:
+                continue
+            devices.append(
+                {
+                    "id": device_id_item.text(),
+                    "name": device_name_item.text() if device_name_item else "",
+                }
+            )
+        return devices
+
     def refresh(self):
         devices = self.state.list_devices()
         self.table.setRowCount(len(devices))
@@ -459,6 +479,34 @@ class PiScreensTab(QWidget):
 
     def send_screen(self, screen):
         self.send_action("set_screen", screen=screen)
+
+    def rename_selected_pi(self):
+        devices = self.selected_devices()
+        if not devices:
+            QMessageBox.warning(self, "No Pi Selected", "Select one Pi screen first.")
+            return
+        if len(devices) != 1:
+            QMessageBox.warning(self, "Select One Pi", "Rename works on one Pi screen at a time.")
+            return
+
+        device = devices[0]
+        current_name = device.get("name", "").strip()
+        new_name, accepted = QInputDialog.getText(
+            self,
+            "Rename Pi",
+            "Enter the new screen name:",
+            text=current_name,
+        )
+        if not accepted:
+            return
+
+        clean_name = str(new_name or "").strip()
+        if not clean_name:
+            QMessageBox.warning(self, "Invalid Name", "Enter a non-empty name for this Pi screen.")
+            return
+
+        self.state.queue_command([device["id"]], "rename", device_name=clean_name)
+        self.status.setText(f"Queued rename for {device['id']} to '{clean_name}'.")
 
     def send_action(self, action, screen=None):
         device_ids = self.selected_device_ids()

@@ -37,7 +37,12 @@ def create_app(state):
         action = payload.get("action")
         if not device_ids or not action:
             return jsonify({"error": "device_ids and action are required."}), 400
-        command_payload = state.queue_command(device_ids, action, screen=payload.get("screen"))
+        extras = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"device_ids", "action"}
+        }
+        command_payload = state.queue_command(device_ids, action, **extras)
         return jsonify({"ok": True, "command": command_payload})
 
     @app.get("/api/settings")
