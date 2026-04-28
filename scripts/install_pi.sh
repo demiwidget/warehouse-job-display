@@ -50,6 +50,7 @@ MANAGER_IP="${WAREHOUSE_MANAGER_IP:-}"
 MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 DISABLE_LEGACY_KIOSK="${WAREHOUSE_DISABLE_LEGACY_KIOSK:-1}"
 DISABLE_LEGACY_STACK="${WAREHOUSE_DISABLE_LEGACY_STACK:-0}"
+SKIP_SERVICE_RESTART="${WAREHOUSE_SKIP_SERVICE_RESTART:-0}"
 VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.1')"
 
 if [[ ! -f "$APP_DIR/pi_viewer.py" || ! -f "$APP_DIR/pi_agent.py" ]]; then
@@ -352,11 +353,15 @@ log "Enabling and starting services..."
 "${SUDO[@]}" systemctl enable warehouse-update-on-boot.service
 "${SUDO[@]}" systemctl enable warehouse-update.timer
 "${SUDO[@]}" systemctl start warehouse-update.timer
-"${SUDO[@]}" systemctl restart warehouse-agent.service
+if [[ "$SKIP_SERVICE_RESTART" == "1" ]]; then
+    log "Skipping immediate viewer and agent restart; the updater will relaunch them after the update screen closes."
+else
+    "${SUDO[@]}" systemctl restart warehouse-agent.service
 
-if ! "${SUDO[@]}" systemctl restart warehouse-viewer.service; then
-    log "The agent was installed, but the fullscreen viewer did not start yet."
-    log "This usually means the Raspberry Pi desktop session is not running or auto-login is disabled."
+    if ! "${SUDO[@]}" systemctl restart warehouse-viewer.service; then
+        log "The agent was installed, but the fullscreen viewer did not start yet."
+        log "This usually means the Raspberry Pi desktop session is not running or auto-login is disabled."
+    fi
 fi
 
 update_status 99 "Finalising update" "The dashboard is almost ready."

@@ -110,10 +110,19 @@ pause_for_window() {
     fi
 }
 
+stop_update_window() {
+    rm -f "$STATUS_FILE" >/dev/null 2>&1 || true
+    if [[ "$UPDATE_WINDOW_STARTED" -eq 1 ]] && command -v pkill >/dev/null 2>&1; then
+        pkill -f "$UPDATE_WINDOW_SCRIPT $STATUS_FILE" >/dev/null 2>&1 || true
+        UPDATE_WINDOW_STARTED=0
+    fi
+}
+
 handle_error() {
     log "Update failed. Keeping the current dashboard version."
     write_status 100 failed "Update failed" "Keeping the current dashboard version."
     pause_for_window 6
+    stop_update_window
 }
 
 trap handle_error ERR
@@ -136,9 +145,9 @@ run_git() {
 
 run_installer() {
     if [[ "$(id -u)" -eq 0 ]]; then
-        WAREHOUSE_APP_USER="$APP_USER" WAREHOUSE_UPDATE_STATUS_FILE="$STATUS_FILE" "$APP_DIR/scripts/install_pi.sh"
+        WAREHOUSE_APP_USER="$APP_USER" WAREHOUSE_UPDATE_STATUS_FILE="$STATUS_FILE" WAREHOUSE_SKIP_SERVICE_RESTART=1 "$APP_DIR/scripts/install_pi.sh"
     else
-        sudo env WAREHOUSE_APP_USER="$APP_USER" WAREHOUSE_UPDATE_STATUS_FILE="$STATUS_FILE" "$APP_DIR/scripts/install_pi.sh"
+        sudo env WAREHOUSE_APP_USER="$APP_USER" WAREHOUSE_UPDATE_STATUS_FILE="$STATUS_FILE" WAREHOUSE_SKIP_SERVICE_RESTART=1 "$APP_DIR/scripts/install_pi.sh"
     fi
 }
 
@@ -150,16 +159,24 @@ runtime_missing() {
 restart_services() {
     if [[ -z "$SYSTEMCTL_BIN" ]]; then
         log "Could not find systemctl; skipping service restart."
-        return 1
+        return 0
     fi
 
     log "Restarting warehouse viewer and agent services..."
     if [[ "$(id -u)" -eq 0 ]]; then
-        "$SYSTEMCTL_BIN" restart "$VIEWER_SERVICE"
-        "$SYSTEMCTL_BIN" restart "$AGENT_SERVICE"
+        if ! "$SYSTEMCTL_BIN" restart "$AGENT_SERVICE"; then
+            log "Agent service restart did not complete cleanly."
+        fi
+        if ! "$SYSTEMCTL_BIN" restart "$VIEWER_SERVICE"; then
+            log "Viewer service restart did not complete cleanly yet."
+        fi
     else
-        sudo "$SYSTEMCTL_BIN" restart "$VIEWER_SERVICE"
-        sudo "$SYSTEMCTL_BIN" restart "$AGENT_SERVICE"
+        if ! sudo "$SYSTEMCTL_BIN" restart "$AGENT_SERVICE"; then
+            log "Agent service restart did not complete cleanly."
+        fi
+        if ! sudo "$SYSTEMCTL_BIN" restart "$VIEWER_SERVICE"; then
+            log "Viewer service restart did not complete cleanly yet."
+        fi
     fi
 }
 
@@ -173,7 +190,9 @@ finish_without_update() {
         run_installer
         installer_ran=1
         write_status 100 complete "Repair complete" "Starting the latest dashboard build."
-        pause_for_window 2
+        pause_for_window 3
+        stop_update_window
+        restart_services
     fi
 
     if [[ "$RESTART_DISPLAY_MODE" -eq 1 && "$installer_ran" -eq 0 ]]; then
@@ -234,7 +253,9 @@ main() {
     run_installer
     write_status 100 complete "Update complete" "Starting the latest dashboard build."
     log "Update complete."
-    pause_for_window 2
+    pause_for_window 3
+    stop_update_window
+    restart_services
 }
 
 if [[ ! -e "$LOCK_FILE" ]]; then

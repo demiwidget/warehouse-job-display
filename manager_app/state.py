@@ -96,7 +96,9 @@ class ManagerState:
             queue = self.alerts.setdefault(str(device_id), [])
             if not queue:
                 return None
-            return queue.pop(0)
+            alert = dict(queue.pop(0))
+            alert["queue_remaining"] = len(queue)
+            return alert
 
     def screen_payload(self, screen):
         with self.lock:

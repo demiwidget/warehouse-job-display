@@ -11,6 +11,7 @@ class UpdateWindow(QMainWindow):
         super().__init__()
         self.status_path = Path(status_path)
         self.close_timer = None
+        self.has_seen_status = False
         self.last_state = ""
         self.setWindowTitle("Warehouse Dashboard Update")
         self.showFullScreen()
@@ -114,7 +115,10 @@ class UpdateWindow(QMainWindow):
     def refresh_status(self):
         payload = self.load_status()
         if not payload:
+            if self.has_seen_status and self.last_state in {"complete", "failed"}:
+                self.close()
             return
+        self.has_seen_status = True
 
         title = str(payload.get("title", "")).strip() or "Updating Warehouse Dashboard"
         detail = str(payload.get("detail", "")).strip() or "Please keep this Pi powered on."

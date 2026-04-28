@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QHeaderView,
+    QHBoxLayout,
     QDialog,
     QPushButton,
 )
@@ -211,6 +212,7 @@ class ViewerWindow(QMainWindow):
         self.config = load_config()
         self.current_screen = self.config.get("screen", "today")
         self.pending_alerts = []
+        self.remote_alert_queue_remaining = 0
         self.active_alert_dialog = None
         self.sound_effect = QSoundEffect(self) if QSoundEffect else None
         self.sound_process = None
@@ -256,6 +258,14 @@ class ViewerWindow(QMainWindow):
         cards.addWidget(self.card_prep, 1, 0, 1, 2)
         cards.addWidget(self.card_outstanding, 1, 2, 1, 2)
         root.addLayout(cards)
+
+        alert_bar = QHBoxLayout()
+        alert_bar.addStretch(1)
+        self.alert_queue_badge = QLabel("")
+        self.alert_queue_badge.setObjectName("alertQueueBadge")
+        self.alert_queue_badge.hide()
+        alert_bar.addWidget(self.alert_queue_badge)
+        root.addLayout(alert_bar)
 
         self.tabs = QTabWidget()
         self.today_page = CombinedJobsPage("Jobs Collecting / Delivering Today", "Jobs Returning Today")
@@ -304,6 +314,14 @@ class ViewerWindow(QMainWindow):
             QPushButton:hover { background-color: #36424d; }
             QLabel { color: #f3f3f3; }
             QLabel#sectionHeading { font-size: 22px; font-weight: 700; padding: 8px 4px; }
+            QLabel#alertQueueBadge {
+                background-color: #c3423f;
+                color: white;
+                font-size: 15px;
+                font-weight: 700;
+                padding: 8px 14px;
+                border-radius: 14px;
+            }
             QStatusBar { background-color: #15181b; }
             QTextBrowser { background-color: #171a1d; border: 1px solid #2a2f35; border-radius: 12px; padding: 16px; font-size: 18px; }
             """
@@ -339,8 +357,18 @@ class ViewerWindow(QMainWindow):
         try:
             alert = requests.get(self.server_url(f"/alerts/{self.config['device_id']}"), timeout=5).json()
             if not alert:
+                self.remote_alert_queue_remaining = 0
+                self.update_notification_queue_badge()
                 return
+            try:
+                self.remote_alert_queue_remaining = max(0, int(alert.get("queue_remaining", 0) or 0))
+            except Exception:
+                self.remote_alert_queue_remaining = 0
+            if alert.get("play_sound"):
+                self.play_alert_sound(alert.get("sound", ""))
+                alert["_sound_played"] = True
             self.pending_alerts.append(alert)
+            self.update_notification_queue_badge()
             self.show_next_alert()
         except Exception:
             pass
@@ -350,7 +378,8 @@ class ViewerWindow(QMainWindow):
             return
 
         alert = self.pending_alerts.pop(0)
-        if alert.get("play_sound"):
+        self.update_notification_queue_badge()
+        if alert.get("play_sound") and not alert.get("_sound_played"):
             self.play_alert_sound(alert.get("sound", ""))
 
         if not alert.get("show_popup", True):
@@ -363,7 +392,18 @@ class ViewerWindow(QMainWindow):
 
     def finish_current_alert(self, *_args):
         self.active_alert_dialog = None
+        self.update_notification_queue_badge()
         self.show_next_alert()
+
+    def update_notification_queue_badge(self):
+        queued_count = len(self.pending_alerts) + max(0, self.remote_alert_queue_remaining)
+        if queued_count <= 0:
+            self.alert_queue_badge.hide()
+            self.alert_queue_badge.setText("")
+            return
+        label = "notification" if queued_count == 1 else "notifications"
+        self.alert_queue_badge.setText(f"{queued_count} queued {label}")
+        self.alert_queue_badge.show()
 
     def play_alert_sound(self, sound_name):
         sound_path = BASE_DIR / "sounds" / str(sound_name or "").strip()
