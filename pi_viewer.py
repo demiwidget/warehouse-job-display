@@ -402,7 +402,12 @@ class ViewerWindow(QMainWindow):
                     stderr=subprocess.DEVNULL,
                     start_new_session=True,
                 )
-                return True
+                try:
+                    return_code = self.sound_process.wait(timeout=0.2)
+                except subprocess.TimeoutExpired:
+                    return True
+                if return_code == 0:
+                    return True
             except Exception:
                 continue
         return False

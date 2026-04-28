@@ -264,8 +264,10 @@ Type=simple
 User=$APP_USER
 WorkingDirectory=$APP_DIR
 Environment=DISPLAY=:0
+Environment=HOME=$APP_HOME
 Environment=XAUTHORITY=$APP_HOME/.Xauthority
 Environment=XDG_RUNTIME_DIR=/run/user/$APP_UID
+Environment=PULSE_SERVER=unix:/run/user/$APP_UID/pulse/native
 Environment=WAYLAND_DISPLAY=wayland-0
 Environment="QT_QPA_PLATFORM=wayland;xcb"
 ExecStart=$VENV_DIR/bin/python "$APP_DIR/pi_viewer.py"
