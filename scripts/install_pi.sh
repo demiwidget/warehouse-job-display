@@ -49,7 +49,7 @@ REBOOT_BIN="$(command -v reboot)"
 MANAGER_IP="${WAREHOUSE_MANAGER_IP:-}"
 MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 DISABLE_LEGACY_KIOSK="${WAREHOUSE_DISABLE_LEGACY_KIOSK:-1}"
-DISABLE_LEGACY_STACK="${WAREHOUSE_DISABLE_LEGACY_STACK:-0}"
+DISABLE_LEGACY_STACK="${WAREHOUSE_DISABLE_LEGACY_STACK:-1}"
 SKIP_SERVICE_RESTART="${WAREHOUSE_SKIP_SERVICE_RESTART:-0}"
 VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.1')"
 
@@ -104,20 +104,37 @@ disable_service_if_present() {
         log "Disabling legacy service: $service_name"
         "${SUDO[@]}" systemctl disable --now "$service_name" >/dev/null 2>&1 || true
     fi
+
+    for service_path in \
+        "/etc/systemd/system/$service_name" \
+        "/etc/systemd/system/multi-user.target.wants/$service_name" \
+        "/etc/systemd/system/graphical.target.wants/$service_name" \
+        "/lib/systemd/system/$service_name"
+    do
+        if [[ -e "$service_path" || -L "$service_path" ]]; then
+            log "Removing legacy service file: $service_path"
+            "${SUDO[@]}" rm -f "$service_path" >/dev/null 2>&1 || true
+        fi
+    done
 }
 
 sanitize_autostart_file() {
     local autostart_file="$1"
     local backup_file=""
+    local runner=()
 
     if [[ ! -f "$autostart_file" ]]; then
         return 0
     fi
 
-    backup_file="${autostart_file}.warehouse-backup-$(date +%Y%m%d%H%M%S)"
-    cp "$autostart_file" "$backup_file"
+    if [[ "$autostart_file" != "$APP_HOME"* && "$(id -u)" -ne 0 ]]; then
+        runner=(sudo)
+    fi
 
-    python3 - "$autostart_file" <<'PY'
+    backup_file="${autostart_file}.warehouse-backup-$(date +%Y%m%d%H%M%S)"
+    "${runner[@]}" cp "$autostart_file" "$backup_file"
+
+    "${runner[@]}" python3 - "$autostart_file" <<'PY'
 import re
 import sys
 from pathlib import Path
@@ -140,6 +157,74 @@ PY
     log "Backed up legacy autostart file to: $backup_file"
 }
 
+sanitize_autostart_directory() {
+    local autostart_dir="$1"
+    local desktop_file=""
+    local runner=()
+
+    if [[ ! -d "$autostart_dir" ]]; then
+        return 0
+    fi
+
+    if [[ "$autostart_dir" != "$APP_HOME"* && "$(id -u)" -ne 0 ]]; then
+        runner=(sudo)
+    fi
+
+    for desktop_file in "$autostart_dir"/*.desktop; do
+        if [[ ! -f "$desktop_file" ]]; then
+            continue
+        fi
+
+        if python3 - "$desktop_file" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="ignore")
+pattern = re.compile(r"(chromium|google-chrome|firefox|midori|kiosk|dashboard|node-red|homeassistant|home-assistant|8123|1880)", re.I)
+raise SystemExit(0 if pattern.search(text) else 1)
+PY
+        then
+            local backup_file="${desktop_file}.warehouse-disabled-$(date +%Y%m%d%H%M%S)"
+            "${runner[@]}" mv "$desktop_file" "$backup_file"
+            log "Disabled legacy autostart desktop file: $desktop_file"
+        fi
+    done
+}
+
+disable_user_service_if_present() {
+    local service_name="$1"
+    local user_systemd_dir="$APP_HOME/.config/systemd/user"
+    local service_path=""
+
+    if [[ -d "$user_systemd_dir" ]]; then
+        for service_path in \
+            "$user_systemd_dir/$service_name" \
+            "$user_systemd_dir/default.target.wants/$service_name" \
+            "$user_systemd_dir/graphical-session.target.wants/$service_name" \
+            "$user_systemd_dir/graphical-session-pre.target.wants/$service_name"
+        do
+            if [[ -e "$service_path" || -L "$service_path" ]]; then
+                log "Removing legacy user service file: $service_path"
+                run_as_app_user rm -f "$service_path" >/dev/null 2>&1 || true
+            fi
+        done
+    fi
+
+    if [[ -n "${APP_UID:-}" && -S "/run/user/$APP_UID/bus" ]]; then
+        run_as_app_user env XDG_RUNTIME_DIR="/run/user/$APP_UID" systemctl --user disable --now "$service_name" >/dev/null 2>&1 || true
+    fi
+}
+
+kill_legacy_processes() {
+    run_as_app_user pkill -f "chromium|google-chrome|firefox|midori|matchbox" >/dev/null 2>&1 || true
+    run_as_app_user pkill -f "node-red|node_red" >/dev/null 2>&1 || true
+    run_as_app_user pkill -f "homeassistant|home-assistant|hass" >/dev/null 2>&1 || true
+    "${SUDO[@]}" pkill -f "chromium|google-chrome|firefox|midori|matchbox" >/dev/null 2>&1 || true
+    "${SUDO[@]}" pkill -f "node-red|node_red" >/dev/null 2>&1 || true
+    "${SUDO[@]}" pkill -f "homeassistant|home-assistant|hass" >/dev/null 2>&1 || true
+}
+
 disable_legacy_kiosk() {
     if [[ "$DISABLE_LEGACY_KIOSK" != "1" ]]; then
         return 0
@@ -154,11 +239,25 @@ disable_legacy_kiosk() {
     disable_service_if_present dashboard-kiosk.service
     disable_service_if_present autostart-browser.service
     disable_service_if_present chromium.service
+    disable_service_if_present kiosk-browser.service
+    disable_service_if_present dashboard-browser.service
+    disable_user_service_if_present chromium.service
+    disable_user_service_if_present chromium-kiosk.service
+    disable_user_service_if_present browser-kiosk.service
+    disable_user_service_if_present kiosk.service
 
     sanitize_autostart_file "$APP_HOME/.config/lxsession/LXDE-pi/autostart"
     sanitize_autostart_file "$APP_HOME/.config/lxsession/LXDE/autostart"
+    sanitize_autostart_file "/etc/xdg/lxsession/LXDE-pi/autostart"
+    sanitize_autostart_file "/etc/xdg/lxsession/LXDE/autostart"
+    sanitize_autostart_file "$APP_HOME/.config/openbox/autostart"
+    sanitize_autostart_file "/etc/xdg/openbox/autostart"
+    sanitize_autostart_file "$APP_HOME/.config/wayfire.ini"
+    sanitize_autostart_file "/etc/xdg/wayfire.ini"
+    sanitize_autostart_directory "$APP_HOME/.config/autostart"
+    sanitize_autostart_directory "/etc/xdg/autostart"
 
-    run_as_app_user pkill -f "chromium|google-chrome|firefox|midori|matchbox" >/dev/null 2>&1 || true
+    kill_legacy_processes
 }
 
 disable_legacy_stack() {
@@ -170,8 +269,24 @@ disable_legacy_stack() {
     log "Disabling legacy local Node-RED / Home Assistant services if present..."
     disable_service_if_present nodered.service
     disable_service_if_present node-red.service
+    disable_service_if_present node-red-dashboard.service
     disable_service_if_present home-assistant.service
     disable_service_if_present home-assistant@homeassistant.service
+    disable_service_if_present home-assistant@pi.service
+    disable_service_if_present hass.service
+    disable_service_if_present hassio-supervisor.service
+    disable_service_if_present hassio-apparmor.service
+    disable_service_if_present hassio-audio.service
+    disable_service_if_present hassio-dns.service
+    disable_service_if_present hassio-hostapd.service
+    disable_service_if_present hassio-multicast.service
+    disable_service_if_present hassio-observer.service
+    disable_service_if_present hassio-updater.service
+    disable_user_service_if_present nodered.service
+    disable_user_service_if_present node-red.service
+    disable_user_service_if_present home-assistant.service
+    disable_user_service_if_present hass.service
+    kill_legacy_processes
 }
 
 log "Installing Warehouse Dashboard from: $APP_DIR"
