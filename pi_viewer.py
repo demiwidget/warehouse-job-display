@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -211,6 +213,7 @@ class ViewerWindow(QMainWindow):
         self.pending_alerts = []
         self.active_alert_dialog = None
         self.sound_effect = QSoundEffect(self) if QSoundEffect else None
+        self.sound_process = None
         self.setWindowTitle(self.config.get("device_name", "Warehouse Viewer"))
         self.resize(1600, 900)
         self.build_ui()
@@ -364,7 +367,14 @@ class ViewerWindow(QMainWindow):
 
     def play_alert_sound(self, sound_name):
         sound_path = BASE_DIR / "sounds" / str(sound_name or "").strip()
-        if self.sound_effect and sound_path.exists():
+        if not sound_path.exists():
+            QApplication.beep()
+            return
+
+        if self.play_alert_sound_with_system_player(sound_path):
+            return
+
+        if self.sound_effect:
             self.sound_effect.stop()
             self.sound_effect.setSource(QUrl.fromLocalFile(str(sound_path)))
             self.sound_effect.setLoopCount(1)
@@ -372,6 +382,30 @@ class ViewerWindow(QMainWindow):
             self.sound_effect.play()
             return
         QApplication.beep()
+
+    def play_alert_sound_with_system_player(self, sound_path):
+        players = [
+            ("aplay", ["aplay", "-q", str(sound_path)]),
+            ("paplay", ["paplay", str(sound_path)]),
+            ("pw-play", ["pw-play", str(sound_path)]),
+        ]
+
+        for binary, command in players:
+            if not shutil.which(binary):
+                continue
+            try:
+                if self.sound_process and self.sound_process.poll() is None:
+                    self.sound_process.terminate()
+                self.sound_process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                return True
+            except Exception:
+                continue
+        return False
 
     def fetch_screen(self, name):
         try:

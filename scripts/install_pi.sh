@@ -186,7 +186,7 @@ if [[ "${WAREHOUSE_SKIP_APT:-0}" != "1" ]]; then
 
     update_status 68 "Installing system packages" "Installing Git, Python, and desktop runtime packages."
     log "Installing Python, Git, and desktop runtime packages..."
-    "${SUDO[@]}" apt-get install -y git python3 python3-venv python3-full curl unzip
+    "${SUDO[@]}" apt-get install -y git python3 python3-venv python3-full curl unzip alsa-utils
 else
     log "Skipping apt package installation because WAREHOUSE_SKIP_APT=1"
 fi
