@@ -100,6 +100,11 @@ class DashboardTable(QTableWidget):
         if len(headers) > 4:
             self.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
 
+    def set_touch_row_height(self, height):
+        self.verticalHeader().setDefaultSectionSize(height)
+        for row in range(self.rowCount()):
+            self.setRowHeight(row, height)
+
     def row_data(self, row):
         if 0 <= row < len(self.row_payloads):
             return self.row_payloads[row]
@@ -372,6 +377,20 @@ class ViewerWindow(QMainWindow):
             QTabBar::tab:selected { background: #2b343d; }
             QPushButton { background-color: #2b343d; color: white; padding: 10px 14px; border-radius: 10px; }
             QPushButton:hover { background-color: #36424d; }
+            QPushButton#prepActionButton {
+                background-color: #f4c542;
+                color: #111315;
+                font-size: 18px;
+                font-weight: 800;
+                padding: 14px 18px;
+                border: 2px solid #fff0a6;
+                border-radius: 8px;
+            }
+            QPushButton#prepActionButton:disabled {
+                background-color: #343a40;
+                color: #8e979f;
+                border: 1px solid #4a525a;
+            }
             QLabel { color: #f3f3f3; }
             QLabel#sectionHeading { font-size: 22px; font-weight: 700; padding: 8px 4px; }
             QLabel#alertQueueBadge {
@@ -669,10 +688,17 @@ class ViewerWindow(QMainWindow):
         except ValueError:
             return
 
+        self.prep_table.set_touch_row_height(74)
+        self.prep_table.horizontalHeader().setSectionResizeMode(action_col, QHeaderView.Fixed)
+        self.prep_table.setColumnWidth(action_col, 310)
+
         for row in range(self.prep_table.rowCount()):
             data = self.prep_table.row_data(row)
             items = data.get("__unprepped_items", [])
-            button = QPushButton("View Unprepped Items")
+            unprepped_qty = sum(int(item.get("Unprepped", 0) or 0) for item in items)
+            button = QPushButton(f"VIEW UNPREPPED ({unprepped_qty})" if items else "ALL PREPPED")
+            button.setObjectName("prepActionButton")
+            button.setMinimumHeight(56)
             button.setEnabled(bool(items))
             button.clicked.connect(lambda _checked=False, row_index=row: self.open_unprepped_items_dialog(row_index, 0))
             self.prep_table.setCellWidget(row, action_col, button)
