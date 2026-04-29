@@ -232,7 +232,7 @@ class CurrentRMSTab(QWidget):
         form.addRow("Tomorrow in view", self.view_inputs["tomorrow_in"])
         form.addRow("Prep / next 7 days view", self.view_inputs["prep"])
         form.addRow("Outstanding view", self.view_inputs["outstanding"])
-        form.addRow("Prep excluded item IDs", self.excluded_items_input)
+        form.addRow("Prep / alert excluded item IDs", self.excluded_items_input)
         layout.addLayout(form)
 
         buttons = QHBoxLayout()

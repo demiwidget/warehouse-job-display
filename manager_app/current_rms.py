@@ -205,6 +205,7 @@ class DashboardBuilder:
         self._new_job_snapshots = {}
         self._returned_job_ids = None
         self._item_snapshots = {}
+        self._last_excluded_item_ids = None
         self._sound_gate_started_at = datetime.now()
 
     def build(self, screen, settings):
@@ -249,6 +250,10 @@ class DashboardBuilder:
 
     def refresh_data(self, settings):
         self._reset_history_if_new_day(settings)
+        excluded_item_ids = self._excluded_item_ids(settings)
+        if self._last_excluded_item_ids is not None and excluded_item_ids != self._last_excluded_item_ids:
+            self._item_snapshots = {}
+        self._last_excluded_item_ids = set(excluded_item_ids)
 
         client = CurrentRMSClient(settings)
         if not client.configured:
@@ -600,6 +605,7 @@ class DashboardBuilder:
 
     def _job_change_alerts(self, bucket, event_type, view_payload, client, item_cache, settings):
         jobs = (view_payload or {}).get("opportunities", [])
+        excluded_item_ids = self._excluded_item_ids(settings)
         snapshot = self._item_snapshots.setdefault(bucket, {})
         alerts = []
         self._prefetch_opportunity_items(
@@ -612,7 +618,10 @@ class DashboardBuilder:
             for job in jobs:
                 opportunity_id = job.get("id")
                 if opportunity_id:
-                    snapshot[str(opportunity_id)] = self._item_snapshot(self._opportunity_items(client, item_cache, opportunity_id))
+                    snapshot[str(opportunity_id)] = self._item_snapshot(
+                        self._opportunity_items(client, item_cache, opportunity_id),
+                        excluded_item_ids,
+                    )
             return []
 
         next_snapshot = {}
@@ -622,7 +631,10 @@ class DashboardBuilder:
                 continue
 
             key = str(opportunity_id)
-            current_items = self._item_snapshot(self._opportunity_items(client, item_cache, opportunity_id))
+            current_items = self._item_snapshot(
+                self._opportunity_items(client, item_cache, opportunity_id),
+                excluded_item_ids,
+            )
             changes = self._compare_items(snapshot.get(key, {}), current_items)
             if changes:
                 alert = self._emit_alert(
@@ -827,14 +839,19 @@ class DashboardBuilder:
         )
         return {"title": "", "html": html}
 
-    def _item_snapshot(self, items):
+    def _item_snapshot(self, items, excluded_ids=None):
+        excluded_ids = excluded_ids or set()
         snapshot = {}
         for item in items:
+            if self._item_is_excluded(item, excluded_ids):
+                continue
             item_id = item.get("id")
             if item_id in (None, ""):
                 continue
+            resource_item_id = first_value(item, "item_id", "resource_item_id", ("item", "id"), default="")
             snapshot[str(item_id)] = {
                 "id": item_id,
+                "item_id": resource_item_id,
                 "name": first_value(item, ("item", "name"), "name", "description", default="Item"),
                 "quantity": first_value(item, "quantity", "quantity_total", "booked_quantity", default=0),
                 "status": first_value(item, "status", "status_id", default=0),
@@ -891,11 +908,7 @@ class DashboardBuilder:
         return booked_out_qty, checked_in_qty, booked_out_qty + checked_in_qty
 
     def _prep_totals(self, items, settings):
-        excluded_ids = {
-            str(item_id).strip()
-            for item_id in settings.get("current_rms", {}).get("excluded_item_ids", [])
-            if str(item_id).strip()
-        }
+        excluded_ids = self._excluded_item_ids(settings)
 
         prepared_total = 0
         total_qty = 0
@@ -903,9 +916,7 @@ class DashboardBuilder:
         unprepped_items = []
 
         for item in items:
-            item_id = str(item.get("id", "")).strip()
-            resource_item_id = str(item.get("item_id", "")).strip()
-            if (item_id and item_id in excluded_ids) or (resource_item_id and resource_item_id in excluded_ids):
+            if self._item_is_excluded(item, excluded_ids):
                 continue
 
             breakdown = self._prep_item_breakdown(item)
@@ -937,6 +948,28 @@ class DashboardBuilder:
             "booked_out": booked_out,
             "unprepped_items": unprepped_items,
         }
+
+    def _excluded_item_ids(self, settings):
+        return {
+            str(item_id).strip()
+            for item_id in settings.get("current_rms", {}).get("excluded_item_ids", [])
+            if str(item_id).strip()
+        }
+
+    def _item_identifier_values(self, item):
+        if not isinstance(item, dict):
+            return set()
+        identifiers = [
+            item.get("id"),
+            item.get("item_id"),
+            item.get("resource_item_id"),
+            first_value(item, ("item", "id"), default=""),
+            first_value(item, ("resource_item", "id"), default=""),
+        ]
+        return {str(identifier).strip() for identifier in identifiers if str(identifier).strip()}
+
+    def _item_is_excluded(self, item, excluded_ids):
+        return bool(excluded_ids and self._item_identifier_values(item).intersection(excluded_ids))
 
     def _prep_item_breakdown(self, item):
         line_total = safe_int(first_value(item, "quantity", "quantity_total", "booked_quantity", "total_quantity"), 0)
