@@ -42,6 +42,21 @@ def create_app(state):
     def devices():
         return jsonify(state.list_devices())
 
+    @app.get("/api/activity")
+    def activity():
+        return jsonify(
+            state.list_activity(
+                category=request.args.get("category", "All"),
+                level=request.args.get("level", "All"),
+                limit=request.args.get("limit", 500),
+            )
+        )
+
+    @app.post("/api/activity/clear")
+    def clear_activity():
+        state.clear_activity()
+        return jsonify({"ok": True})
+
     @app.post("/api/devices/command")
     def command():
         payload = request.get_json(silent=True) or {}

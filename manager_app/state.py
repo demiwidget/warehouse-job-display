@@ -1,7 +1,9 @@
 from copy import deepcopy
 from datetime import datetime
 from threading import RLock
+from time import monotonic
 
+from manager_app.activity_log import ActivityLog
 from manager_app.current_rms import DashboardBuilder
 from manager_app.settings_store import SettingsStore
 
@@ -32,6 +34,7 @@ def parse_iso(ts):
 class ManagerState:
     def __init__(self, store=None):
         self.store = store or SettingsStore()
+        self.activity = ActivityLog()
         self.lock = RLock()
         self.dashboard_lock = RLock()
         self.settings = self.store.load_settings()
@@ -39,6 +42,17 @@ class ManagerState:
         self.commands = {}
         self.alerts = {device_id: [] for device_id in self.devices}
         self.dashboard = DashboardBuilder()
+        self.log_activity("Manager", "Manager app started.")
+
+    def log_activity(self, category, message, level="info", details=None):
+        return self.activity.append(category, message, level=level, details=details)
+
+    def list_activity(self, category="All", level="All", limit=500):
+        return self.activity.list_entries(category=category, level=level, limit=limit)
+
+    def clear_activity(self):
+        self.activity.clear()
+        self.log_activity("Manager", "Activity log cleared.")
 
     def get_settings(self, include_secret=False):
         with self.lock:
@@ -66,6 +80,8 @@ class ManagerState:
             self.settings = self.store.save_settings(merged)
         with self.dashboard_lock:
             self.dashboard.refresh()
+        sections = ", ".join(sorted(str(key) for key in (updates or {}).keys())) or "settings"
+        self.log_activity("Settings", f"Saved {sections} settings.")
         return self.settings
 
     def test_current_rms(self, api_settings=None):
@@ -73,13 +89,24 @@ class ManagerState:
             settings = self.store.load_settings()
             if api_settings:
                 settings.setdefault("current_rms", {}).update(api_settings)
-        return self.dashboard.test_connection(settings)
+        self.log_activity("Current RMS", "Testing Current RMS connection.")
+        success, message = self.dashboard.test_connection(settings)
+        self.log_activity(
+            "Current RMS",
+            message,
+            level="info" if success else "error",
+        )
+        return success, message
 
     def _remove_legacy_device(self, legacy_id, device_id):
         if legacy_id and legacy_id != device_id:
             self.devices.pop(legacy_id, None)
             self.alerts.pop(legacy_id, None)
             self.commands.pop(legacy_id, None)
+            self.log_activity(
+                "Pis",
+                f"Removed legacy device row {legacy_id} after {device_id} re-registered.",
+            )
 
     def _merge_device_identity(self, existing, payload, remote_addr, now):
         existing.update(
@@ -114,12 +141,31 @@ class ManagerState:
         with self.lock:
             self._remove_legacy_device(legacy_id, device_id)
             existing = self.devices.get(device_id, {})
+            before = dict(existing)
             self._merge_device_identity(existing, payload, remote_addr, now)
             self._apply_status_update(existing, payload, now)
             self.devices[device_id] = existing
             self.alerts.setdefault(device_id, [])
             self.store.save_devices(self.devices)
-            return dict(existing)
+            result = dict(existing)
+
+        if not before:
+            self.log_activity(
+                "Pis",
+                f"{result.get('name') or device_id} registered from {result.get('ip') or 'unknown IP'}.",
+                details={"device_id": device_id, "version": result.get("version"), "screen": result.get("screen")},
+            )
+        elif any(before.get(key) != result.get(key) for key in ("name", "ip", "version")):
+            self.log_activity(
+                "Pis",
+                f"{result.get('name') or device_id} updated registration details.",
+                details={
+                    "device_id": device_id,
+                    "ip": result.get("ip"),
+                    "version": result.get("version"),
+                },
+            )
+        return result
 
     def report_device_status(self, payload, remote_addr):
         device_id = str(payload.get("id", "")).strip()
@@ -131,14 +177,29 @@ class ManagerState:
         with self.lock:
             self._remove_legacy_device(legacy_id, device_id)
             existing = self.devices.get(device_id, {})
+            previous_state = str(existing.get("status_state", "")).strip()
+            previous_message = str(existing.get("status_message", "")).strip()
             self._merge_device_identity(existing, payload, remote_addr, now)
             self._apply_status_update(existing, payload, now)
             self.devices[device_id] = existing
             self.alerts.setdefault(device_id, [])
             self.store.save_devices(self.devices)
-            return dict(existing)
+            result = dict(existing)
+
+        state = str(result.get("status_state", "")).strip()
+        message = str(result.get("status_message", "")).strip()
+        if state and (state != previous_state or message != previous_message):
+            category = "Updates" if state == "updating" else "Pis"
+            self.log_activity(
+                category,
+                f"{result.get('name') or device_id}: {STATUS_LABELS.get(state, state.replace('_', ' ').title())}.",
+                details={"device_id": device_id, "message": message, "source": result.get("status_source")},
+            )
+        return result
 
     def list_devices(self):
+        state_events = []
+        should_save = False
         with self.lock:
             now = datetime.now()
             devices = []
@@ -171,12 +232,29 @@ class ManagerState:
 
                 item["state"] = display_state
                 item["activity"] = status_message
+                previous_display_state = str(raw.get("last_display_state", "")).strip()
+                if display_state and display_state != previous_display_state:
+                    raw["last_display_state"] = display_state
+                    should_save = True
+                    state_events.append(
+                        {
+                            "category": "Updates" if display_state == "Updating" else "Pis",
+                            "message": f"{item.get('name') or item.get('id')}: {display_state}.",
+                            "details": {"device_id": item.get("id"), "activity": status_message},
+                        }
+                    )
                 devices.append(item)
 
-            return sorted(
-                devices,
-                key=lambda item: (item.get("name", item.get("id", "")), item.get("id", "")),
-            )
+            if should_save:
+                self.store.save_devices(self.devices)
+
+        for event in state_events:
+            self.log_activity(event["category"], event["message"], details=event["details"])
+
+        return sorted(
+            devices,
+            key=lambda item: (item.get("name", item.get("id", "")), item.get("id", "")),
+        )
 
     def queue_command(self, device_ids, action, **extra):
         command = {"action": action}
@@ -185,11 +263,23 @@ class ManagerState:
         with self.lock:
             for device_id in device_ids:
                 self.commands[str(device_id)] = dict(command)
-            return command
+        self.log_activity(
+            "Commands",
+            f"Queued {action} for {len(device_ids)} Pi screen(s).",
+            details={"device_ids": [str(device_id) for device_id in device_ids], "command": command},
+        )
+        return command
 
     def poll_command(self, device_id):
         with self.lock:
-            return self.commands.pop(str(device_id), None)
+            command = self.commands.pop(str(device_id), None)
+        if command:
+            self.log_activity(
+                "Commands",
+                f"Pi {device_id} collected command {command.get('action')}.",
+                details={"device_id": str(device_id), "command": command},
+            )
+        return command
 
     def poll_alert(self, device_id):
         with self.lock:
@@ -198,7 +288,12 @@ class ManagerState:
                 return None
             alert = dict(queue.pop(0))
             alert["queue_remaining"] = len(queue)
-            return alert
+        self.log_activity(
+            "Notifications",
+            f"Sent notification to Pi {device_id}: {alert.get('title') or alert.get('type') or 'Notification'}.",
+            details={"device_id": str(device_id), "queue_remaining": alert.get("queue_remaining")},
+        )
+        return alert
 
     def screen_payload(self, screen):
         with self.lock:
@@ -222,8 +317,24 @@ class ManagerState:
         with self.lock:
             settings = self.store.load_settings()
             self.settings = settings
+        started = monotonic()
+        self.log_activity("Current RMS", "Refresh started.")
         with self.dashboard_lock:
             _, new_alerts = self.dashboard.refresh_data(settings)
+            last_error = str(getattr(self.dashboard, "_last_error", "") or "").strip()
+        elapsed_ms = int((monotonic() - started) * 1000)
+        if last_error:
+            self.log_activity(
+                "Current RMS",
+                f"Refresh failed after {elapsed_ms}ms: {last_error}",
+                level="error",
+            )
+        else:
+            self.log_activity(
+                "Current RMS",
+                f"Refresh finished in {elapsed_ms}ms.",
+                details={"alerts_detected": len(new_alerts or [])},
+            )
         if not new_alerts:
             return
 
@@ -233,12 +344,22 @@ class ManagerState:
             if alert and (alert.get("show_popup") or alert.get("play_sound"))
         ]
         if not deliverable:
+            self.log_activity(
+                "Notifications",
+                f"{len(new_alerts)} alert event(s) detected but none were deliverable by current settings.",
+            )
             return
 
         with self.lock:
             for device_id in self.devices:
                 queue = self.alerts.setdefault(str(device_id), [])
                 queue.extend(dict(alert) for alert in deliverable)
+            target_count = len(self.devices)
+        self.log_activity(
+            "Notifications",
+            f"Queued {len(deliverable)} notification(s) for {target_count} Pi screen(s).",
+            details={"notifications": [alert.get("title") or alert.get("type") for alert in deliverable]},
+        )
 
     def send_test_notification(self, title, message, sound_name="", play_sound=True, device_ids=None):
         with self.lock:
@@ -247,6 +368,7 @@ class ManagerState:
             target_ids = [str(device_id) for device_id in (device_ids or self.devices.keys()) if str(device_id)]
 
         if not target_ids:
+            self.log_activity("Notifications", "Test notification failed because no Pis are registered.", level="warning")
             return False, "No Pi screens are registered yet."
 
         with self.dashboard_lock:
@@ -259,6 +381,7 @@ class ManagerState:
             )
 
         if not alert:
+            self.log_activity("Notifications", "Test notification failed because the message was empty.", level="warning")
             return False, "Enter some notification text first."
 
         with self.lock:
@@ -266,4 +389,9 @@ class ManagerState:
                 queue = self.alerts.setdefault(str(device_id), [])
                 queue.append(dict(alert))
 
+        self.log_activity(
+            "Notifications",
+            f"Queued test notification for {len(target_ids)} Pi screen(s): {alert.get('title')}.",
+            details={"device_ids": target_ids, "play_sound": alert.get("play_sound"), "sound": alert.get("sound")},
+        )
         return True, f"Queued a test notification for {len(target_ids)} Pi screen(s)."

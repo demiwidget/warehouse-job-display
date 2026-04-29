@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
@@ -544,6 +545,105 @@ class PiScreensTab(QWidget):
         self.status.setText(f"Queued {action} for {len(device_ids)} Pi screen(s).")
 
 
+class ActivityConsoleTab(QWidget):
+    COLUMNS = ["Time", "Level", "Category", "Message"]
+    LEVEL_COLORS = {
+        "error": "#b71c1c",
+        "warning": "#f57f17",
+        "info": "#1b5e20",
+    }
+
+    def __init__(self, state):
+        super().__init__()
+        self.state = state
+        layout = QVBoxLayout(self)
+
+        controls = QHBoxLayout()
+        self.category_filter = QComboBox()
+        self.category_filter.addItems(["All", "Current RMS", "Pis", "Notifications", "Updates", "Commands", "Settings", "Manager"])
+        self.level_filter = QComboBox()
+        self.level_filter.addItems(["All", "info", "warning", "error"])
+        refresh_btn = QPushButton("Refresh")
+        clear_btn = QPushButton("Clear")
+        copy_btn = QPushButton("Copy Diagnostics")
+        refresh_btn.clicked.connect(self.refresh)
+        clear_btn.clicked.connect(self.clear_log)
+        copy_btn.clicked.connect(self.copy_diagnostics)
+        self.category_filter.currentTextChanged.connect(self.refresh)
+        self.level_filter.currentTextChanged.connect(self.refresh)
+
+        controls.addWidget(QLabel("Category"))
+        controls.addWidget(self.category_filter)
+        controls.addWidget(QLabel("Level"))
+        controls.addWidget(self.level_filter)
+        controls.addWidget(refresh_btn)
+        controls.addWidget(copy_btn)
+        controls.addStretch(1)
+        controls.addWidget(clear_btn)
+        layout.addLayout(controls)
+
+        self.table = QTableWidget(0, len(self.COLUMNS))
+        self.table.setHorizontalHeaderLabels(self.COLUMNS)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.MultiSelection)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        layout.addWidget(self.table)
+
+        self.status = QLabel()
+        layout.addWidget(self.status)
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.refresh)
+        self.timer.start(2000)
+        self.refresh()
+
+    def refresh(self):
+        entries = self.state.list_activity(
+            category=self.category_filter.currentText(),
+            level=self.level_filter.currentText(),
+            limit=500,
+        )
+        self.table.setRowCount(len(entries))
+        for row, entry in enumerate(entries):
+            values = [
+                entry.get("ts", ""),
+                str(entry.get("level", "")).upper(),
+                entry.get("category", ""),
+                entry.get("message", ""),
+            ]
+            level_color = self.LEVEL_COLORS.get(str(entry.get("level", "")).lower(), "")
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(str(value))
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                if column == 1 and level_color:
+                    item.setBackground(QColor(level_color))
+                    item.setForeground(QColor("#ffffff"))
+                self.table.setItem(row, column, item)
+        self.table.resizeColumnsToContents()
+        if self.table.columnCount() >= 4:
+            self.table.setColumnWidth(3, 560)
+        self.status.setText(f"Showing {len(entries)} event(s). Newest events are at the top.")
+
+    def clear_log(self):
+        if QMessageBox.question(self, "Clear Console", "Clear the local manager activity log?") != QMessageBox.Yes:
+            return
+        self.state.clear_activity()
+        self.refresh()
+
+    def copy_diagnostics(self):
+        entries = self.state.list_activity(
+            category=self.category_filter.currentText(),
+            level=self.level_filter.currentText(),
+            limit=500,
+        )
+        lines = [
+            f"{entry.get('ts', '')}\t{str(entry.get('level', '')).upper()}\t{entry.get('category', '')}\t{entry.get('message', '')}"
+            for entry in entries
+        ]
+        QApplication.clipboard().setText("\n".join(lines))
+        self.status.setText(f"Copied {len(lines)} event(s) to the clipboard.")
+
+
 class ManagerWindow(QMainWindow):
     def __init__(self, state):
         super().__init__()
@@ -556,6 +656,7 @@ class ManagerWindow(QMainWindow):
         tabs.addTab(CurrentRMSTab(state), "Current RMS")
         tabs.addTab(AlertsTab(state), "Alerts")
         tabs.addTab(PiScreensTab(state), "Pi Screens")
+        tabs.addTab(ActivityConsoleTab(state), "Console")
         self.setCentralWidget(tabs)
 
 
