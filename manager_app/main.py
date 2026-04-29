@@ -145,6 +145,9 @@ class CurrentRMSTab(QWidget):
         self.max_pages_input = QSpinBox()
         self.max_pages_input.setRange(1, 20)
         self.max_pages_input.setValue(int(rms.get("max_pages", 2)))
+        self.api_workers_input = QSpinBox()
+        self.api_workers_input.setRange(1, 24)
+        self.api_workers_input.setValue(int(rms.get("api_workers", 12)))
 
         self.view_inputs = {
             "today_out": QLineEdit(str(views.get("today_out", ""))),
@@ -161,6 +164,7 @@ class CurrentRMSTab(QWidget):
         form.addRow("API key", self.api_key_input)
         form.addRow("Rows per page", self.per_page_input)
         form.addRow("Max pages", self.max_pages_input)
+        form.addRow("Parallel API requests", self.api_workers_input)
         form.addRow("Today out view", self.view_inputs["today_out"])
         form.addRow("Today in view", self.view_inputs["today_in"])
         form.addRow("Tomorrow out view", self.view_inputs["tomorrow_out"])
@@ -197,6 +201,7 @@ class CurrentRMSTab(QWidget):
             "api_key": self.api_key_input.text().strip(),
             "per_page": self.per_page_input.value(),
             "max_pages": self.max_pages_input.value(),
+            "api_workers": self.api_workers_input.value(),
             "views": {key: field.text().strip() for key, field in self.view_inputs.items()},
             "excluded_item_ids": [
                 item.strip()

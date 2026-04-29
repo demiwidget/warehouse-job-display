@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import html
 import re
@@ -121,6 +122,7 @@ class CurrentRMSClient:
         self.subdomain = rms.get("subdomain", "")
         self.per_page = max(1, safe_int(rms.get("per_page"), 48))
         self.max_pages = max(1, safe_int(rms.get("max_pages"), 2))
+        self.max_workers = max(1, min(24, safe_int(rms.get("api_workers"), 12)))
 
     @property
     def configured(self):
@@ -253,6 +255,7 @@ class DashboardBuilder:
         try:
             views = self._fetch_views(client, settings)
             item_cache = {}
+            self._prefetch_refresh_items(client, item_cache, views)
             payloads = {
                 "today": self._today_payload(views.get("today_out"), views.get("today_in"), settings),
                 "tomorrow": self._tomorrow_payload(views.get("tomorrow_out"), views.get("tomorrow_in")),
@@ -319,13 +322,38 @@ class DashboardBuilder:
             "outstanding": str(view_settings.get("outstanding", "")).strip(),
         }
 
-        by_view_id = {}
+        by_view_id = {"": client.fetch_view("")}
         results = {}
+
+        view_ids = []
+        seen_view_ids = set()
+        for view_id in requested.values():
+            if view_id and view_id not in seen_view_ids:
+                view_ids.append(view_id)
+                seen_view_ids.add(view_id)
+
+        if view_ids:
+            with ThreadPoolExecutor(max_workers=min(client.max_workers, len(view_ids))) as executor:
+                futures = {executor.submit(client.fetch_view, view_id): view_id for view_id in view_ids}
+                for future in as_completed(futures):
+                    by_view_id[futures[future]] = future.result()
+
         for name, view_id in requested.items():
-            if view_id not in by_view_id:
-                by_view_id[view_id] = client.fetch_view(view_id)
             results[name] = by_view_id[view_id]
         return results
+
+    def _prefetch_refresh_items(self, client, item_cache, views):
+        opportunity_ids = []
+        for view_name in ("prep", "today_out", "tomorrow_out", "outstanding"):
+            for opportunity in (views.get(view_name) or {}).get("opportunities", []):
+                if view_name == "outstanding":
+                    status = str(first_value(opportunity, "status_name", "status", default="")).strip().lower()
+                    if status != "active":
+                        continue
+                opportunity_id = opportunity.get("id")
+                if opportunity_id:
+                    opportunity_ids.append(opportunity_id)
+        self._prefetch_opportunity_items(client, item_cache, opportunity_ids)
 
     def _today_payload(self, out_view, in_view, settings):
         out_rows = [self._today_out_row(opportunity, settings) for opportunity in (out_view or {}).get("opportunities", [])]
@@ -570,6 +598,11 @@ class DashboardBuilder:
         jobs = (view_payload or {}).get("opportunities", [])
         snapshot = self._item_snapshots.setdefault(bucket, {})
         alerts = []
+        self._prefetch_opportunity_items(
+            client,
+            item_cache,
+            [job.get("id") for job in jobs if job.get("id")],
+        )
 
         if not snapshot:
             for job in jobs:
@@ -812,6 +845,31 @@ class DashboardBuilder:
             except Exception:
                 item_cache[key] = []
         return item_cache[key]
+
+    def _prefetch_opportunity_items(self, client, item_cache, opportunity_ids):
+        missing_ids = []
+        seen = set()
+        for opportunity_id in opportunity_ids:
+            key = str(opportunity_id).strip() if opportunity_id not in (None, "") else ""
+            if not key or key in seen or key in item_cache:
+                continue
+            missing_ids.append(opportunity_id)
+            seen.add(key)
+
+        if not missing_ids:
+            return
+
+        with ThreadPoolExecutor(max_workers=min(client.max_workers, len(missing_ids))) as executor:
+            futures = {
+                executor.submit(client.fetch_opportunity_items, opportunity_id): str(opportunity_id)
+                for opportunity_id in missing_ids
+            }
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    item_cache[key] = future.result()
+                except Exception:
+                    item_cache[key] = []
 
     def _outstanding_totals(self, items):
         booked_out_qty = 0

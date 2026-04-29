@@ -19,6 +19,7 @@ DEFAULT_SETTINGS = {
         "view_id": "",
         "per_page": 48,
         "max_pages": 2,
+        "api_workers": 12,
         "item_detail_limit": 12,
         "views": {
             "today_out": "1000063",
