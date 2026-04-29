@@ -78,6 +78,21 @@ class DashboardMonitorThread(Thread):
             self.stop_event.wait(interval)
 
 
+class UpdateMonitorThread(Thread):
+    def __init__(self, state):
+        super().__init__(daemon=True)
+        self.state = state
+        self.stop_event = Event()
+
+    def run(self):
+        while not self.stop_event.is_set():
+            try:
+                self.state.refresh_update_status(force=True)
+            except Exception as error:
+                self.state.log_exception("Updates", "GitHub update monitor failed", error)
+            self.stop_event.wait(300)
+
+
 class ResilientApplication(QApplication):
     def __init__(self, args, state):
         super().__init__(args)
@@ -435,7 +450,7 @@ class AlertsTab(QWidget):
 
 
 class PiScreensTab(QWidget):
-    COLUMNS = ["ID", "Name", "IP", "Screen", "Version", "State", "Activity", "Last Seen"]
+    COLUMNS = ["ID", "Name", "IP", "Screen", "Version", "Update", "State", "Activity", "Last Seen"]
     STATUS_COLORS = {
         "Online": "#2e7d32",
         "Display Restarting": "#f9a825",
@@ -453,6 +468,11 @@ class PiScreensTab(QWidget):
         super().__init__()
         self.state = state
         layout = QVBoxLayout(self)
+
+        self.update_status = QLabel("Checking GitHub update status...")
+        self.update_status.setWordWrap(True)
+        self.update_status.setStyleSheet("font-weight: 700;")
+        layout.addWidget(self.update_status)
 
         self.table = QTableWidget(0, len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels(self.COLUMNS)
@@ -478,11 +498,13 @@ class PiScreensTab(QWidget):
         rename_btn = QPushButton("Rename Pi")
         restart_btn = QPushButton("Restart Display App")
         update_btn = QPushButton("Update Pi From GitHub")
+        check_updates_btn = QPushButton("Check GitHub Updates")
         reboot_btn = QPushButton("Reboot Pi")
         refresh_btn = QPushButton("Refresh List")
         rename_btn.clicked.connect(self.rename_selected_pi)
         restart_btn.clicked.connect(lambda: self.send_action("restart"))
         update_btn.clicked.connect(lambda: self.send_action("update"))
+        check_updates_btn.clicked.connect(self.check_updates_now)
         reboot_btn.clicked.connect(lambda: self.send_action("reboot"))
         refresh_btn.clicked.connect(self.refresh)
         command_buttons.addWidget(rename_btn)
@@ -490,6 +512,7 @@ class PiScreensTab(QWidget):
         command_buttons.addWidget(update_btn)
         command_buttons.addWidget(reboot_btn)
         command_buttons.addStretch(1)
+        command_buttons.addWidget(check_updates_btn)
         command_buttons.addWidget(refresh_btn)
         layout.addLayout(command_buttons)
 
@@ -500,6 +523,7 @@ class PiScreensTab(QWidget):
         self.timer.timeout.connect(self.refresh)
         self.timer.start(3000)
         self.refresh()
+        self.check_updates_now()
 
     def selected_device_ids(self):
         rows = {index.row() for index in self.table.selectedIndexes()}
@@ -528,9 +552,11 @@ class PiScreensTab(QWidget):
 
     def refresh(self):
         devices = self.state.list_devices()
+        update_status = self.state.get_update_status()
         self.table.setRowCount(len(devices))
         online_count = 0
         offline_count = 0
+        update_count = 0
         for row, device in enumerate(devices):
             values = [
                 device.get("id", ""),
@@ -538,15 +564,19 @@ class PiScreensTab(QWidget):
                 device.get("ip", ""),
                 device.get("screen", ""),
                 device.get("version", ""),
+                device.get("update", ""),
                 device.get("state", ""),
                 device.get("activity", ""),
                 device.get("last_seen", ""),
             ]
             state_value = str(device.get("state", "")).strip()
+            update_value = str(device.get("update", "")).strip()
             if state_value == "Offline":
                 offline_count += 1
             elif state_value:
                 online_count += 1
+            if update_value.startswith("Available"):
+                update_count += 1
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
@@ -555,9 +585,31 @@ class PiScreensTab(QWidget):
                     if color:
                         item.setBackground(QColor(color))
                         item.setForeground(QColor("#ffffff"))
+                elif self.COLUMNS[column] == "Update" and str(value).startswith("Available"):
+                    item.setBackground(QColor("#f9a825"))
+                    item.setForeground(QColor("#111111"))
                 self.table.setItem(row, column, item)
         self.table.resizeColumnsToContents()
-        self.status.setText(f"{len(devices)} Pi screen(s) registered. {online_count} active / {offline_count} offline.")
+        self.update_status.setText(self.format_update_status(update_status))
+        self.status.setText(
+            f"{len(devices)} Pi screen(s) registered. {online_count} active / {offline_count} offline. "
+            f"{update_count} update(s) available."
+        )
+
+    def format_update_status(self, update_status):
+        checked_at = str(update_status.get("checked_at") or "not checked yet")
+        latest = str(update_status.get("latest_version") or "unknown")
+        local = str(update_status.get("local_version") or "unknown")
+        error = str(update_status.get("error") or "").strip()
+        if error:
+            return f"GitHub update check failed: {error} Last checked: {checked_at}."
+        if update_status.get("manager_update_available"):
+            return f"Manager update available: GitHub v{latest}, this manager v{local}. Restart the manager to apply it."
+        return f"GitHub latest version: v{latest}. Manager running v{local}. Last checked: {checked_at}."
+
+    def check_updates_now(self):
+        self.update_status.setText("Checking GitHub for updates...")
+        Thread(target=lambda: self.state.refresh_update_status(force=True), daemon=True).start()
 
     def send_screen(self, screen):
         self.send_action("set_screen", screen=screen)
@@ -731,8 +783,10 @@ def main():
     install_exception_hooks(state)
     server = ServerThread(state)
     monitor = DashboardMonitorThread(state)
+    update_monitor = UpdateMonitorThread(state)
     server.start()
     monitor.start()
+    update_monitor.start()
 
     try:
         app = ResilientApplication(sys.argv, state)
@@ -744,6 +798,7 @@ def main():
         return 1
     finally:
         monitor.stop_event.set()
+        update_monitor.stop_event.set()
 
 
 if __name__ == "__main__":

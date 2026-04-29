@@ -1,15 +1,20 @@
 from copy import deepcopy
 from datetime import datetime
-from threading import RLock
+from itertools import zip_longest
+import re
+import subprocess
+from threading import Lock, RLock
 from time import monotonic
 import traceback
 
+from app_version import CURRENT_VERSION
 from manager_app.activity_log import ActivityLog
 from manager_app.current_rms import DashboardBuilder
-from manager_app.settings_store import SettingsStore
+from manager_app.settings_store import PROJECT_ROOT, SettingsStore
 
 OFFLINE_AFTER_SECONDS = 35
 TRANSITIONAL_STATUS_SECONDS = 180
+UPDATE_CHECK_CACHE_SECONDS = 300
 SCREEN_NAMES = ("today", "tomorrow", "prep", "outstanding", "notifications")
 STATUS_LABELS = {
     "online": "Online",
@@ -33,17 +38,54 @@ def parse_iso(ts):
         return None
 
 
+def version_parts(value):
+    parts = []
+    for part in re.split(r"[^0-9]+", str(value or "")):
+        if part == "":
+            continue
+        try:
+            parts.append(int(part))
+        except Exception:
+            parts.append(0)
+    return tuple(parts)
+
+
+def version_is_newer(candidate, current):
+    candidate_parts = version_parts(candidate)
+    current_parts = version_parts(current)
+    if not candidate_parts or not current_parts:
+        return False
+
+    for candidate_part, current_part in zip_longest(candidate_parts, current_parts, fillvalue=0):
+        if candidate_part > current_part:
+            return True
+        if candidate_part < current_part:
+            return False
+    return False
+
+
 class ManagerState:
     def __init__(self, store=None):
         self.store = store or SettingsStore()
         self.activity = ActivityLog()
         self.lock = RLock()
         self.dashboard_lock = RLock()
+        self.update_check_lock = Lock()
         self.settings = self.store.load_settings()
         self.devices = self.store.load_devices()
         self.commands = {}
         self.alerts = {device_id: [] for device_id in self.devices}
         self.dashboard = DashboardBuilder()
+        self.update_status_checked_at = 0
+        self.update_status = {
+            "checked_at": "",
+            "local_version": CURRENT_VERSION,
+            "latest_version": CURRENT_VERSION,
+            "manager_update_available": False,
+            "message": "Update check has not run yet.",
+            "error": "",
+            "source": "local",
+        }
         self.log_activity("Manager", "Manager app started.")
 
     def log_activity(self, category, message, level="info", details=None):
@@ -65,6 +107,86 @@ class ManagerState:
     def clear_activity(self):
         self.activity.clear()
         self.log_activity("Manager", "Activity log cleared.")
+
+    def get_update_status(self):
+        with self.lock:
+            return dict(self.update_status)
+
+    def _run_git(self, args, timeout=20):
+        result = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), *args],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        if result.returncode != 0:
+            error_text = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(error_text or f"git {' '.join(args)} failed")
+        return (result.stdout or "").strip()
+
+    def _latest_github_version(self):
+        if not (PROJECT_ROOT / ".git").exists():
+            raise RuntimeError("This manager folder is not a Git clone.")
+
+        upstream = self._run_git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], timeout=10)
+        try:
+            self._run_git(["fetch", "--quiet"], timeout=30)
+        except Exception as error:
+            self.log_activity("Updates", f"Could not refresh GitHub update information: {error}", level="warning")
+
+        latest = self._run_git(["show", f"{upstream}:version.txt"], timeout=10).strip()
+        if not latest:
+            raise RuntimeError("GitHub version.txt was empty.")
+        return latest
+
+    def refresh_update_status(self, force=False):
+        now_monotonic = monotonic()
+        with self.lock:
+            cached = dict(self.update_status)
+            if not force and now_monotonic - self.update_status_checked_at < UPDATE_CHECK_CACHE_SECONDS:
+                return cached
+
+        if not self.update_check_lock.acquire(blocking=False):
+            return self.get_update_status()
+
+        try:
+            checked_at = datetime.now().isoformat(timespec="seconds")
+            status = {
+                "checked_at": checked_at,
+                "local_version": CURRENT_VERSION,
+                "latest_version": CURRENT_VERSION,
+                "manager_update_available": False,
+                "message": "The manager is on the latest known version.",
+                "error": "",
+                "source": "local",
+            }
+            try:
+                latest = self._latest_github_version()
+                status["latest_version"] = latest
+                status["source"] = "github"
+                if version_is_newer(latest, CURRENT_VERSION):
+                    status["manager_update_available"] = True
+                    status["message"] = f"GitHub has version {latest}; this manager is running {CURRENT_VERSION}."
+                else:
+                    status["message"] = f"GitHub latest version is {latest}."
+            except Exception as error:
+                status["error"] = str(error)
+                status["message"] = f"Could not check GitHub updates: {error}"
+
+            with self.lock:
+                previous = dict(self.update_status)
+                self.update_status = status
+                self.update_status_checked_at = monotonic()
+
+            if status.get("error"):
+                self.log_activity("Updates", status["message"], level="warning")
+            elif status.get("latest_version") != previous.get("latest_version") or force:
+                self.log_activity("Updates", status["message"])
+            return dict(status)
+        finally:
+            self.update_check_lock.release()
 
     def get_settings(self, include_secret=False):
         with self.lock:
@@ -214,6 +336,8 @@ class ManagerState:
         should_save = False
         with self.lock:
             now = datetime.now()
+            update_status = dict(self.update_status)
+            latest_version = str(update_status.get("latest_version") or CURRENT_VERSION).strip()
             devices = []
             for raw in self.devices.values():
                 item = dict(raw)
@@ -256,6 +380,13 @@ class ManagerState:
 
                 item["state"] = display_state
                 item["activity"] = status_message
+                device_version = str(item.get("version", "")).strip()
+                if device_version and latest_version and version_is_newer(latest_version, device_version):
+                    item["update"] = f"Available {latest_version}"
+                elif device_version:
+                    item["update"] = "Current"
+                else:
+                    item["update"] = "Unknown"
                 previous_display_state = str(raw.get("last_display_state", "")).strip()
                 if display_state and display_state != previous_display_state:
                     raw["last_display_state"] = display_state
