@@ -51,7 +51,7 @@ MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 DISABLE_LEGACY_KIOSK="${WAREHOUSE_DISABLE_LEGACY_KIOSK:-1}"
 DISABLE_LEGACY_STACK="${WAREHOUSE_DISABLE_LEGACY_STACK:-1}"
 SKIP_SERVICE_RESTART="${WAREHOUSE_SKIP_SERVICE_RESTART:-0}"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.5')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.6')"
 
 if [[ ! -f "$APP_DIR/pi_viewer.py" || ! -f "$APP_DIR/pi_agent.py" ]]; then
     fail "Cannot find pi_viewer.py and pi_agent.py. Run this from the repository scripts directory."
@@ -140,7 +140,7 @@ from pathlib import Path
 
 path = Path(sys.argv[1])
 lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-pattern = re.compile(r"(chromium|google-chrome|firefox|midori|kiosk|dashboard|node-red|homeassistant)", re.I)
+pattern = re.compile(r"(chromium|google-chrome|firefox|midori|kiosk|dashboard|node-red|homeassistant|warehouse_pi|warehouse_env|pi_viewer\.py)", re.I)
 kept = []
 changed = False
 for line in lines:
@@ -180,7 +180,7 @@ import sys
 from pathlib import Path
 
 text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="ignore")
-pattern = re.compile(r"(chromium|google-chrome|firefox|midori|kiosk|dashboard|node-red|homeassistant|home-assistant|8123|1880)", re.I)
+pattern = re.compile(r"(chromium|google-chrome|firefox|midori|kiosk|dashboard|node-red|homeassistant|home-assistant|8123|1880|warehouse_pi|warehouse_env|pi_viewer\.py)", re.I)
 raise SystemExit(0 if pattern.search(text) else 1)
 PY
         then
@@ -189,6 +189,49 @@ PY
             log "Disabled legacy autostart desktop file: $desktop_file"
         fi
     done
+}
+
+disable_matching_service_files() {
+    local service_root="$1"
+    local runner_type="$2"
+    local service_file=""
+    local service_name=""
+
+    if [[ ! -d "$service_root" ]]; then
+        return 0
+    fi
+
+    while IFS= read -r -d '' service_file; do
+        if ! python3 - "$service_file" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="ignore")
+pattern = re.compile(r"(warehouse_pi|warehouse_env)", re.I)
+raise SystemExit(0 if pattern.search(text) else 1)
+PY
+        then
+            continue
+        fi
+
+        service_name="$(basename "$service_file")"
+        log "Disabling legacy service file by content match: $service_file"
+        if [[ "$runner_type" == "system" ]]; then
+            "${SUDO[@]}" systemctl disable --now "$service_name" >/dev/null 2>&1 || true
+            "${SUDO[@]}" rm -f "$service_file" >/dev/null 2>&1 || true
+            "${SUDO[@]}" rm -f "/etc/systemd/system/multi-user.target.wants/$service_name" >/dev/null 2>&1 || true
+            "${SUDO[@]}" rm -f "/etc/systemd/system/graphical.target.wants/$service_name" >/dev/null 2>&1 || true
+        else
+            if [[ -n "${APP_UID:-}" && -S "/run/user/$APP_UID/bus" ]]; then
+                run_as_app_user env XDG_RUNTIME_DIR="/run/user/$APP_UID" systemctl --user disable --now "$service_name" >/dev/null 2>&1 || true
+            fi
+            run_as_app_user rm -f "$service_file" >/dev/null 2>&1 || true
+            run_as_app_user rm -f "$APP_HOME/.config/systemd/user/default.target.wants/$service_name" >/dev/null 2>&1 || true
+            run_as_app_user rm -f "$APP_HOME/.config/systemd/user/graphical-session.target.wants/$service_name" >/dev/null 2>&1 || true
+            run_as_app_user rm -f "$APP_HOME/.config/systemd/user/graphical-session-pre.target.wants/$service_name" >/dev/null 2>&1 || true
+        fi
+    done < <(find "$service_root" -maxdepth 2 -type f -name "*.service" -print0 2>/dev/null)
 }
 
 disable_user_service_if_present() {
@@ -219,9 +262,11 @@ kill_legacy_processes() {
     run_as_app_user pkill -f "chromium|google-chrome|firefox|midori|matchbox" >/dev/null 2>&1 || true
     run_as_app_user pkill -f "node-red|node_red" >/dev/null 2>&1 || true
     run_as_app_user pkill -f "homeassistant|home-assistant|hass" >/dev/null 2>&1 || true
+    run_as_app_user pkill -f "warehouse_pi/pi_viewer.py|warehouse_env/.*/pi_viewer.py|warehouse_env/bin/python.*/warehouse_pi/pi_viewer.py" >/dev/null 2>&1 || true
     "${SUDO[@]}" pkill -f "chromium|google-chrome|firefox|midori|matchbox" >/dev/null 2>&1 || true
     "${SUDO[@]}" pkill -f "node-red|node_red" >/dev/null 2>&1 || true
     "${SUDO[@]}" pkill -f "homeassistant|home-assistant|hass" >/dev/null 2>&1 || true
+    "${SUDO[@]}" pkill -f "warehouse_pi/pi_viewer.py|warehouse_env/.*/pi_viewer.py|warehouse_env/bin/python.*/warehouse_pi/pi_viewer.py" >/dev/null 2>&1 || true
 }
 
 disable_legacy_kiosk() {
@@ -255,6 +300,8 @@ disable_legacy_kiosk() {
     sanitize_autostart_file "/etc/xdg/wayfire.ini"
     sanitize_autostart_directory "$APP_HOME/.config/autostart"
     sanitize_autostart_directory "/etc/xdg/autostart"
+    disable_matching_service_files "$APP_HOME/.config/systemd/user" "user"
+    disable_matching_service_files "/etc/systemd/system" "system"
 
     kill_legacy_processes
 }
