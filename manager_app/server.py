@@ -34,6 +34,10 @@ def create_app(state):
     def screen(screen):
         return jsonify(state.screen_payload(screen))
 
+    @app.get("/screens")
+    def screens():
+        return jsonify(state.all_screen_payloads())
+
     @app.get("/api/devices")
     def devices():
         return jsonify(state.list_devices())

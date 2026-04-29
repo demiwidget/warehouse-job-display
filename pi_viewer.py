@@ -4,9 +4,10 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from threading import Thread
 
 import requests
-from PySide6.QtCore import QTimer, Qt, QUrl
+from PySide6.QtCore import QTimer, Qt, QUrl, Signal
 from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QApplication,
@@ -220,6 +221,9 @@ def load_config():
 
 
 class ViewerWindow(QMainWindow):
+    refresh_result_ready = Signal(object)
+    alert_result_ready = Signal(object)
+
     def __init__(self):
         super().__init__()
         self.config = load_config()
@@ -230,11 +234,17 @@ class ViewerWindow(QMainWindow):
         self.sound_effect = QSoundEffect(self) if QSoundEffect else None
         self.sound_process = None
         self.last_audio_apply_at = 0.0
+        self.refresh_in_progress = False
+        self.refresh_queued = False
+        self.alert_poll_in_progress = False
+        self.register_in_progress = False
         self.setWindowTitle(self.config.get("device_name", "Warehouse Viewer"))
         self.resize(1600, 900)
         self.build_ui()
         self.apply_theme()
         self.showFullScreen()
+        self.refresh_result_ready.connect(self.handle_refresh_result)
+        self.alert_result_ready.connect(self.handle_alert_result)
 
         self.register_timer = QTimer(self)
         self.register_timer.timeout.connect(self.register)
@@ -351,6 +361,12 @@ class ViewerWindow(QMainWindow):
         CONFIG_PATH.write_text(json.dumps(self.config, indent=2), encoding="utf-8")
 
     def register(self):
+        if self.register_in_progress:
+            return
+        self.register_in_progress = True
+        Thread(target=self._register_worker, daemon=True).start()
+
+    def _register_worker(self):
         try:
             _cfg, _changed, payload = registration_payload(dict(self.config), screen=self.current_screen)
             requests.post(
@@ -360,17 +376,25 @@ class ViewerWindow(QMainWindow):
             )
         except Exception:
             pass
+        finally:
+            self.register_in_progress = False
 
     def report_online_status(self):
+        Thread(target=self._report_online_status_worker, daemon=True).start()
+
+    def _report_online_status_worker(self):
         screen_name = str(self.current_screen or "today").replace("_", " ").title()
-        post_status(
-            self.config,
-            "online",
-            f"Display app online on {screen_name}.",
-            source="viewer",
-            timeout=4,
-            screen=self.current_screen,
-        )
+        try:
+            post_status(
+                self.config,
+                "online",
+                f"Display app online on {screen_name}.",
+                source="viewer",
+                timeout=4,
+                screen=self.current_screen,
+            )
+        except Exception:
+            pass
 
     def set_current_tab(self):
         mapping = {"today": 0, "tomorrow": 1, "prep": 2, "outstanding": 3, "notifications": 4}
@@ -378,24 +402,41 @@ class ViewerWindow(QMainWindow):
             self.tabs.setCurrentIndex(mapping[self.current_screen])
 
     def poll_alerts(self):
+        if self.alert_poll_in_progress:
+            return
+        self.alert_poll_in_progress = True
+        Thread(target=self._poll_alert_worker, daemon=True).start()
+
+    def _poll_alert_worker(self):
+        result = {"ok": False, "alert": None}
         try:
-            alert = requests.get(self.server_url(f"/alerts/{registration_id(self.config)}"), timeout=5).json()
-            if not alert:
-                self.remote_alert_queue_remaining = 0
-                self.update_notification_queue_badge()
-                return
-            try:
-                self.remote_alert_queue_remaining = max(0, int(alert.get("queue_remaining", 0) or 0))
-            except Exception:
-                self.remote_alert_queue_remaining = 0
-            if alert.get("play_sound"):
-                self.play_alert_sound(alert.get("sound", ""))
-                alert["_sound_played"] = True
-            self.pending_alerts.append(alert)
-            self.update_notification_queue_badge()
-            self.show_next_alert()
+            response = requests.get(self.server_url(f"/alerts/{registration_id(self.config)}"), timeout=5)
+            response.raise_for_status()
+            result = {"ok": True, "alert": response.json()}
         except Exception:
-            pass
+            result = {"ok": False, "alert": None}
+        self.alert_result_ready.emit(result)
+
+    def handle_alert_result(self, result):
+        self.alert_poll_in_progress = False
+        if not result.get("ok"):
+            return
+
+        alert = result.get("alert")
+        if not alert:
+            self.remote_alert_queue_remaining = 0
+            self.update_notification_queue_badge()
+            return
+        try:
+            self.remote_alert_queue_remaining = max(0, int(alert.get("queue_remaining", 0) or 0))
+        except Exception:
+            self.remote_alert_queue_remaining = 0
+        if alert.get("play_sound"):
+            self.play_alert_sound(alert.get("sound", ""))
+            alert["_sound_played"] = True
+        self.pending_alerts.append(alert)
+        self.update_notification_queue_badge()
+        self.show_next_alert()
 
     def show_next_alert(self):
         if self.active_alert_dialog or not self.pending_alerts:
@@ -485,18 +526,44 @@ class ViewerWindow(QMainWindow):
         if ok:
             self.last_audio_apply_at = now
 
-    def fetch_screen(self, name):
+    def fetch_screen_bundle(self):
         try:
-            return requests.get(self.server_url(f"/screen/{name}"), timeout=10).json()
+            response = requests.get(self.server_url("/screens"), timeout=15)
+            response.raise_for_status()
+            return response.json()
         except Exception:
-            return {"title": name.title(), "summary": {}, "rows": []}
+            return {}
 
     def refresh_all(self):
-        today = self.fetch_screen("today")
-        tomorrow = self.fetch_screen("tomorrow")
-        prep = self.fetch_screen("prep")
-        outstanding = self.fetch_screen("outstanding")
-        notifications = self.fetch_screen("notifications")
+        if self.refresh_in_progress:
+            self.refresh_queued = True
+            return
+        self.refresh_in_progress = True
+        Thread(target=self._refresh_worker, daemon=True).start()
+
+    def _refresh_worker(self):
+        bundle = self.fetch_screen_bundle()
+        self.refresh_result_ready.emit(
+            {
+                "ok": bool(bundle),
+                "bundle": bundle,
+            }
+        )
+
+    def handle_refresh_result(self, result):
+        self.refresh_in_progress = False
+        if result.get("ok"):
+            self.apply_screen_bundle(result.get("bundle") or {})
+        if self.refresh_queued:
+            self.refresh_queued = False
+            QTimer.singleShot(0, self.refresh_all)
+
+    def apply_screen_bundle(self, bundle):
+        today = bundle.get("today", {"title": "Today", "summary": {}, "out_rows": [], "in_rows": []})
+        tomorrow = bundle.get("tomorrow", {"title": "Tomorrow", "summary": {}, "out_rows": [], "in_rows": []})
+        prep = bundle.get("prep", {"title": "Prep", "summary": {}, "rows": []})
+        outstanding = bundle.get("outstanding", {"title": "Outstanding", "summary": {}, "rows": []})
+        notifications = bundle.get("notifications", {"title": "Notifications", "summary": {}, "rows": []})
 
         self.card_today_out.set_data(today.get("summary", {}).get("Jobs Out", 0), "Jobs collecting / delivering today")
         self.card_today_in.set_data(today.get("summary", {}).get("Jobs In", 0), "Jobs returning today")

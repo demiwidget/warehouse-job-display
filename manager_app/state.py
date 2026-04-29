@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import datetime
 from threading import RLock
 
@@ -6,6 +7,7 @@ from manager_app.settings_store import SettingsStore
 
 OFFLINE_AFTER_SECONDS = 35
 TRANSITIONAL_STATUS_SECONDS = 180
+SCREEN_NAMES = ("today", "tomorrow", "prep", "outstanding", "notifications")
 STATUS_LABELS = {
     "online": "Online",
     "display_restarting": "Display Restarting",
@@ -203,8 +205,18 @@ class ManagerState:
             settings = self.store.load_settings()
             self.settings = settings
         with self.dashboard_lock:
-            payload = self.dashboard.build(screen, settings)
+            payload = deepcopy(self.dashboard.build(screen, settings))
         return payload
+
+    def all_screen_payloads(self):
+        with self.lock:
+            settings = self.store.load_settings()
+            self.settings = settings
+        with self.dashboard_lock:
+            return {
+                screen: deepcopy(self.dashboard.build(screen, settings))
+                for screen in SCREEN_NAMES
+            }
 
     def refresh_dashboard(self):
         with self.lock:
