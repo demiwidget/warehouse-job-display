@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import sys
+from tempfile import NamedTemporaryFile
 import time
 from pathlib import Path
 from threading import Thread
@@ -18,6 +19,32 @@ BASE_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = BASE_DIR / "viewer_config.json"
 
 
+def write_json_atomic(path, payload):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_name = None
+    try:
+        with NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_name = handle.name
+            json.dump(payload, handle, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        Path(temp_name).replace(path)
+    finally:
+        if temp_name:
+            try:
+                Path(temp_name).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
 def load_config():
     cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     changed = sync_config_version(cfg)
@@ -29,7 +56,7 @@ def load_config():
 
 
 def save_config(cfg):
-    CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    write_json_atomic(CONFIG_FILE, cfg)
 
 
 def url(cfg, path):
@@ -73,11 +100,6 @@ def systemd_unit_exists(service_name):
         return False
 
     command = [systemctl, "show", service_name, "--property=LoadState", "--value"]
-    if os.name != "nt" and os.geteuid() != 0:
-        sudo = shutil.which("sudo")
-        if not sudo:
-            return False
-        command = [sudo, *command]
 
     try:
         result = subprocess.run(
@@ -92,6 +114,39 @@ def systemd_unit_exists(service_name):
         return bool(load_state) and load_state != "not-found"
     except Exception:
         return False
+
+
+def systemctl_service_details(service_name):
+    systemctl = shutil.which("systemctl")
+    if not systemctl:
+        return {}
+
+    try:
+        result = subprocess.run(
+            [
+                systemctl,
+                "show",
+                service_name,
+                "--property=ActiveState",
+                "--property=Result",
+                "--property=ExecMainStatus",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=False,
+            text=True,
+        )
+    except Exception:
+        return {}
+
+    details = {}
+    for line in str(result.stdout or "").splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        details[key] = value
+    return details
 
 
 def systemctl_is_active(service_name):
@@ -138,7 +193,14 @@ def restart_viewer(cfg=None, reason="Restarting display app.", state="display_re
     if systemd_unit_exists(display_service):
         return
 
-    os.system("pkill -f pi_viewer.py || true")
+    pkill = shutil.which("pkill")
+    if pkill:
+        subprocess.run(
+            [pkill, "-f", "pi_viewer.py"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
     time.sleep(2)
     start_viewer()
 
@@ -164,6 +226,18 @@ def monitor_update_service(cfg, service_name):
     deadline = time.time() + 300
     while time.time() < deadline:
         if not systemctl_is_active(service_name):
+            details = systemctl_service_details(service_name)
+            result = str(details.get("Result", "")).strip().lower()
+            exit_status = str(details.get("ExecMainStatus", "")).strip()
+            if result and result != "success":
+                post_status(
+                    cfg,
+                    "update_failed",
+                    f"Update service stopped with result {result} and exit status {exit_status or 'unknown'}.",
+                    source="agent",
+                    timeout=3,
+                )
+                return
             post_status(
                 cfg,
                 "online",
@@ -188,7 +262,7 @@ def start_update_process(cfg):
 
     update_service = os.environ.get("WAREHOUSE_UPDATE_SERVICE", "warehouse-update.service")
     if systemd_unit_exists(update_service):
-        if run_systemctl("start", update_service):
+        if run_systemctl("--no-block", "start", update_service):
             Thread(target=monitor_update_service, args=(dict(cfg), update_service), daemon=True).start()
             return
 

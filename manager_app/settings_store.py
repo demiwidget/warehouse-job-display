@@ -1,6 +1,8 @@
 import json
+import os
 from copy import deepcopy
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "manager_data"
@@ -104,6 +106,32 @@ def _merge_defaults(defaults, values):
     return merged
 
 
+def _atomic_write_text(path, text):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_name = None
+    try:
+        with NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_name = handle.name
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        Path(temp_name).replace(path)
+    finally:
+        if temp_name:
+            try:
+                Path(temp_name).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
 class SettingsStore:
     def __init__(self, settings_file=SETTINGS_FILE, devices_file=DEVICES_FILE):
         self.settings_file = Path(settings_file)
@@ -122,9 +150,8 @@ class SettingsStore:
         return _merge_defaults(DEFAULT_SETTINGS, data)
 
     def save_settings(self, settings):
-        self.settings_file.parent.mkdir(parents=True, exist_ok=True)
         safe_settings = _merge_defaults(DEFAULT_SETTINGS, settings)
-        self.settings_file.write_text(json.dumps(safe_settings, indent=2), encoding="utf-8")
+        _atomic_write_text(self.settings_file, json.dumps(safe_settings, indent=2))
         return safe_settings
 
     def load_devices(self):
@@ -141,5 +168,4 @@ class SettingsStore:
         return data
 
     def save_devices(self, devices):
-        self.devices_file.parent.mkdir(parents=True, exist_ok=True)
-        self.devices_file.write_text(json.dumps(devices, indent=2), encoding="utf-8")
+        _atomic_write_text(self.devices_file, json.dumps(devices, indent=2))

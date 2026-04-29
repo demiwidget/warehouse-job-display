@@ -10,6 +10,7 @@ manager_data/
 viewer_config.json
 viewer.log
 *.log
+*.tmp
 
 # Legacy/generated update artifacts
 warehouse_pi/

@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import sys
+from tempfile import NamedTemporaryFile
 import time
 from pathlib import Path
 from threading import Thread
@@ -62,6 +63,32 @@ DEFAULT_CONFIG = {
     "audio_output": "hdmi",
     "audio_volume": 100,
 }
+
+
+def write_json_atomic(path, payload):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_name = None
+    try:
+        with NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_name = handle.name
+            json.dump(payload, handle, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        Path(temp_name).replace(path)
+    finally:
+        if temp_name:
+            try:
+                Path(temp_name).unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 def enable_click_drag_scroll(widget):
@@ -246,7 +273,7 @@ def load_config():
     cfg, identity_changed, _payload = registration_payload(cfg)
     changed = changed or identity_changed
     if changed or not CONFIG_PATH.exists():
-        CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        write_json_atomic(CONFIG_PATH, cfg)
     return cfg
 
 
@@ -427,7 +454,7 @@ class ViewerWindow(QMainWindow):
         return self.config["server"].rstrip("/") + path
 
     def save_config(self):
-        CONFIG_PATH.write_text(json.dumps(self.config, indent=2), encoding="utf-8")
+        write_json_atomic(CONFIG_PATH, self.config)
 
     def register(self):
         if self.register_in_progress:
