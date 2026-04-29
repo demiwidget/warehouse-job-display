@@ -51,7 +51,7 @@ MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 DISABLE_LEGACY_KIOSK="${WAREHOUSE_DISABLE_LEGACY_KIOSK:-1}"
 DISABLE_LEGACY_STACK="${WAREHOUSE_DISABLE_LEGACY_STACK:-1}"
 SKIP_SERVICE_RESTART="${WAREHOUSE_SKIP_SERVICE_RESTART:-0}"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.4')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.5')"
 
 if [[ ! -f "$APP_DIR/pi_viewer.py" || ! -f "$APP_DIR/pi_agent.py" ]]; then
     fail "Cannot find pi_viewer.py and pi_agent.py. Run this from the repository scripts directory."
@@ -529,6 +529,7 @@ log "Enabling and starting services..."
 if [[ "$SKIP_SERVICE_RESTART" == "1" ]]; then
     log "Skipping immediate viewer and agent restart; the updater will relaunch them after the update screen closes."
 else
+    run_as_app_user pkill -f "$APP_DIR/pi_viewer.py" >/dev/null 2>&1 || true
     "${SUDO[@]}" systemctl restart --no-block warehouse-agent.service
 
     if ! "${SUDO[@]}" systemctl restart --no-block warehouse-viewer.service; then

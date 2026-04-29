@@ -66,6 +66,33 @@ def run_systemctl(*args):
         return False
 
 
+def systemd_unit_exists(service_name):
+    systemctl = shutil.which("systemctl")
+    if not systemctl:
+        return False
+
+    command = [systemctl, "show", service_name, "--property=LoadState", "--value"]
+    if os.name != "nt" and os.geteuid() != 0:
+        sudo = shutil.which("sudo")
+        if not sudo:
+            return False
+        command = [sudo, *command]
+
+    try:
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=False,
+            text=True,
+        )
+        load_state = str(result.stdout or "").strip().lower()
+        return bool(load_state) and load_state != "not-found"
+    except Exception:
+        return False
+
+
 def start_viewer():
     env = os.environ.copy()
     env["DISPLAY"] = env.get("DISPLAY", ":0")
@@ -87,6 +114,9 @@ def restart_viewer(cfg=None, reason="Restarting display app.", state="display_re
         post_status(cfg, state, reason, source="agent", timeout=3)
     display_service = os.environ.get("WAREHOUSE_DISPLAY_SERVICE", "warehouse-viewer.service")
     if run_systemctl("restart", display_service):
+        return
+
+    if systemd_unit_exists(display_service):
         return
 
     os.system("pkill -f pi_viewer.py || true")

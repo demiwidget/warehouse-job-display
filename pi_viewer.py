@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -32,6 +33,11 @@ try:
 except Exception:
     QSoundEffect = None
 
+try:
+    import fcntl
+except Exception:
+    fcntl = None
+
 from app_version import CURRENT_VERSION, sync_config_version
 from pi_audio import apply_audio_preferences, sync_audio_config
 from pi_identity import registration_id, registration_payload
@@ -39,6 +45,8 @@ from pi_status import post_status
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "viewer_config.json"
+LOCK_PATH = Path("/tmp/warehouse-dashboard-viewer.lock")
+VIEWER_LOCK_HANDLE = None
 
 DEFAULT_CONFIG = {
     "server": "http://MANAGER_PC_IP:8765",
@@ -218,6 +226,31 @@ def load_config():
     if changed or not CONFIG_PATH.exists():
         CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     return cfg
+
+
+def acquire_viewer_lock():
+    global VIEWER_LOCK_HANDLE
+    if fcntl is None:
+        return True
+
+    try:
+        LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    handle = open(LOCK_PATH, "a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return False
+
+    handle.seek(0)
+    handle.truncate()
+    handle.write(str(os.getpid()))
+    handle.flush()
+    VIEWER_LOCK_HANDLE = handle
+    return True
 
 
 class ViewerWindow(QMainWindow):
@@ -646,6 +679,8 @@ class ViewerWindow(QMainWindow):
 
 
 if __name__ == "__main__":
+    if not acquire_viewer_lock():
+        sys.exit(0)
     app = QApplication(sys.argv)
     win = ViewerWindow()
     win.show()
