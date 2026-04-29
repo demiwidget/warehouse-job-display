@@ -1,4 +1,5 @@
 from threading import Thread
+import time
 
 from flask import Flask, jsonify, request
 
@@ -92,8 +93,16 @@ class ServerThread(Thread):
         self.app = create_app(state)
 
     def run(self):
-        settings = self.state.get_settings(include_secret=True)
-        server = settings.get("server", {})
-        host = server.get("host", "0.0.0.0")
-        port = int(server.get("port", 8765))
-        self.app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
+        while True:
+            try:
+                settings = self.state.get_settings(include_secret=True)
+                server = settings.get("server", {})
+                host = server.get("host", "0.0.0.0")
+                port = int(server.get("port", 8765))
+                self.state.log_activity("Manager", f"Manager server listening on {host}:{port}.")
+                self.app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
+                self.state.log_activity("Manager", "Manager server stopped.", level="warning")
+                return
+            except Exception as error:
+                self.state.log_exception("Manager", "Manager server stopped unexpectedly", error)
+                time.sleep(5)

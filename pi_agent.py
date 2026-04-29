@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from threading import Thread
 
 import requests
 
@@ -93,6 +94,24 @@ def systemd_unit_exists(service_name):
         return False
 
 
+def systemctl_is_active(service_name):
+    systemctl = shutil.which("systemctl")
+    if not systemctl:
+        return False
+
+    try:
+        result = subprocess.run(
+            [systemctl, "is-active", "--quiet", service_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=False,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def start_viewer():
     env = os.environ.copy()
     env["DISPLAY"] = env.get("DISPLAY", ":0")
@@ -140,12 +159,75 @@ def reboot_pi(cfg=None):
         pass
 
 
+def monitor_update_service(cfg, service_name):
+    time.sleep(3)
+    deadline = time.time() + 300
+    while time.time() < deadline:
+        if not systemctl_is_active(service_name):
+            post_status(
+                cfg,
+                "online",
+                "Update check complete. No display restart was needed.",
+                source="agent",
+                timeout=3,
+            )
+            return
+        time.sleep(3)
+
+    post_status(
+        cfg,
+        "updating",
+        "Update is still running. Check the Pi if this message stays for too long.",
+        source="agent",
+        timeout=3,
+    )
+
+
+def start_update_process(cfg):
+    post_status(cfg, "updating", "Checking GitHub for Pi updates.", source="agent", timeout=3)
+
+    update_service = os.environ.get("WAREHOUSE_UPDATE_SERVICE", "warehouse-update.service")
+    if systemd_unit_exists(update_service):
+        if run_systemctl("start", update_service):
+            Thread(target=monitor_update_service, args=(dict(cfg), update_service), daemon=True).start()
+            return
+
+        post_status(
+            cfg,
+            "update_failed",
+            "Could not start the Pi update service. Re-run the Pi installer to refresh permissions.",
+            source="agent",
+            timeout=3,
+        )
+        return
+
+    script = BASE_DIR / "scripts" / "update_pi.sh"
+    if not script.exists():
+        post_status(cfg, "update_failed", "Updater script is missing on this Pi.", source="agent", timeout=3)
+        return
+
+    try:
+        log_path = Path.home() / "warehouse-update.log"
+        with log_path.open("ab") as log_file:
+            subprocess.Popen(
+                [str(script)],
+                stdout=log_file,
+                stderr=log_file,
+                cwd=str(BASE_DIR),
+                start_new_session=True,
+            )
+    except Exception:
+        post_status(cfg, "update_failed", "Could not start the Pi updater.", source="agent", timeout=3)
+
+
 def handle_command(cfg, cmd):
     action = cmd.get("action")
     if action == "reboot":
         reboot_pi(cfg)
     elif action == "restart":
         restart_viewer(cfg, "Restarting display app.")
+    elif action == "update":
+        start_update_process(cfg)
     elif action == "rename":
         new_name = str(cmd.get("device_name", "")).strip()
         if new_name:

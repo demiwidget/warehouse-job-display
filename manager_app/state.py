@@ -2,6 +2,7 @@ from copy import deepcopy
 from datetime import datetime
 from threading import RLock
 from time import monotonic
+import traceback
 
 from manager_app.activity_log import ActivityLog
 from manager_app.current_rms import DashboardBuilder
@@ -18,6 +19,7 @@ STATUS_LABELS = {
     "switching_screen": "Switching Screen",
     "viewer_starting": "Display Starting",
     "updating": "Updating",
+    "update_failed": "Update Failed",
 }
 TRANSITIONAL_STATES = {"display_restarting", "rebooting", "renaming", "switching_screen", "viewer_starting", "updating"}
 
@@ -46,6 +48,16 @@ class ManagerState:
 
     def log_activity(self, category, message, level="info", details=None):
         return self.activity.append(category, message, level=level, details=details)
+
+    def log_exception(self, category, message, error=None):
+        trace = traceback.format_exc()
+        suffix = f": {error}" if error else ""
+        return self.log_activity(
+            category,
+            f"{message}{suffix}",
+            level="error",
+            details={"traceback": trace},
+        )
 
     def list_activity(self, category="All", level="All", limit=500):
         return self.activity.list_entries(category=category, level=level, limit=limit)
@@ -210,14 +222,26 @@ class ManagerState:
                 status_state = str(item.get("status_state", "")).strip() or "online"
                 status_message = str(item.get("status_message", "")).strip()
                 stale_seconds = None
+                status_age_seconds = None
                 if last_seen_dt:
                     stale_seconds = max(0, int((now - last_seen_dt).total_seconds()))
+                if status_updated_dt:
+                    status_age_seconds = max(0, int((now - status_updated_dt).total_seconds()))
+
+                transition_is_current = (
+                    status_state in TRANSITIONAL_STATES
+                    and status_age_seconds is not None
+                    and status_age_seconds <= TRANSITIONAL_STATUS_SECONDS
+                )
+                if status_state in TRANSITIONAL_STATES and not transition_is_current:
+                    status_state = "online"
+                    status_message = "Heartbeat active."
 
                 if stale_seconds is None:
                     display_state = "Unknown"
                 elif stale_seconds <= OFFLINE_AFTER_SECONDS:
                     display_state = STATUS_LABELS.get(status_state, status_state.replace("_", " ").title())
-                elif status_state in TRANSITIONAL_STATES and status_updated_dt and (now - status_updated_dt).total_seconds() <= TRANSITIONAL_STATUS_SECONDS:
+                elif transition_is_current:
                     display_state = STATUS_LABELS.get(status_state, status_state.replace("_", " ").title())
                 else:
                     display_state = "Offline"
@@ -319,9 +343,14 @@ class ManagerState:
             self.settings = settings
         started = monotonic()
         self.log_activity("Current RMS", "Refresh started.")
-        with self.dashboard_lock:
-            _, new_alerts = self.dashboard.refresh_data(settings)
-            last_error = str(getattr(self.dashboard, "_last_error", "") or "").strip()
+        try:
+            with self.dashboard_lock:
+                _, new_alerts = self.dashboard.refresh_data(settings)
+                last_error = str(getattr(self.dashboard, "_last_error", "") or "").strip()
+        except Exception as error:
+            elapsed_ms = int((monotonic() - started) * 1000)
+            self.log_exception("Current RMS", f"Refresh crashed after {elapsed_ms}ms", error)
+            return
         elapsed_ms = int((monotonic() - started) * 1000)
         if last_error:
             self.log_activity(

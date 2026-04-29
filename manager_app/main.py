@@ -1,5 +1,7 @@
 import socket
 import sys
+import threading
+import traceback
 from threading import Event, Thread
 
 from PySide6.QtCore import QTimer, Qt
@@ -66,10 +68,54 @@ class DashboardMonitorThread(Thread):
 
     def run(self):
         while not self.stop_event.is_set():
-            self.state.refresh_dashboard()
-            settings = self.state.get_settings(include_secret=True)
-            interval = max(5, int(settings.get("alerts", {}).get("poll_seconds", 60)))
+            try:
+                self.state.refresh_dashboard()
+                settings = self.state.get_settings(include_secret=True)
+                interval = max(5, int(settings.get("alerts", {}).get("poll_seconds", 60)))
+            except Exception as error:
+                self.state.log_exception("Manager", "Background dashboard monitor failed", error)
+                interval = 30
             self.stop_event.wait(interval)
+
+
+class ResilientApplication(QApplication):
+    def __init__(self, args, state):
+        super().__init__(args)
+        self.state = state
+
+    def notify(self, receiver, event):
+        try:
+            return super().notify(receiver, event)
+        except Exception as error:
+            self.state.log_exception("Manager", "Qt event handler failed", error)
+            return False
+
+
+def install_exception_hooks(state):
+    def handle_exception(exc_type, error, tb):
+        state.log_activity(
+            "Manager",
+            f"Unhandled exception: {error}",
+            level="error",
+            details={"traceback": "".join(traceback.format_exception(exc_type, error, tb))},
+        )
+
+    sys.excepthook = handle_exception
+
+    if hasattr(threading, "excepthook"):
+        def handle_thread_exception(args):
+            state.log_activity(
+                "Manager",
+                f"Thread {args.thread.name if args.thread else 'unknown'} failed: {args.exc_value}",
+                level="error",
+                details={
+                    "traceback": "".join(
+                        traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)
+                    )
+                },
+            )
+
+        threading.excepthook = handle_thread_exception
 
 
 class ConnectionTab(QWidget):
@@ -398,6 +444,7 @@ class PiScreensTab(QWidget):
         "Renaming": "#8e24aa",
         "Switching Screen": "#6d4c41",
         "Updating": "#00897b",
+        "Update Failed": "#b71c1c",
         "Offline": "#616161",
         "Unknown": "#455a64",
     }
@@ -430,14 +477,17 @@ class PiScreensTab(QWidget):
         command_buttons = QHBoxLayout()
         rename_btn = QPushButton("Rename Pi")
         restart_btn = QPushButton("Restart Display App")
+        update_btn = QPushButton("Update Pi From GitHub")
         reboot_btn = QPushButton("Reboot Pi")
         refresh_btn = QPushButton("Refresh List")
         rename_btn.clicked.connect(self.rename_selected_pi)
         restart_btn.clicked.connect(lambda: self.send_action("restart"))
+        update_btn.clicked.connect(lambda: self.send_action("update"))
         reboot_btn.clicked.connect(lambda: self.send_action("reboot"))
         refresh_btn.clicked.connect(self.refresh)
         command_buttons.addWidget(rename_btn)
         command_buttons.addWidget(restart_btn)
+        command_buttons.addWidget(update_btn)
         command_buttons.addWidget(reboot_btn)
         command_buttons.addStretch(1)
         command_buttons.addWidget(refresh_btn)
@@ -664,19 +714,37 @@ class ManagerWindow(QMainWindow):
         tabs.addTab(ActivityConsoleTab(state), "Console")
         self.setCentralWidget(tabs)
 
+    def closeEvent(self, event):
+        choice = QMessageBox.question(
+            self,
+            "Close Manager?",
+            "Closing the manager stops the dashboard data server for the Pis. Are you sure you want to close it?",
+        )
+        if choice == QMessageBox.Yes:
+            event.accept()
+            return
+        event.ignore()
+
 
 def main():
     state = ManagerState()
+    install_exception_hooks(state)
     server = ServerThread(state)
     monitor = DashboardMonitorThread(state)
     server.start()
     monitor.start()
 
-    app = QApplication(sys.argv)
-    window = ManagerWindow(state)
-    window.show()
-    sys.exit(app.exec())
+    try:
+        app = ResilientApplication(sys.argv, state)
+        window = ManagerWindow(state)
+        window.show()
+        return app.exec()
+    except Exception as error:
+        state.log_exception("Manager", "Manager app crashed", error)
+        return 1
+    finally:
+        monitor.stop_event.set()
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

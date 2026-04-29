@@ -150,8 +150,25 @@ try {
         $VenvPythonGui = $VenvPython
     }
 
-    & $VenvPythonGui -m manager_app.main
-    exit $LASTEXITCODE
+    $ManagerDataDir = Join-Path $ProjectDir "manager_data"
+    $LauncherLog = Join-Path $ManagerDataDir "manager_launcher.log"
+    New-Item -ItemType Directory -Force -Path $ManagerDataDir | Out-Null
+
+    while ($true) {
+        & $VenvPythonGui -m manager_app.main
+        $managerExitCode = $LASTEXITCODE
+        if ($null -eq $managerExitCode) {
+            $managerExitCode = 0
+        }
+
+        if ($managerExitCode -eq 0) {
+            exit 0
+        }
+
+        $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ss"
+        Add-Content -Path $LauncherLog -Value "$timestamp Manager exited with code $managerExitCode; relaunching in 5 seconds."
+        Start-Sleep -Seconds 5
+    }
 } catch {
     $message = $_.Exception.Message
     if (-not $message) {
