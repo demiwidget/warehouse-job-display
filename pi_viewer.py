@@ -7,6 +7,9 @@ import time
 from pathlib import Path
 from threading import Thread
 
+os.environ.setdefault("QT_IM_MODULE", "none")
+os.environ.setdefault("QT_VIRTUALKEYBOARD_DESKTOP_DISABLE", "1")
+
 import requests
 from PySide6.QtCore import QTimer, Qt, QUrl, Signal
 from PySide6.QtGui import QAction, QColor
@@ -26,6 +29,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QDialog,
     QPushButton,
+    QScroller,
 )
 
 try:
@@ -76,6 +80,12 @@ class DashboardTable(QTableWidget):
         self.horizontalHeader().setStretchLastSection(False)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.horizontalHeader().setMinimumSectionSize(90)
+        self.setVerticalScrollMode(QTableWidget.ScrollPerPixel)
+        self.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
+        self.setAutoScroll(False)
+        self.viewport().setAttribute(Qt.WA_AcceptTouchEvents, True)
+        QScroller.grabGesture(self.viewport(), QScroller.TouchGesture)
+        QScroller.grabGesture(self.viewport(), QScroller.LeftMouseButtonGesture)
 
     def set_rows(self, headers, rows):
         self.clear()

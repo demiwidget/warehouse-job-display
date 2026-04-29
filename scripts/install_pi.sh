@@ -51,7 +51,7 @@ MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 DISABLE_LEGACY_KIOSK="${WAREHOUSE_DISABLE_LEGACY_KIOSK:-1}"
 DISABLE_LEGACY_STACK="${WAREHOUSE_DISABLE_LEGACY_STACK:-1}"
 SKIP_SERVICE_RESTART="${WAREHOUSE_SKIP_SERVICE_RESTART:-0}"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.10')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.11')"
 
 if [[ ! -f "$APP_DIR/pi_viewer.py" || ! -f "$APP_DIR/pi_agent.py" ]]; then
     fail "Cannot find pi_viewer.py and pi_agent.py. Run this from the repository scripts directory."
@@ -491,6 +491,8 @@ Environment=XDG_RUNTIME_DIR=/run/user/$APP_UID
 Environment=PULSE_SERVER=unix:/run/user/$APP_UID/pulse/native
 Environment=WAYLAND_DISPLAY=wayland-0
 Environment="QT_QPA_PLATFORM=wayland;xcb"
+Environment=QT_IM_MODULE=none
+Environment=QT_VIRTUALKEYBOARD_DESKTOP_DISABLE=1
 ExecStart=$VENV_DIR/bin/python "$APP_DIR/pi_viewer.py"
 Restart=always
 RestartSec=10
