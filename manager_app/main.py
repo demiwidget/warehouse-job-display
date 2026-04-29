@@ -393,20 +393,41 @@ class AlertsTab(QWidget):
         test_form.addRow("", self.test_sound_enabled)
         test_layout.addLayout(test_form)
 
+        target_heading = QLabel("Send Test To")
+        target_heading.setStyleSheet("font-weight: 700;")
+        test_layout.addWidget(target_heading)
+
+        self.test_device_table = QTableWidget(0, 4)
+        self.test_device_table.setHorizontalHeaderLabels(["Send", "Name", "IP", "State"])
+        self.test_device_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.test_device_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.test_device_table.setMinimumHeight(150)
+        test_layout.addWidget(self.test_device_table)
+
         test_buttons = QHBoxLayout()
-        send_test_btn = QPushButton("Send Test Notification To All Pis")
+        select_all_btn = QPushButton("Select All")
+        select_none_btn = QPushButton("Select None")
+        refresh_targets_btn = QPushButton("Refresh Pi Targets")
+        send_test_btn = QPushButton("Send Test Notification To Selected Pis")
+        select_all_btn.clicked.connect(lambda: self.set_all_test_targets(True))
+        select_none_btn.clicked.connect(lambda: self.set_all_test_targets(False))
+        refresh_targets_btn.clicked.connect(self.refresh_test_devices)
         send_test_btn.clicked.connect(self.send_test_notification)
-        test_buttons.addWidget(send_test_btn)
+        test_buttons.addWidget(select_all_btn)
+        test_buttons.addWidget(select_none_btn)
+        test_buttons.addWidget(refresh_targets_btn)
         test_buttons.addStretch(1)
+        test_buttons.addWidget(send_test_btn)
         test_layout.addLayout(test_buttons)
 
         test_note = QLabel(
-            "This uses the same popup route as the live Pi alerts and sends the message to all registered Pis."
+            "This uses the same popup route as the live Pi alerts, but only sends to the checked Pi screens above."
         )
         test_note.setWordWrap(True)
         test_layout.addWidget(test_note)
         layout.addWidget(test_box)
         layout.addStretch(1)
+        self.refresh_test_devices()
 
     def settings_payload(self):
         event_types = {}
@@ -436,12 +457,70 @@ class AlertsTab(QWidget):
         self.state.refresh_dashboard()
         QMessageBox.information(self, "Applied", "Alert settings were saved and the manager refreshed immediately.")
 
+    def current_test_target_checks(self):
+        checks = {}
+        for row in range(self.test_device_table.rowCount()):
+            item = self.test_device_table.item(row, 0)
+            if not item:
+                continue
+            device_id = str(item.data(Qt.UserRole) or "").strip()
+            if device_id:
+                checks[device_id] = item.checkState() == Qt.Checked
+        return checks
+
+    def refresh_test_devices(self):
+        previous_checks = self.current_test_target_checks() if hasattr(self, "test_device_table") else {}
+        devices = self.state.list_devices()
+        self.test_device_table.setRowCount(len(devices))
+        for row, device in enumerate(devices):
+            device_id = str(device.get("id", "")).strip()
+            send_item = QTableWidgetItem("")
+            send_item.setFlags((send_item.flags() | Qt.ItemIsUserCheckable) & ~Qt.ItemIsEditable)
+            send_item.setCheckState(Qt.Checked if previous_checks.get(device_id, True) else Qt.Unchecked)
+            send_item.setData(Qt.UserRole, device_id)
+            self.test_device_table.setItem(row, 0, send_item)
+
+            for column, value in enumerate(
+                [
+                    device.get("name", ""),
+                    device.get("ip", ""),
+                    device.get("state", ""),
+                ],
+                start=1,
+            ):
+                item = QTableWidgetItem(str(value))
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                self.test_device_table.setItem(row, column, item)
+        self.test_device_table.resizeColumnsToContents()
+
+    def set_all_test_targets(self, checked):
+        for row in range(self.test_device_table.rowCount()):
+            item = self.test_device_table.item(row, 0)
+            if item:
+                item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+
+    def selected_test_device_ids(self):
+        ids = []
+        for row in range(self.test_device_table.rowCount()):
+            item = self.test_device_table.item(row, 0)
+            if item and item.checkState() == Qt.Checked:
+                device_id = str(item.data(Qt.UserRole) or "").strip()
+                if device_id:
+                    ids.append(device_id)
+        return ids
+
     def send_test_notification(self):
+        device_ids = self.selected_test_device_ids()
+        if not device_ids:
+            QMessageBox.warning(self, "Test Notification", "Select at least one Pi screen to send the test to.")
+            return
+
         success, message = self.state.send_test_notification(
             title=self.test_title_input.text().strip(),
             message=self.test_message_input.toPlainText(),
             sound_name=self.test_sound_input.text().strip(),
             play_sound=self.test_sound_enabled.isChecked(),
+            device_ids=device_ids,
         )
         if success:
             QMessageBox.information(self, "Test Notification", message)
