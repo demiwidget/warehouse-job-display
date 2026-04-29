@@ -65,6 +65,9 @@ Manual update:
 ~/warehouse-job-display/scripts/update_pi.sh --restart-display
 ```
 
+## Pi Audio
+Pi alert sounds default to the attached HDMI screen output. The installer writes this into `viewer_config.json`, and the viewer reapplies the preferred sink on startup so sound stays on the screen after reboots.
+
 ## Local Files Not Committed
 Device-specific and generated files are intentionally ignored:
 

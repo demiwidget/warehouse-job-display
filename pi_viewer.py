@@ -2,6 +2,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -31,6 +32,7 @@ except Exception:
     QSoundEffect = None
 
 from app_version import CURRENT_VERSION, sync_config_version
+from pi_audio import apply_audio_preferences, sync_audio_config
 from pi_identity import registration_id, registration_payload
 from pi_status import post_status
 
@@ -44,6 +46,8 @@ DEFAULT_CONFIG = {
     "version": CURRENT_VERSION,
     "screen": "today",
     "allow_all_screens": True,
+    "audio_output": "hdmi",
+    "audio_volume": 100,
 }
 
 
@@ -207,6 +211,7 @@ def load_config():
         except Exception:
             pass
     changed = sync_config_version(cfg) or changed
+    changed = sync_audio_config(cfg) or changed
     cfg, identity_changed, _payload = registration_payload(cfg)
     changed = changed or identity_changed
     if changed or not CONFIG_PATH.exists():
@@ -224,6 +229,7 @@ class ViewerWindow(QMainWindow):
         self.active_alert_dialog = None
         self.sound_effect = QSoundEffect(self) if QSoundEffect else None
         self.sound_process = None
+        self.last_audio_apply_at = 0.0
         self.setWindowTitle(self.config.get("device_name", "Warehouse Viewer"))
         self.resize(1600, 900)
         self.build_ui()
@@ -245,6 +251,8 @@ class ViewerWindow(QMainWindow):
         self.set_current_tab()
         self.register()
         self.refresh_all()
+        QTimer.singleShot(800, self.ensure_audio_preferences)
+        QTimer.singleShot(5000, self.ensure_audio_preferences)
         QTimer.singleShot(1200, self.report_online_status)
 
     def build_ui(self):
@@ -422,6 +430,7 @@ class ViewerWindow(QMainWindow):
         self.alert_queue_badge.show()
 
     def play_alert_sound(self, sound_name):
+        self.ensure_audio_preferences()
         sound_path = BASE_DIR / "sounds" / str(sound_name or "").strip()
         if not sound_path.exists():
             QApplication.beep()
@@ -441,9 +450,9 @@ class ViewerWindow(QMainWindow):
 
     def play_alert_sound_with_system_player(self, sound_path):
         players = [
-            ("aplay", ["aplay", "-q", str(sound_path)]),
-            ("paplay", ["paplay", str(sound_path)]),
             ("pw-play", ["pw-play", str(sound_path)]),
+            ("paplay", ["paplay", str(sound_path)]),
+            ("aplay", ["aplay", "-q", str(sound_path)]),
         ]
 
         for binary, command in players:
@@ -467,6 +476,14 @@ class ViewerWindow(QMainWindow):
             except Exception:
                 continue
         return False
+
+    def ensure_audio_preferences(self, force=False):
+        now = time.monotonic()
+        if not force and (now - self.last_audio_apply_at) < 20:
+            return
+        ok, _message = apply_audio_preferences(self.config)
+        if ok:
+            self.last_audio_apply_at = now
 
     def fetch_screen(self, name):
         try:

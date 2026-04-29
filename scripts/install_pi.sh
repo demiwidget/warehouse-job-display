@@ -51,7 +51,7 @@ MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 DISABLE_LEGACY_KIOSK="${WAREHOUSE_DISABLE_LEGACY_KIOSK:-1}"
 DISABLE_LEGACY_STACK="${WAREHOUSE_DISABLE_LEGACY_STACK:-1}"
 SKIP_SERVICE_RESTART="${WAREHOUSE_SKIP_SERVICE_RESTART:-0}"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.2')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.3')"
 
 if [[ ! -f "$APP_DIR/pi_viewer.py" || ! -f "$APP_DIR/pi_agent.py" ]]; then
     fail "Cannot find pi_viewer.py and pi_agent.py. Run this from the repository scripts directory."
@@ -342,7 +342,9 @@ PY
   "device_uid": "${DEVICE_ID_VALUE}",
   "version": "${VERSION}",
   "screen": "today",
-  "allow_all_screens": true
+  "allow_all_screens": true,
+  "audio_output": "hdmi",
+  "audio_volume": 100
 }
 CONFIG
     "${SUDO[@]}" chown "$APP_USER:$APP_USER" "$APP_DIR/viewer_config.json" || true
@@ -377,6 +379,20 @@ if manager_ip:
     if str(cfg.get("server", "")).strip() != desired_server:
         cfg["server"] = desired_server
         changed = True
+
+audio_output = str(cfg.get("audio_output", "")).strip().lower()
+if audio_output not in {"hdmi", "analog", "auto"}:
+    cfg["audio_output"] = "hdmi"
+    changed = True
+
+try:
+    audio_volume = int(float(cfg.get("audio_volume", 100)))
+except Exception:
+    audio_volume = 100
+audio_volume = max(0, min(100, audio_volume))
+if cfg.get("audio_volume") != audio_volume:
+    cfg["audio_volume"] = audio_volume
+    changed = True
 
 if changed:
     path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
