@@ -44,6 +44,10 @@ EVENT_META = {
     },
 }
 
+PREPARED_STATUS_CODES = {15, 20, 30, 40}
+NOT_PREPARED_STATUS_CODES = {5}
+CANCELLED_STATUS_CODES = {50}
+
 
 def parse_datetime(value):
     if not value:
@@ -384,7 +388,7 @@ class DashboardBuilder:
     def _prep_payload(self, prep_view, client, item_cache, settings):
         rows = []
         prepared_total = 0
-        total_total = 0
+        remaining_total = 0
 
         for opportunity in (prep_view or {}).get("opportunities", []):
             opportunity_id = opportunity.get("id")
@@ -397,7 +401,7 @@ class DashboardBuilder:
                 continue
 
             prepared_total += prep["prepared_qty"]
-            total_total += prep["total_qty"]
+            remaining_total += prep["remaining_qty"]
             prep_status = "Booked Out" if prep["booked_out"] else f"{prep['prepared_qty']}/{prep['total_qty']}"
             rows.append(
                 {
@@ -409,7 +413,7 @@ class DashboardBuilder:
                     "__unprepped_items": prep["unprepped_items"],
                     "__prepared_qty": prep["prepared_qty"],
                     "__total_qty": prep["total_qty"],
-                    "__remaining_qty": max(prep["total_qty"] - prep["prepared_qty"], 0),
+                    "__remaining_qty": prep["remaining_qty"],
                 }
             )
 
@@ -417,7 +421,7 @@ class DashboardBuilder:
             "title": "Prep Status",
             "summary": {
                 "Prepared Qty": prepared_total,
-                "Remaining Qty": max(total_total - prepared_total, 0),
+                "Remaining Qty": remaining_total,
             },
             "rows": rows,
         }
@@ -900,32 +904,28 @@ class DashboardBuilder:
 
         for item in items:
             item_id = str(item.get("id", "")).strip()
-            if item_id and item_id in excluded_ids:
+            resource_item_id = str(item.get("item_id", "")).strip()
+            if (item_id and item_id in excluded_ids) or (resource_item_id and resource_item_id in excluded_ids):
                 continue
 
-            total = safe_int(first_value(item, "quantity", "quantity_total", "booked_quantity", "total_quantity"), 0)
-            status_code = safe_int(first_value(item, "status", "status_id", default=0), 0)
-            status_name = str(first_value(item, "status_name", default="")).strip().lower()
-            prepared = 0
+            breakdown = self._prep_item_breakdown(item)
+            if breakdown["total_qty"] <= 0:
+                continue
 
-            if status_code == 15 or status_name == "prepared":
-                prepared = total
-            if status_code == 20:
-                booked_out_qty += total
+            total_qty += breakdown["total_qty"]
+            prepared_total += breakdown["prepared_qty"]
+            booked_out_qty += breakdown["booked_out_qty"]
 
-            total_qty += total
-            prepared_total += prepared
-
-            remaining = max(total - prepared, 0)
-            if remaining > 0:
+            if breakdown["remaining_qty"] > 0:
                 unprepped_items.append(
                     {
                         "Item": first_value(item, ("item", "name"), "name", "description", default="Item"),
                         "Code": first_value(item, ("item", "code"), "code", default=""),
-                        "Prepared": prepared,
-                        "Total": total,
-                        "Remaining": remaining,
-                        "Status": first_value(item, "status_name", "status", default="Not prepared"),
+                        "Prepared": breakdown["prepared_qty"],
+                        "Total": breakdown["total_qty"],
+                        "Unprepped": breakdown["remaining_qty"],
+                        "Status": breakdown["status_label"],
+                        "Reserved Detail": breakdown["detail"],
                     }
                 )
 
@@ -933,8 +933,78 @@ class DashboardBuilder:
         return {
             "prepared_qty": prepared_total,
             "total_qty": total_qty,
+            "remaining_qty": sum(safe_int(row.get("Unprepped"), 0) for row in unprepped_items),
             "booked_out": booked_out,
             "unprepped_items": unprepped_items,
+        }
+
+    def _prep_item_breakdown(self, item):
+        line_total = safe_int(first_value(item, "quantity", "quantity_total", "booked_quantity", "total_quantity"), 0)
+        status_code = safe_int(first_value(item, "status", "status_id", default=0), 0)
+        status_name = str(first_value(item, "status_name", default="")).strip()
+        assets = item.get("item_assets") if isinstance(item.get("item_assets"), list) else []
+
+        if assets:
+            prepared_qty = 0
+            remaining_qty = 0
+            booked_out_qty = 0
+            active_total = 0
+            detail_parts = []
+            status_labels = {}
+
+            for asset in assets:
+                asset_status = safe_int(first_value(asset, "status", "status_id", default=0), 0)
+                asset_status_name = str(first_value(asset, "status_name", default="")).strip()
+                qty = safe_int(first_value(asset, "quantity", "quantity_total", default=0), 0)
+                if qty <= 0 or asset_status in CANCELLED_STATUS_CODES:
+                    continue
+
+                active_total += qty
+                if asset_status in PREPARED_STATUS_CODES:
+                    prepared_qty += qty
+                if asset_status == 20:
+                    booked_out_qty += qty
+                if asset_status in NOT_PREPARED_STATUS_CODES:
+                    remaining_qty += qty
+                    status_labels[asset_status_name or str(asset_status)] = True
+                    asset_label = first_value(
+                        asset,
+                        "stock_level_asset_number",
+                        "asset_number",
+                        "stock_level_id",
+                        default=asset_status_name or "Reserved",
+                    )
+                    detail_parts.append(f"{asset_label} x{qty}")
+
+            return {
+                "prepared_qty": prepared_qty,
+                "remaining_qty": remaining_qty,
+                "total_qty": active_total or line_total,
+                "booked_out_qty": booked_out_qty,
+                "status_label": " / ".join(status_labels) or status_name or "Not prepared",
+                "detail": ", ".join(detail_parts[:12]) + (" ..." if len(detail_parts) > 12 else ""),
+            }
+
+        if line_total <= 0 or status_code in CANCELLED_STATUS_CODES:
+            return {
+                "prepared_qty": 0,
+                "remaining_qty": 0,
+                "total_qty": 0,
+                "booked_out_qty": 0,
+                "status_label": status_name,
+                "detail": "",
+            }
+
+        prepared_qty = line_total if status_code in PREPARED_STATUS_CODES or status_name.lower() == "prepared" else 0
+        remaining_qty = line_total if status_code in NOT_PREPARED_STATUS_CODES else 0
+        booked_out_qty = line_total if status_code == 20 else 0
+        return {
+            "prepared_qty": prepared_qty,
+            "remaining_qty": remaining_qty,
+            "total_qty": line_total,
+            "booked_out_qty": booked_out_qty,
+            "status_label": status_name or str(status_code) or "Not prepared",
+            "detail": status_name or "",
         }
 
     def _opportunity_name(self, opportunity):

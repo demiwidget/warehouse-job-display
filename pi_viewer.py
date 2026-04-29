@@ -136,7 +136,7 @@ class UnpreppedItemsDialog(QDialog):
         heading = QLabel(f"<h2>{job_name} <span style='font-weight:400'>(#{job_number})</span></h2>")
         sub = QLabel("Items below are not yet fully prepared.")
         table = DashboardTable()
-        table.set_rows(["Item", "Code", "Prepared", "Total", "Remaining", "Status"], items)
+        table.set_rows(["Item", "Code", "Prepared", "Total", "Unprepped", "Status", "Reserved Detail"], items)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
 
@@ -647,9 +647,10 @@ class ViewerWindow(QMainWindow):
             tomorrow_in,
         )
         self.prep_table.set_rows(
-            ["Job Name", "Job Number", "Delivery Date", "Prep Status", "Owner"],
+            ["Job Name", "Job Number", "Delivery Date", "Prep Status", "Owner", "Action"],
             prep.get("rows", []),
         )
+        self.add_prep_action_buttons()
         self.outstanding_table.set_rows(
             ["Job Number", "Job Name", "Booked Out", "Checked In", "Total Items", "Owner"],
             outstanding.get("rows", []),
@@ -661,6 +662,20 @@ class ViewerWindow(QMainWindow):
         self.last_refresh.setText(
             "Last refresh: " + __import__("datetime").datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         )
+
+    def add_prep_action_buttons(self):
+        try:
+            action_col = self.prep_table.headers_for_data.index("Action")
+        except ValueError:
+            return
+
+        for row in range(self.prep_table.rowCount()):
+            data = self.prep_table.row_data(row)
+            items = data.get("__unprepped_items", [])
+            button = QPushButton("View Unprepped Items")
+            button.setEnabled(bool(items))
+            button.clicked.connect(lambda _checked=False, row_index=row: self.open_unprepped_items_dialog(row_index, 0))
+            self.prep_table.setCellWidget(row, action_col, button)
 
     def open_unprepped_items_dialog(self, row, _column):
         data = self.prep_table.row_data(row)
