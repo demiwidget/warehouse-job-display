@@ -64,6 +64,14 @@ DEFAULT_CONFIG = {
 }
 
 
+def enable_click_drag_scroll(widget):
+    """Allow touch and mouse-drag scrolling on scrollable Qt widgets."""
+    viewport = widget.viewport() if hasattr(widget, "viewport") else widget
+    viewport.setAttribute(Qt.WA_AcceptTouchEvents, True)
+    QScroller.grabGesture(viewport, QScroller.TouchGesture)
+    QScroller.grabGesture(viewport, QScroller.LeftMouseButtonGesture)
+
+
 class DashboardTable(QTableWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -83,9 +91,7 @@ class DashboardTable(QTableWidget):
         self.setVerticalScrollMode(QTableWidget.ScrollPerPixel)
         self.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
         self.setAutoScroll(False)
-        self.viewport().setAttribute(Qt.WA_AcceptTouchEvents, True)
-        QScroller.grabGesture(self.viewport(), QScroller.TouchGesture)
-        QScroller.grabGesture(self.viewport(), QScroller.LeftMouseButtonGesture)
+        enable_click_drag_scroll(self)
 
     def set_rows(self, headers, rows):
         self.clear()
@@ -178,6 +184,7 @@ class AlertDialog(QDialog):
         body = QTextBrowser()
         body.setHtml(html or "")
         body.setOpenExternalLinks(True)
+        enable_click_drag_scroll(body)
         close_btn = QPushButton("Confirm Notification")
         close_btn.setDefault(True)
         close_btn.clicked.connect(self.confirm_notification)
