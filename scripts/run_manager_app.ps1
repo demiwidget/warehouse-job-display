@@ -111,7 +111,6 @@ try {
     $ProjectDir = Split-Path -Parent $ScriptDir
     $VenvDir = Join-Path $ProjectDir ".venv"
     $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
-    $VenvPythonGui = Join-Path $VenvDir "Scripts\pythonw.exe"
     $RequirementsPath = Join-Path $ProjectDir "requirements.txt"
 
     Set-Location $ProjectDir
@@ -146,19 +145,26 @@ try {
         exit 0
     }
 
-    if (-not (Test-Path $VenvPythonGui)) {
-        $VenvPythonGui = $VenvPython
-    }
-
     $ManagerDataDir = Join-Path $ProjectDir "manager_data"
     $LauncherLog = Join-Path $ManagerDataDir "manager_launcher.log"
+    $StdoutLog = Join-Path $ManagerDataDir "manager_stdout.log"
+    $StderrLog = Join-Path $ManagerDataDir "manager_stderr.log"
     $ExitFlag = Join-Path $ManagerDataDir "allow_manager_exit.flag"
     New-Item -ItemType Directory -Force -Path $ManagerDataDir | Out-Null
     Remove-Item -LiteralPath $ExitFlag -Force -ErrorAction SilentlyContinue
+    $restartDelay = 5
 
     while ($true) {
-        & $VenvPythonGui -m manager_app.main
-        $managerExitCode = $LASTEXITCODE
+        $managerProcess = Start-Process `
+            -FilePath $VenvPython `
+            -ArgumentList @("-m", "manager_app.main") `
+            -WorkingDirectory $ProjectDir `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput $StdoutLog `
+            -RedirectStandardError $StderrLog `
+            -PassThru `
+            -Wait
+        $managerExitCode = $managerProcess.ExitCode
         if ($null -eq $managerExitCode) {
             $managerExitCode = 0
         }
@@ -169,8 +175,9 @@ try {
         }
 
         $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ss"
-        Add-Content -Path $LauncherLog -Value "$timestamp Manager exited with code $managerExitCode; relaunching in 5 seconds."
-        Start-Sleep -Seconds 5
+        Add-Content -Path $LauncherLog -Value "$timestamp Manager exited with code $managerExitCode; relaunching in $restartDelay seconds."
+        Start-Sleep -Seconds $restartDelay
+        $restartDelay = [Math]::Min(($restartDelay * 2), 60)
     }
 } catch {
     $message = $_.Exception.Message

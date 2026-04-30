@@ -3,6 +3,7 @@ from datetime import datetime
 from itertools import zip_longest
 import re
 import subprocess
+import sys
 from threading import Lock, RLock
 from time import monotonic
 import traceback
@@ -113,6 +114,13 @@ class ManagerState:
             return dict(self.update_status)
 
     def _run_git(self, args, timeout=20):
+        startupinfo = None
+        creationflags = 0
+        if sys.platform.startswith("win"):
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
         result = subprocess.run(
             ["git", "-C", str(PROJECT_ROOT), *args],
             stdout=subprocess.PIPE,
@@ -120,6 +128,8 @@ class ManagerState:
             text=True,
             timeout=timeout,
             check=False,
+            startupinfo=startupinfo,
+            creationflags=creationflags,
         )
         if result.returncode != 0:
             error_text = (result.stderr or result.stdout or "").strip()
