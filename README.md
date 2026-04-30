@@ -73,7 +73,9 @@ Pi alert sounds default to the attached HDMI screen output. The installer writes
 ## Custom Sounds
 Use `.wav` files for reliable Pi playback. In the manager `Alerts` tab, use `Import WAV Sound` to copy a sound into the repo's `sounds/` folder, then use that filename in the relevant alert sound box.
 
-To make imported sounds available on the Pis, commit and push the new file to GitHub, then run `Update Pi From GitHub` or reboot the Pis.
+The manager serves sounds to the Pis on demand. When a Pi receives an alert, it asks the manager for the named `.wav` file and refreshes its local copy before playing it. Keep filenames exact, for example `job-tomorrow.wav` and `job-tomorow.wav` are different files.
+
+For permanent rollout to new/rebuilt Pis, commit and push custom sound files to GitHub as well.
 
 ## Local Files Not Committed
 Device-specific and generated files are intentionally ignored:

@@ -362,7 +362,7 @@ class AlertsTab(QWidget):
 
         note = QLabel(
             "Alerts are sent to all currently registered Pis. "
-            "Sound files are looked up inside the repo's sounds folder on each Pi."
+            "Sound files are served from this PC's sounds folder and refreshed on each Pi before playback."
         )
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -568,8 +568,8 @@ class AlertsTab(QWidget):
             "Sound Imported",
             (
                 f"Imported {target.name} into the sounds folder.\n\n"
-                "Use that filename in any alert sound box. To send it to the Pis, push the sound file to GitHub "
-                "and then update/reboot the Pis."
+                "Use that exact filename in any alert sound box. Pis refresh sounds from this manager before playback. "
+                "Push the file to GitHub as well if you want it included on new/rebuilt Pis."
             ),
         )
 

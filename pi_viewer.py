@@ -7,6 +7,7 @@ from tempfile import NamedTemporaryFile
 import time
 from pathlib import Path
 from threading import Thread
+from urllib.parse import quote
 
 os.environ.setdefault("QT_IM_MODULE", "none")
 os.environ.setdefault("QT_VIRTUALKEYBOARD_DESKTOP_DISABLE", "1")
@@ -508,7 +509,12 @@ class ViewerWindow(QMainWindow):
         try:
             response = requests.get(self.server_url(f"/alerts/{registration_id(self.config)}"), timeout=5)
             response.raise_for_status()
-            result = {"ok": True, "alert": response.json()}
+            alert = response.json()
+            if alert and alert.get("play_sound"):
+                sound_path = self.prepare_alert_sound(alert.get("sound", ""))
+                if sound_path:
+                    alert["_sound_path"] = str(sound_path)
+            result = {"ok": True, "alert": alert}
         except Exception:
             result = {"ok": False, "alert": None}
         self.alert_result_ready.emit(result)
@@ -528,7 +534,7 @@ class ViewerWindow(QMainWindow):
         except Exception:
             self.remote_alert_queue_remaining = 0
         if alert.get("play_sound"):
-            self.play_alert_sound(alert.get("sound", ""))
+            self.play_alert_sound(alert.get("sound", ""), alert.get("_sound_path"))
             alert["_sound_played"] = True
         self.pending_alerts.append(alert)
         self.update_notification_queue_badge()
@@ -541,7 +547,7 @@ class ViewerWindow(QMainWindow):
         alert = self.pending_alerts.pop(0)
         self.update_notification_queue_badge()
         if alert.get("play_sound") and not alert.get("_sound_played"):
-            self.play_alert_sound(alert.get("sound", ""))
+            self.play_alert_sound(alert.get("sound", ""), alert.get("_sound_path"))
 
         if not alert.get("show_popup", True):
             QTimer.singleShot(0, self.finish_current_alert)
@@ -566,10 +572,55 @@ class ViewerWindow(QMainWindow):
         self.alert_queue_badge.setText(f"{queued_count} queued {label}")
         self.alert_queue_badge.show()
 
-    def play_alert_sound(self, sound_name):
+    def safe_sound_name(self, sound_name):
+        raw_name = str(sound_name or "").strip()
+        if not raw_name or "/" in raw_name or "\\" in raw_name:
+            return ""
+        safe_name = Path(raw_name).name
+        if safe_name != raw_name or Path(safe_name).suffix.lower() != ".wav":
+            return ""
+        return safe_name
+
+    def local_sound_path(self, sound_name):
+        safe_name = self.safe_sound_name(sound_name)
+        if not safe_name:
+            return None
+        return BASE_DIR / "sounds" / safe_name
+
+    def prepare_alert_sound(self, sound_name):
+        sound_path = self.local_sound_path(sound_name)
+        if sound_path is None:
+            return None
+
+        if self.download_sound_file(sound_path.name, sound_path):
+            return sound_path
+        if sound_path.exists():
+            return sound_path
+        return None
+
+    def download_sound_file(self, sound_name, target_path):
+        temp_path = target_path.with_name(f".{target_path.name}.download.tmp")
+        try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            response = requests.get(self.server_url(f"/sounds/{quote(sound_name, safe='')}"), timeout=5)
+            response.raise_for_status()
+            data = response.content
+            if not data or len(data) > 10 * 1024 * 1024:
+                return False
+            temp_path.write_bytes(data)
+            temp_path.replace(target_path)
+            return True
+        except Exception:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return False
+
+    def play_alert_sound(self, sound_name, prepared_path=None):
         self.ensure_audio_preferences()
-        sound_path = BASE_DIR / "sounds" / str(sound_name or "").strip()
-        if not sound_path.exists():
+        sound_path = Path(prepared_path) if prepared_path else self.local_sound_path(sound_name)
+        if sound_path is None or not sound_path.exists():
             QApplication.beep()
             return
 

@@ -1,7 +1,13 @@
 from threading import Thread
 import time
+from pathlib import Path
 
-from flask import Flask, jsonify, request
+from flask import Flask, abort, jsonify, request, send_from_directory
+
+from manager_app.settings_store import PROJECT_ROOT
+
+
+SOUNDS_DIR = PROJECT_ROOT / "sounds"
 
 
 def create_app(state):
@@ -30,6 +36,23 @@ def create_app(state):
     @app.get("/alerts/<device_id>")
     def alerts(device_id):
         return jsonify(state.poll_alert(device_id))
+
+    @app.get("/sounds/<path:filename>")
+    def sounds(filename):
+        safe_name = Path(str(filename or "").strip()).name
+        if not safe_name or safe_name != str(filename or "").strip():
+            abort(404)
+        if Path(safe_name).suffix.lower() != ".wav":
+            abort(404)
+        if not (SOUNDS_DIR / safe_name).is_file():
+            abort(404)
+        return send_from_directory(
+            SOUNDS_DIR,
+            safe_name,
+            mimetype="audio/wav",
+            as_attachment=False,
+            max_age=30,
+        )
 
     @app.get("/screen/<screen>")
     def screen(screen):
