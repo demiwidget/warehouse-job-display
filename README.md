@@ -22,6 +22,8 @@ Use the manager tabs:
 
 There is deliberately no update tab. Code updates are handled by Git on the Pi during boot/reboot and by the updater service.
 
+The manager is expected to stay open because it serves the live dashboard data to the Pis. If it exits unexpectedly, the launcher restarts it automatically. To close it deliberately, close the window and confirm the prompt.
+
 ## Local Secrets
 Current RMS credentials are not stored in committed files. The manager writes real API settings to:
 
@@ -67,6 +69,11 @@ Manual update:
 
 ## Pi Audio
 Pi alert sounds default to the attached HDMI screen output. The installer writes this into `viewer_config.json`, and the viewer reapplies the preferred sink on startup so sound stays on the screen after reboots.
+
+## Custom Sounds
+Use `.wav` files for reliable Pi playback. In the manager `Alerts` tab, use `Import WAV Sound` to copy a sound into the repo's `sounds/` folder, then use that filename in the relevant alert sound box.
+
+To make imported sounds available on the Pis, commit and push the new file to GitHub, then run `Update Pi From GitHub` or reboot the Pis.
 
 ## Local Files Not Committed
 Device-specific and generated files are intentionally ignored:

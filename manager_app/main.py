@@ -1,15 +1,18 @@
+import shutil
 import socket
 import sys
 import threading
 import traceback
+from pathlib import Path
 from threading import Event, Thread
 
-from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QTimer, Qt, QUrl
+from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
@@ -29,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from manager_app.server import ServerThread
+from manager_app.settings_store import DATA_DIR, PROJECT_ROOT
 from manager_app.state import ManagerState
 
 
@@ -41,6 +45,9 @@ ALERT_LABELS = [
     ("job_changed_tomorrow", "Job Changed Tomorrow"),
     ("job_changed_next_7_days", "Job Changed Next 7 Days"),
 ]
+
+SOUNDS_DIR = PROJECT_ROOT / "sounds"
+MANAGER_EXIT_FLAG = DATA_DIR / "allow_manager_exit.flag"
 
 
 def local_addresses():
@@ -393,6 +400,16 @@ class AlertsTab(QWidget):
         test_form.addRow("", self.test_sound_enabled)
         test_layout.addLayout(test_form)
 
+        sound_buttons = QHBoxLayout()
+        import_sound_btn = QPushButton("Import WAV Sound")
+        open_sounds_btn = QPushButton("Open Sounds Folder")
+        import_sound_btn.clicked.connect(self.import_sound_file)
+        open_sounds_btn.clicked.connect(self.open_sounds_folder)
+        sound_buttons.addWidget(import_sound_btn)
+        sound_buttons.addWidget(open_sounds_btn)
+        sound_buttons.addStretch(1)
+        test_layout.addLayout(sound_buttons)
+
         target_heading = QLabel("Send Test To")
         target_heading.setStyleSheet("font-weight: 700;")
         test_layout.addWidget(target_heading)
@@ -508,6 +525,53 @@ class AlertsTab(QWidget):
                 if device_id:
                     ids.append(device_id)
         return ids
+
+    def open_sounds_folder(self):
+        SOUNDS_DIR.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(SOUNDS_DIR)))
+
+    def import_sound_file(self):
+        source_path, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "Import WAV Sound",
+            "",
+            "WAV sound files (*.wav)",
+        )
+        if not source_path:
+            return
+
+        source = Path(source_path)
+        if source.suffix.lower() != ".wav":
+            QMessageBox.warning(self, "Import Sound", "Use a .wav file for reliable playback on the Pis.")
+            return
+
+        SOUNDS_DIR.mkdir(parents=True, exist_ok=True)
+        target = SOUNDS_DIR / source.name
+        if target.exists():
+            choice = QMessageBox.question(
+                self,
+                "Replace Sound?",
+                f"{target.name} already exists. Replace it?",
+            )
+            if choice != QMessageBox.Yes:
+                return
+
+        try:
+            shutil.copy2(source, target)
+        except Exception as error:
+            QMessageBox.warning(self, "Import Sound Failed", f"Could not import the sound file:\n{error}")
+            return
+
+        self.test_sound_input.setText(target.name)
+        QMessageBox.information(
+            self,
+            "Sound Imported",
+            (
+                f"Imported {target.name} into the sounds folder.\n\n"
+                "Use that filename in any alert sound box. To send it to the Pis, push the sound file to GitHub "
+                "and then update/reboot the Pis."
+            ),
+        )
 
     def send_test_notification(self):
         device_ids = self.selected_test_device_ids()
@@ -834,6 +898,7 @@ class ManagerWindow(QMainWindow):
     def __init__(self, state):
         super().__init__()
         self.state = state
+        self.confirmed_close = False
         self.setWindowTitle("Warehouse Dashboard Manager")
         self.resize(1120, 760)
 
@@ -852,6 +917,13 @@ class ManagerWindow(QMainWindow):
             "Closing the manager stops the dashboard data server for the Pis. Are you sure you want to close it?",
         )
         if choice == QMessageBox.Yes:
+            self.confirmed_close = True
+            try:
+                MANAGER_EXIT_FLAG.parent.mkdir(parents=True, exist_ok=True)
+                MANAGER_EXIT_FLAG.write_text("confirmed", encoding="utf-8")
+                self.state.log_activity("Manager", "Manager app closed by user confirmation.")
+            except Exception as error:
+                self.state.log_exception("Manager", "Could not write confirmed close marker", error)
             event.accept()
             return
         event.ignore()
@@ -867,11 +939,17 @@ def main():
     monitor.start()
     update_monitor.start()
 
+    window = None
     try:
         app = ResilientApplication(sys.argv, state)
+        app.setQuitOnLastWindowClosed(True)
         window = ManagerWindow(state)
         window.show()
-        return app.exec()
+        exit_code = app.exec()
+        if window and window.confirmed_close:
+            return exit_code
+        state.log_activity("Manager", f"Manager event loop exited unexpectedly with code {exit_code}.", level="warning")
+        return 1
     except Exception as error:
         state.log_exception("Manager", "Manager app crashed", error)
         return 1

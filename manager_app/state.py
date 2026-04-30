@@ -234,13 +234,14 @@ class ManagerState:
 
     def _remove_legacy_device(self, legacy_id, device_id):
         if legacy_id and legacy_id != device_id:
-            self.devices.pop(legacy_id, None)
-            self.alerts.pop(legacy_id, None)
-            self.commands.pop(legacy_id, None)
-            self.log_activity(
-                "Pis",
-                f"Removed legacy device row {legacy_id} after {device_id} re-registered.",
-            )
+            removed_device = self.devices.pop(legacy_id, None)
+            removed_alerts = self.alerts.pop(legacy_id, None)
+            removed_command = self.commands.pop(legacy_id, None)
+            if removed_device is not None or removed_alerts is not None or removed_command is not None:
+                self.log_activity(
+                    "Pis",
+                    f"Removed legacy device row {legacy_id} after {device_id} re-registered.",
+                )
 
     def _merge_device_identity(self, existing, payload, remote_addr, now):
         existing.update(

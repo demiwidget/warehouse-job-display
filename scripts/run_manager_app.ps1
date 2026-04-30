@@ -152,7 +152,9 @@ try {
 
     $ManagerDataDir = Join-Path $ProjectDir "manager_data"
     $LauncherLog = Join-Path $ManagerDataDir "manager_launcher.log"
+    $ExitFlag = Join-Path $ManagerDataDir "allow_manager_exit.flag"
     New-Item -ItemType Directory -Force -Path $ManagerDataDir | Out-Null
+    Remove-Item -LiteralPath $ExitFlag -Force -ErrorAction SilentlyContinue
 
     while ($true) {
         & $VenvPythonGui -m manager_app.main
@@ -161,7 +163,8 @@ try {
             $managerExitCode = 0
         }
 
-        if ($managerExitCode -eq 0) {
+        if (($managerExitCode -eq 0) -and (Test-Path $ExitFlag)) {
+            Remove-Item -LiteralPath $ExitFlag -Force -ErrorAction SilentlyContinue
             exit 0
         }
 
