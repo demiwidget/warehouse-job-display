@@ -810,7 +810,7 @@ class ActivityConsoleTab(QWidget):
 
         controls = QHBoxLayout()
         self.category_filter = QComboBox()
-        self.category_filter.addItems(["All", "Current RMS", "Pis", "Notifications", "Updates", "Commands", "Settings", "Manager"])
+        self.category_filter.addItems(["All", "Current RMS", "Pis", "Audio", "Notifications", "Updates", "Commands", "Settings", "Manager"])
         self.level_filter = QComboBox()
         self.level_filter.addItems(["All", "info", "warning", "error"])
         refresh_btn = QPushButton("Refresh")

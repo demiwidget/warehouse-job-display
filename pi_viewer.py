@@ -572,6 +572,20 @@ class ViewerWindow(QMainWindow):
         self.alert_queue_badge.setText(f"{queued_count} queued {label}")
         self.alert_queue_badge.show()
 
+    def report_audio_event(self, message, level="info"):
+        Thread(
+            target=lambda: post_status(
+                self.config,
+                "online",
+                message,
+                source="audio",
+                timeout=2,
+                event_only=True,
+                level=level,
+            ),
+            daemon=True,
+        ).start()
+
     def safe_sound_name(self, sound_name):
         raw_name = str(sound_name or "").strip()
         if not raw_name or "/" in raw_name or "\\" in raw_name:
@@ -590,12 +604,16 @@ class ViewerWindow(QMainWindow):
     def prepare_alert_sound(self, sound_name):
         sound_path = self.local_sound_path(sound_name)
         if sound_path is None:
+            self.report_audio_event(f"Invalid alert sound name: {sound_name}", level="warning")
             return None
 
         if self.download_sound_file(sound_path.name, sound_path):
+            self.report_audio_event(f"Downloaded alert sound {sound_path.name}.")
             return sound_path
         if sound_path.exists():
+            self.report_audio_event(f"Using cached alert sound {sound_path.name}.", level="warning")
             return sound_path
+        self.report_audio_event(f"Alert sound {sound_path.name} is missing on this Pi.", level="warning")
         return None
 
     def download_sound_file(self, sound_name, target_path):
@@ -606,11 +624,13 @@ class ViewerWindow(QMainWindow):
             response.raise_for_status()
             data = response.content
             if not data or len(data) > 10 * 1024 * 1024:
+                self.report_audio_event(f"Rejected alert sound {sound_name}: invalid download size.", level="warning")
                 return False
             temp_path.write_bytes(data)
             temp_path.replace(target_path)
             return True
-        except Exception:
+        except Exception as error:
+            self.report_audio_event(f"Could not download alert sound {sound_name}: {error}", level="warning")
             try:
                 temp_path.unlink(missing_ok=True)
             except Exception:
@@ -621,10 +641,13 @@ class ViewerWindow(QMainWindow):
         self.ensure_audio_preferences()
         sound_path = Path(prepared_path) if prepared_path else self.local_sound_path(sound_name)
         if sound_path is None or not sound_path.exists():
+            self.report_audio_event(f"Could not play alert sound {sound_name}: file is missing.", level="warning")
             QApplication.beep()
             return
 
-        if self.play_alert_sound_with_system_player(sound_path):
+        player = self.play_alert_sound_with_system_player(sound_path)
+        if player:
+            self.report_audio_event(f"Started alert sound {sound_path.name} using {player}.")
             return
 
         if self.sound_effect:
@@ -633,7 +656,9 @@ class ViewerWindow(QMainWindow):
             self.sound_effect.setLoopCount(1)
             self.sound_effect.setVolume(0.9)
             self.sound_effect.play()
+            self.report_audio_event(f"Started alert sound {sound_path.name} using Qt audio.")
             return
+        self.report_audio_event(f"Could not start alert sound {sound_path.name}; used system beep.", level="warning")
         QApplication.beep()
 
     def play_alert_sound_with_system_player(self, sound_path):
@@ -658,12 +683,12 @@ class ViewerWindow(QMainWindow):
                 try:
                     return_code = self.sound_process.wait(timeout=0.2)
                 except subprocess.TimeoutExpired:
-                    return True
+                    return binary
                 if return_code == 0:
-                    return True
+                    return binary
             except Exception:
                 continue
-        return False
+        return None
 
     def ensure_audio_preferences(self, force=False):
         now = time.monotonic()

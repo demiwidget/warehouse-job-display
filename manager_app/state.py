@@ -317,6 +317,9 @@ class ManagerState:
         if not device_id:
             return None
         legacy_id = str(payload.get("legacy_id", "")).strip()
+        event_only = bool(payload.get("event_only"))
+        source = str(payload.get("source", "")).strip() or "agent"
+        message = str(payload.get("message", "")).strip()
 
         now = datetime.now().isoformat(timespec="seconds")
         with self.lock:
@@ -325,11 +328,25 @@ class ManagerState:
             previous_state = str(existing.get("status_state", "")).strip()
             previous_message = str(existing.get("status_message", "")).strip()
             self._merge_device_identity(existing, payload, remote_addr, now)
-            self._apply_status_update(existing, payload, now)
+            if not event_only:
+                self._apply_status_update(existing, payload, now)
             self.devices[device_id] = existing
             self.alerts.setdefault(device_id, [])
             self.store.save_devices(self.devices)
             result = dict(existing)
+
+        if event_only:
+            category = "Audio" if source == "audio" else "Pis"
+            level = str(payload.get("level", "")).strip().lower() or "info"
+            if level not in {"info", "warning", "error"}:
+                level = "info"
+            self.log_activity(
+                category,
+                f"{result.get('name') or device_id}: {message or 'Event received.'}",
+                level=level,
+                details={"device_id": device_id, "source": source},
+            )
+            return result
 
         state = str(result.get("status_state", "")).strip()
         message = str(result.get("status_message", "")).strip()
