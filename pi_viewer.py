@@ -13,7 +13,7 @@ os.environ.setdefault("QT_IM_MODULE", "none")
 os.environ.setdefault("QT_VIRTUALKEYBOARD_DESKTOP_DISABLE", "1")
 
 import requests
-from PySide6.QtCore import QTimer, Qt, QUrl, Signal
+from PySide6.QtCore import QObject, QEvent, QPoint, QTimer, Qt, QUrl, Signal
 from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QApplication,
@@ -92,12 +92,71 @@ def write_json_atomic(path, payload):
                 pass
 
 
+def _event_position(event):
+    if hasattr(event, "position"):
+        return event.position().toPoint()
+    if hasattr(event, "pos"):
+        return event.pos()
+    return QPoint()
+
+
+class DragScrollFilter(QObject):
+    def __init__(self, scroll_widget):
+        super().__init__(scroll_widget)
+        self.scroll_widget = scroll_widget
+        self.pressed = False
+        self.dragging = False
+        self.start_pos = QPoint()
+        self.last_pos = QPoint()
+
+    def eventFilter(self, obj, event):
+        event_type = event.type()
+        if event_type == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            self.pressed = True
+            self.dragging = False
+            self.start_pos = _event_position(event)
+            self.last_pos = self.start_pos
+            return False
+
+        if event_type == QEvent.MouseMove and self.pressed and event.buttons() & Qt.LeftButton:
+            pos = _event_position(event)
+            if not self.dragging:
+                distance = (pos - self.start_pos).manhattanLength()
+                if distance < QApplication.startDragDistance():
+                    return False
+                self.dragging = True
+
+            delta = pos - self.last_pos
+            self.last_pos = pos
+            self.scroll_widget.verticalScrollBar().setValue(
+                self.scroll_widget.verticalScrollBar().value() - delta.y()
+            )
+            self.scroll_widget.horizontalScrollBar().setValue(
+                self.scroll_widget.horizontalScrollBar().value() - delta.x()
+            )
+            event.accept()
+            return True
+
+        if event_type == QEvent.MouseButtonRelease and self.pressed:
+            was_dragging = self.dragging
+            self.pressed = False
+            self.dragging = False
+            if was_dragging:
+                event.accept()
+                return True
+
+        return False
+
+
 def enable_click_drag_scroll(widget):
     """Allow touch and mouse-drag scrolling on scrollable Qt widgets."""
     viewport = widget.viewport() if hasattr(widget, "viewport") else widget
     viewport.setAttribute(Qt.WA_AcceptTouchEvents, True)
     QScroller.grabGesture(viewport, QScroller.TouchGesture)
     QScroller.grabGesture(viewport, QScroller.LeftMouseButtonGesture)
+    drag_filter = DragScrollFilter(widget)
+    viewport.installEventFilter(drag_filter)
+    widget._warehouse_drag_scroll_filter = drag_filter
 
 
 class DashboardTable(QTableWidget):
