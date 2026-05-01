@@ -453,6 +453,31 @@ class ManagerState:
         )
         return command
 
+    def remove_devices(self, device_ids):
+        clean_ids = [str(device_id).strip() for device_id in (device_ids or []) if str(device_id).strip()]
+        if not clean_ids:
+            return 0
+
+        removed = []
+        with self.lock:
+            for device_id in clean_ids:
+                device = self.devices.pop(device_id, None)
+                self.commands.pop(device_id, None)
+                self.alerts.pop(device_id, None)
+                if device is not None:
+                    removed.append(device_id)
+
+            if removed:
+                self.store.save_devices(self.devices)
+
+        if removed:
+            self.log_activity(
+                "Pis",
+                f"Removed {len(removed)} Pi screen(s) from the manager list.",
+                details={"device_ids": removed},
+            )
+        return len(removed)
+
     def poll_command(self, device_id):
         with self.lock:
             command = self.commands.pop(str(device_id), None)

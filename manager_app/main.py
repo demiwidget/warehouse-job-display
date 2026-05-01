@@ -674,17 +674,20 @@ class PiScreensTab(QWidget):
         update_btn = QPushButton("Update Pi From GitHub")
         check_updates_btn = QPushButton("Check GitHub Updates")
         reboot_btn = QPushButton("Reboot Pi")
+        remove_btn = QPushButton("Remove Selected")
         refresh_btn = QPushButton("Refresh List")
         rename_btn.clicked.connect(self.rename_selected_pi)
         restart_btn.clicked.connect(lambda: self.send_action("restart"))
         update_btn.clicked.connect(lambda: self.send_action("update"))
         check_updates_btn.clicked.connect(self.check_updates_now)
         reboot_btn.clicked.connect(lambda: self.send_action("reboot"))
+        remove_btn.clicked.connect(self.remove_selected_pis)
         refresh_btn.clicked.connect(self.refresh)
         command_buttons.addWidget(rename_btn)
         command_buttons.addWidget(restart_btn)
         command_buttons.addWidget(update_btn)
         command_buttons.addWidget(reboot_btn)
+        command_buttons.addWidget(remove_btn)
         command_buttons.addStretch(1)
         command_buttons.addWidget(check_updates_btn)
         command_buttons.addWidget(refresh_btn)
@@ -815,6 +818,29 @@ class PiScreensTab(QWidget):
 
         self.state.queue_command([device["id"]], "rename", device_name=clean_name)
         self.status.setText(f"Queued rename for {device['id']} to '{clean_name}'.")
+
+    def remove_selected_pis(self):
+        devices = self.selected_devices()
+        if not devices:
+            QMessageBox.warning(self, "No Pi Selected", "Select one or more Pi screens to remove.")
+            return
+
+        names = ", ".join(device.get("name") or device.get("id", "") for device in devices)
+        choice = QMessageBox.question(
+            self,
+            "Remove Pi Screens?",
+            (
+                f"Remove {len(devices)} Pi screen(s) from the manager list?\n\n"
+                f"{names}\n\n"
+                "If a removed Pi is still running the dashboard app, it will register again automatically."
+            ),
+        )
+        if choice != QMessageBox.Yes:
+            return
+
+        removed_count = self.state.remove_devices([device["id"] for device in devices])
+        self.status.setText(f"Removed {removed_count} Pi screen(s) from the manager list.")
+        self.refresh()
 
     def send_action(self, action, screen=None):
         device_ids = self.selected_device_ids()
