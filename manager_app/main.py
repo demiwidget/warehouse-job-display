@@ -333,6 +333,7 @@ class AlertsTab(QWidget):
         grid.addWidget(QLabel("Popup"), 0, 2)
         grid.addWidget(QLabel("Sound"), 0, 3)
         grid.addWidget(QLabel("Sound File"), 0, 4)
+        grid.addWidget(QLabel("Test"), 0, 5)
 
         self.event_inputs = {}
         for row, (event_key, label) in enumerate(ALERT_LABELS, start=1):
@@ -344,18 +345,24 @@ class AlertsTab(QWidget):
             sound = QCheckBox()
             sound.setChecked(bool(config.get("play_sound", True)))
             sound_name = QLineEdit(str(config.get("sound", "")))
+            test_button = QPushButton("Test")
+            test_button.clicked.connect(
+                lambda _checked=False, key=event_key, text=label: self.send_category_test_notification(key, text)
+            )
 
             grid.addWidget(QLabel(label), row, 0)
             grid.addWidget(enabled, row, 1, alignment=Qt.AlignCenter)
             grid.addWidget(popup, row, 2, alignment=Qt.AlignCenter)
             grid.addWidget(sound, row, 3, alignment=Qt.AlignCenter)
             grid.addWidget(sound_name, row, 4)
+            grid.addWidget(test_button, row, 5)
 
             self.event_inputs[event_key] = {
                 "enabled": enabled,
                 "show_popup": popup,
                 "play_sound": sound,
                 "sound": sound_name,
+                "test": test_button,
             }
 
         layout.addLayout(grid)
@@ -590,6 +597,30 @@ class AlertsTab(QWidget):
             QMessageBox.information(self, "Test Notification", message)
         else:
             QMessageBox.warning(self, "Test Notification", message)
+
+    def send_category_test_notification(self, event_key, label):
+        device_ids = self.selected_test_device_ids()
+        if not device_ids:
+            QMessageBox.warning(self, "Test Sound", "Select at least one Pi screen to send the test to.")
+            return
+
+        inputs = self.event_inputs.get(event_key, {})
+        sound_name = inputs.get("sound").text().strip() if inputs.get("sound") else ""
+        if not sound_name:
+            QMessageBox.warning(self, "Test Sound", f"{label} does not have a sound file configured.")
+            return
+
+        success, message = self.state.send_test_notification(
+            title=f"Test: {label}",
+            message=f"Testing {label} sound file:\n{sound_name}",
+            sound_name=sound_name,
+            play_sound=True,
+            device_ids=device_ids,
+        )
+        if success:
+            QMessageBox.information(self, "Test Sound", message)
+        else:
+            QMessageBox.warning(self, "Test Sound", message)
 
 
 class PiScreensTab(QWidget):
