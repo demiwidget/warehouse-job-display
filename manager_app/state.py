@@ -494,7 +494,7 @@ class ManagerState:
             queue = self.alerts.setdefault(str(device_id), [])
             if not queue:
                 return None
-            alert = dict(queue.pop(0))
+            alert = dict(queue.pop())
             alert["queue_remaining"] = len(queue)
         self.log_activity(
             "Notifications",

@@ -595,7 +595,7 @@ class ViewerWindow(QMainWindow):
         if alert.get("play_sound"):
             self.play_alert_sound(alert.get("sound", ""), alert.get("_sound_path"))
             alert["_sound_played"] = True
-        self.pending_alerts.append(alert)
+        self.pending_alerts.insert(0, alert)
         self.update_notification_queue_badge()
         self.show_next_alert()
 
