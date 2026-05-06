@@ -67,6 +67,18 @@ def local_addresses():
     return sorted(address for address in addresses if address and not address.startswith("169.254."))
 
 
+def pi_install_host(settings):
+    server = settings.get("server", {})
+    host = str(server.get("host", "")).strip()
+    if host and host not in {"0.0.0.0", "::", "127.0.0.1", "localhost"}:
+        return host
+
+    for address in local_addresses():
+        if not address.startswith("127."):
+            return address
+    return "MANAGER_PC_IP"
+
+
 class DashboardMonitorThread(Thread):
     def __init__(self, state):
         super().__init__(daemon=True)
@@ -164,6 +176,32 @@ class ConnectionTab(QWidget):
         layout.addWidget(QLabel("Use one of these PC addresses when installing a Pi:"))
         layout.addWidget(self.addresses)
 
+        layout.addWidget(QLabel("Standard Pi install/update command:"))
+        self.install_command = QTextEdit()
+        self.install_command.setReadOnly(True)
+        self.install_command.setMinimumHeight(95)
+        layout.addWidget(self.install_command)
+
+        layout.addWidget(QLabel("Overwrite an old Node-RED/Home Assistant Pi:"))
+        self.overwrite_install_command = QTextEdit()
+        self.overwrite_install_command.setReadOnly(True)
+        self.overwrite_install_command.setMinimumHeight(130)
+        layout.addWidget(self.overwrite_install_command)
+
+        copy_buttons = QHBoxLayout()
+        copy_install_btn = QPushButton("Copy Standard Install")
+        copy_overwrite_btn = QPushButton("Copy Old-System Install")
+        copy_install_btn.clicked.connect(
+            lambda: self.copy_command(self.install_command, "Copied the standard Pi install command.")
+        )
+        copy_overwrite_btn.clicked.connect(
+            lambda: self.copy_command(self.overwrite_install_command, "Copied the old-system overwrite command.")
+        )
+        copy_buttons.addWidget(copy_install_btn)
+        copy_buttons.addWidget(copy_overwrite_btn)
+        copy_buttons.addStretch(1)
+        layout.addLayout(copy_buttons)
+
         save_btn = QPushButton("Save Connection Settings")
         save_btn.clicked.connect(self.save)
         layout.addWidget(save_btn)
@@ -176,10 +214,35 @@ class ConnectionTab(QWidget):
 
     def refresh_addresses(self):
         settings = self.state.get_settings(include_secret=True)
-        port = settings.get("server", {}).get("port", 8765)
+        server = settings.get("server", {})
+        port = server.get("port", 8765)
+        install_host = pi_install_host(settings)
         lines = [f"http://{address}:{port}" for address in local_addresses()]
         self.addresses.setPlainText("\n".join(lines))
+        self.install_command.setPlainText(
+            "cd ~ && "
+            "(git clone https://github.com/demiwidget/warehouse-job-display.git ~/warehouse-job-display "
+            "|| (cd ~/warehouse-job-display && git pull --ff-only)) && "
+            "cd ~/warehouse-job-display/scripts && "
+            f"WAREHOUSE_MANAGER_IP={install_host} WAREHOUSE_MANAGER_PORT={port} ./install_pi.sh"
+        )
+        self.overwrite_install_command.setPlainText(
+            "cd ~ && "
+            "sudo systemctl stop nodered node-red home-assistant@homeassistant home-assistant docker containerd "
+            "2>/dev/null || true; "
+            "sudo systemctl disable nodered node-red home-assistant@homeassistant home-assistant "
+            "2>/dev/null || true; "
+            "rm -rf ~/warehouse-job-display; "
+            "git clone https://github.com/demiwidget/warehouse-job-display.git ~/warehouse-job-display && "
+            "cd ~/warehouse-job-display/scripts && "
+            f"WAREHOUSE_MANAGER_IP={install_host} WAREHOUSE_MANAGER_PORT={port} ./install_pi.sh && "
+            "sudo reboot"
+        )
         self.status.setText("The manager server is running. Connection changes take effect next time the app starts.")
+
+    def copy_command(self, widget, message):
+        QApplication.clipboard().setText(widget.toPlainText())
+        self.status.setText(message)
 
     def save(self):
         self.state.save_settings(
