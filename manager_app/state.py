@@ -1,7 +1,9 @@
 from copy import deepcopy
 from datetime import datetime
 from itertools import zip_longest
+import os
 import re
+import shutil
 import subprocess
 import sys
 from threading import Lock, RLock
@@ -197,6 +199,101 @@ class ManagerState:
             return dict(status)
         finally:
             self.update_check_lock.release()
+
+    def _manager_pi_ready(self):
+        return sys.platform.startswith("linux") and (PROJECT_ROOT / "scripts" / "install_manager_pi.sh").is_file()
+
+    def _service_state(self, service_name):
+        systemctl = shutil.which("systemctl")
+        if not systemctl or not sys.platform.startswith("linux"):
+            return "Unavailable"
+        try:
+            result = subprocess.run(
+                [systemctl, "is-active", service_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            value = (result.stdout or "").strip()
+            return value or "unknown"
+        except Exception:
+            return "unknown"
+
+    def get_manager_status(self):
+        update_status = self.get_update_status()
+        return {
+            "version": CURRENT_VERSION,
+            "is_manager_pi": self._manager_pi_ready(),
+            "backend_service": self._service_state("warehouse-manager-backend.service"),
+            "display_service": self._service_state("warehouse-manager-display.service"),
+            "update_service": self._service_state("warehouse-manager-update.service"),
+            "update_status": update_status,
+        }
+
+    def _sudo_prefix(self):
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            return []
+        sudo = shutil.which("sudo")
+        if not sudo:
+            raise RuntimeError("sudo is not available on this manager.")
+        return [sudo, "-n"]
+
+    def _run_manager_control(self, action, command, message):
+        if not self._manager_pi_ready():
+            raise RuntimeError("Manager Pi controls are only available when connected to a Manager Pi backend.")
+
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(detail or f"{action} failed with exit code {result.returncode}.")
+        self.log_activity("Manager", message, details={"action": action})
+        return {"ok": True, "action": action, "message": message}
+
+    def run_manager_command(self, action):
+        action = str(action or "").strip().lower()
+        if action == "check_updates":
+            status = self.refresh_update_status(force=True)
+            return {"ok": True, "action": action, "message": "Checked GitHub for Manager Pi updates.", "status": status}
+
+        if not self._manager_pi_ready():
+            raise RuntimeError("Manager Pi controls are only available when connected to a Manager Pi backend.")
+
+        systemctl = "/usr/bin/systemctl" if os.path.exists("/usr/bin/systemctl") else (shutil.which("systemctl") or "/usr/bin/systemctl")
+        reboot = "/usr/sbin/reboot" if os.path.exists("/usr/sbin/reboot") else (shutil.which("reboot") or "/usr/sbin/reboot")
+        sudo = self._sudo_prefix()
+
+        commands = {
+            "update": (
+                sudo + [systemctl, "--no-block", "start", "warehouse-manager-update.service"],
+                "Started Manager Pi update from GitHub.",
+            ),
+            "restart_backend": (
+                sudo + [systemctl, "--no-block", "restart", "warehouse-manager-backend.service"],
+                "Restarting Manager Pi backend service.",
+            ),
+            "restart_display": (
+                sudo + [systemctl, "--no-block", "restart", "warehouse-manager-display.service"],
+                "Restarting Manager Pi status display.",
+            ),
+            "reboot": (
+                sudo + [reboot],
+                "Rebooting Manager Pi.",
+            ),
+        }
+        if action not in commands:
+            raise RuntimeError(f"Unsupported Manager Pi action: {action}")
+
+        command, message = commands[action]
+        return self._run_manager_control(action, command, message)
 
     def get_settings(self, include_secret=False):
         with self.lock:

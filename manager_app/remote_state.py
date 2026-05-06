@@ -24,15 +24,20 @@ def load_remote_connection():
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         data = {}
+    if isinstance(data, dict) and "admin_token" in data:
+        data = {"manager_url": str(data.get("manager_url") or "").strip()}
+        try:
+            path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception:
+            pass
     return data if isinstance(data, dict) else {}
 
 
-def save_remote_connection(manager_url, admin_token=""):
+def save_remote_connection(manager_url):
     path = remote_config_file()
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {
         "manager_url": normalize_manager_url(manager_url),
-        "admin_token": str(admin_token or "").strip(),
     }
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
@@ -162,6 +167,12 @@ class RemoteManagerState:
         if force:
             return self._post("/api/update-status/refresh")
         return self.get_update_status()
+
+    def get_manager_status(self):
+        return self._get("/api/manager/status")
+
+    def run_manager_command(self, action):
+        return self._post("/api/manager/command", {"action": action})
 
     def upload_sound(self, source_path):
         source = Path(source_path)

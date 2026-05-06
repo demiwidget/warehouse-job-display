@@ -25,7 +25,7 @@ def connect_to_manager(remote_url, admin_token):
 def initial_connection_values():
     saved = load_remote_connection()
     remote_url = str(os.environ.get("WAREHOUSE_MANAGER_URL") or saved.get("manager_url") or "").strip()
-    admin_token = str(os.environ.get("WAREHOUSE_MANAGER_TOKEN") or saved.get("admin_token") or "").strip()
+    admin_token = str(os.environ.get("WAREHOUSE_MANAGER_TOKEN") or "").strip()
     if len(sys.argv) > 1:
         remote_url = sys.argv[1]
     if len(sys.argv) > 2:
@@ -92,7 +92,7 @@ def build_login_dialog(ui):
 
             intro = QLabel(
                 "Enter the Manager Pi address and the PC Login Code shown on the Manager Pi screen. "
-                "After the first successful login, this PC will remember it."
+                "This PC remembers the address, but asks for the login code each time."
             )
             intro.setWordWrap(True)
             intro.setStyleSheet("color:#4b5563;")
@@ -108,7 +108,7 @@ def build_login_dialog(ui):
             form.addRow("PC Login Code", self.token_input)
             layout.addLayout(form)
 
-            self.remember_input = QCheckBox("Remember this Manager Pi on this PC")
+            self.remember_input = QCheckBox("Remember this Manager Pi address on this PC")
             self.remember_input.setChecked(True)
             layout.addWidget(self.remember_input)
 
@@ -147,7 +147,7 @@ def build_login_dialog(ui):
                 self.connected_url = remote_url
                 self.connected_token = admin_token
                 if self.remember_input.isChecked():
-                    save_remote_connection(remote_url, admin_token)
+                    save_remote_connection(remote_url)
                 self.accept()
             finally:
                 QApplication.restoreOverrideCursor()
@@ -172,15 +172,17 @@ def main():
     remote_url, admin_token = initial_connection_values()
     state = None
     status_text = ""
-    if remote_url:
+    if remote_url and admin_token:
         try:
             remote_url, state = connect_to_manager(remote_url, admin_token)
-            save_remote_connection(remote_url, admin_token)
+            save_remote_connection(remote_url)
         except PermissionError as error:
             status_text = str(error)
             admin_token = ""
         except Exception as error:
             status_text = f"Could not connect to the Manager Pi: {error}"
+    elif remote_url:
+        status_text = "Enter the PC Login Code shown on the Manager Pi screen."
 
     if state is None:
         RemoteLoginDialog = build_login_dialog(ui)

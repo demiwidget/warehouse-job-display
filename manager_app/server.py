@@ -127,6 +127,19 @@ def create_app(state):
         state.refresh_dashboard()
         return jsonify({"ok": True})
 
+    @app.get("/api/manager/status")
+    def manager_status():
+        return jsonify(state.get_manager_status())
+
+    @app.post("/api/manager/command")
+    def manager_command():
+        payload = request.get_json(silent=True) or {}
+        try:
+            return jsonify(state.run_manager_command(payload.get("action", "")))
+        except Exception as error:
+            state.log_exception("Manager", "Manager Pi command failed", error)
+            return jsonify({"ok": False, "message": str(error)}), 400
+
     @app.post("/api/devices/command")
     def command():
         payload = request.get_json(silent=True) or {}

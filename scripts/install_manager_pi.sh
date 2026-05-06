@@ -18,7 +18,9 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 VENV_DIR="$APP_DIR/.venv"
 PYTHON_BIN="/usr/bin/python3"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.33')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.34')"
+SYSTEMCTL_BIN="$(command -v systemctl 2>/dev/null || printf '/usr/bin/systemctl')"
+REBOOT_BIN="$(command -v reboot 2>/dev/null || printf '/usr/sbin/reboot')"
 
 if [[ -n "${WAREHOUSE_APP_USER:-}" ]]; then
     APP_USER="$WAREHOUSE_APP_USER"
@@ -69,6 +71,7 @@ fi
 
 run_as_app_user "$VENV_DIR/bin/python" -m pip install --upgrade pip
 run_as_app_user "$VENV_DIR/bin/python" -m pip install -r "$APP_DIR/requirements.txt"
+chmod +x "$APP_DIR/scripts/update_manager_pi.sh" 2>/dev/null || true
 
 log "Preparing manager settings..."
 run_as_app_user "$PYTHON_BIN" - "$APP_DIR" "$VERSION" <<'PY'
@@ -100,6 +103,19 @@ WAREHOUSE_APP_DIR=$APP_DIR
 WAREHOUSE_APP_USER=$APP_USER
 WAREHOUSE_BACKEND_URL=http://127.0.0.1:8765
 ENVFILE
+
+log "Writing limited manager control permissions..."
+"${SUDO[@]}" tee /etc/sudoers.d/warehouse-manager-pi >/dev/null <<SUDOERS
+# Allow the Warehouse Manager Pi backend to update, restart its own services, and reboot this Pi only.
+$APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL_BIN --no-block start warehouse-manager-update.service
+$APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL_BIN --no-block restart warehouse-manager-backend.service
+$APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL_BIN --no-block restart warehouse-manager-display.service
+$APP_USER ALL=(root) NOPASSWD: $REBOOT_BIN
+SUDOERS
+"${SUDO[@]}" chmod 440 /etc/sudoers.d/warehouse-manager-pi
+if command -v visudo >/dev/null 2>&1; then
+    "${SUDO[@]}" visudo -cf /etc/sudoers >/dev/null
+fi
 
 log "Writing systemd services..."
 "${SUDO[@]}" tee /etc/systemd/system/warehouse-manager-backend.service >/dev/null <<SERVICE
@@ -146,6 +162,21 @@ RestartSec=10
 
 [Install]
 WantedBy=graphical.target
+SERVICE
+
+"${SUDO[@]}" tee /etc/systemd/system/warehouse-manager-update.service >/dev/null <<SERVICE
+[Unit]
+Description=Warehouse Manager Pi Manual Update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=$APP_DIR
+EnvironmentFile=/etc/default/warehouse-manager-pi
+ExecStart=$APP_DIR/scripts/update_manager_pi.sh
+TimeoutStartSec=20min
+
 SERVICE
 
 "${SUDO[@]}" tee /etc/systemd/system/warehouse-manager-update-on-boot.service >/dev/null <<SERVICE

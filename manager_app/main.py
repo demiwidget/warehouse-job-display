@@ -6,7 +6,7 @@ import traceback
 from pathlib import Path
 from threading import Event, Thread
 
-from PySide6.QtCore import QTimer, Qt, QUrl
+from PySide6.QtCore import QTimer, Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
@@ -715,6 +715,125 @@ class AlertsTab(QWidget):
             QMessageBox.warning(self, "Test Sound", message)
 
 
+class ManagerPiTab(QWidget):
+    command_finished = Signal(str)
+
+    def __init__(self, state):
+        super().__init__()
+        self.state = state
+        layout = QVBoxLayout(self)
+
+        heading = QLabel("Manager Pi Control")
+        heading.setStyleSheet("font-size: 20px; font-weight: 700;")
+        layout.addWidget(heading)
+
+        intro = QLabel(
+            "These controls affect the Manager Pi backend, not the individual dashboard screen Pis. "
+            "Use this page to update or restart the always-on Manager Pi."
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        self.summary = QLabel("Loading Manager Pi status...")
+        self.summary.setWordWrap(True)
+        self.summary.setStyleSheet("font-weight: 700;")
+        layout.addWidget(self.summary)
+
+        self.service_status = QLabel("")
+        self.service_status.setWordWrap(True)
+        layout.addWidget(self.service_status)
+
+        buttons = QHBoxLayout()
+        check_btn = QPushButton("Check For Updates")
+        update_btn = QPushButton("Update Manager Pi")
+        restart_backend_btn = QPushButton("Restart Backend")
+        restart_display_btn = QPushButton("Restart Status Display")
+        reboot_btn = QPushButton("Reboot Manager Pi")
+
+        check_btn.clicked.connect(lambda: self.run_command("check_updates"))
+        update_btn.clicked.connect(lambda: self.run_command("update", confirm=True))
+        restart_backend_btn.clicked.connect(lambda: self.run_command("restart_backend", confirm=True))
+        restart_display_btn.clicked.connect(lambda: self.run_command("restart_display", confirm=True))
+        reboot_btn.clicked.connect(lambda: self.run_command("reboot", confirm=True))
+
+        buttons.addWidget(check_btn)
+        buttons.addWidget(update_btn)
+        buttons.addWidget(restart_backend_btn)
+        buttons.addWidget(restart_display_btn)
+        buttons.addWidget(reboot_btn)
+        buttons.addStretch(1)
+        layout.addLayout(buttons)
+
+        self.command_status = QLabel("Ready.")
+        self.command_status.setWordWrap(True)
+        layout.addWidget(self.command_status)
+        layout.addStretch(1)
+
+        self.command_finished.connect(self.on_command_finished)
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.refresh)
+        self.timer.start(5000)
+        self.refresh()
+
+    def refresh(self):
+        try:
+            status = self.state.get_manager_status()
+        except Exception as error:
+            self.summary.setText(f"Could not read Manager Pi status: {error}")
+            self.service_status.setText("")
+            return
+
+        update_status = status.get("update_status", {}) or {}
+        latest = str(update_status.get("latest_version") or "unknown")
+        local = str(update_status.get("local_version") or status.get("version") or "unknown")
+        checked_at = str(update_status.get("checked_at") or "not checked yet")
+        error = str(update_status.get("error") or "").strip()
+        if error:
+            update_text = f"Update check failed: {error}"
+        elif update_status.get("manager_update_available"):
+            update_text = f"Update available: GitHub v{latest}, Manager Pi v{local}."
+        else:
+            update_text = f"Up to date: GitHub v{latest}, Manager Pi v{local}."
+
+        role_text = "Connected to Manager Pi backend." if status.get("is_manager_pi") else "Manager Pi controls unavailable here."
+        self.summary.setText(f"{role_text}\n{update_text}\nLast checked: {checked_at}.")
+        self.service_status.setText(
+            "Services: "
+            f"backend={status.get('backend_service', 'unknown')}, "
+            f"display={status.get('display_service', 'unknown')}, "
+            f"update={status.get('update_service', 'unknown')}"
+        )
+
+    def run_command(self, action, confirm=False):
+        confirm_messages = {
+            "update": "Update the Manager Pi from GitHub now? The backend may restart briefly.",
+            "restart_backend": "Restart the Manager Pi backend now? The PC app may disconnect briefly.",
+            "restart_display": "Restart the Manager Pi status display now?",
+            "reboot": "Reboot the Manager Pi now? Dashboards will stop updating while it restarts.",
+        }
+        if confirm:
+            choice = QMessageBox.question(self, "Confirm Manager Pi Action", confirm_messages.get(action, "Continue?"))
+            if choice != QMessageBox.Yes:
+                return
+
+        self.command_status.setText(f"Sending Manager Pi command: {action}...")
+
+        def worker():
+            try:
+                result = self.state.run_manager_command(action)
+                message = str(result.get("message") or f"{action} sent.")
+            except Exception as error:
+                message = f"Manager Pi command failed: {error}"
+            self.command_finished.emit(message)
+
+        Thread(target=worker, daemon=True).start()
+
+    def on_command_finished(self, message):
+        self.command_status.setText(message)
+        self.refresh()
+
+
 class PiScreensTab(QWidget):
     COLUMNS = ["ID", "Name", "IP", "Screen", "Version", "Update", "State", "Activity", "Last Seen"]
     STATUS_COLORS = {
@@ -1055,6 +1174,7 @@ class ManagerWindow(QMainWindow):
         tabs.addTab(ConnectionTab(state), "Connection")
         tabs.addTab(CurrentRMSTab(state), "Current RMS")
         tabs.addTab(AlertsTab(state), "Alerts")
+        tabs.addTab(ManagerPiTab(state), "Manager Pi")
         tabs.addTab(PiScreensTab(state), "Pi Screens")
         tabs.addTab(ActivityConsoleTab(state), "Console")
         self.setCentralWidget(tabs)
