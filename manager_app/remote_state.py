@@ -4,13 +4,29 @@ from urllib.parse import urlparse
 import requests
 
 
+def normalize_manager_url(value):
+    raw_value = str(value or "").strip().rstrip("/")
+    if not raw_value:
+        raise ValueError("Remote manager URL is required.")
+
+    if "://" not in raw_value:
+        raw_value = f"http://{raw_value}"
+
+    parsed = urlparse(raw_value)
+    if not parsed.hostname:
+        raise ValueError(f"Could not understand Manager Pi address: {value}")
+
+    if parsed.port is None:
+        raw_value = raw_value.rstrip("/") + ":8765"
+
+    return raw_value.rstrip("/")
+
+
 class RemoteManagerState:
     is_remote = True
 
     def __init__(self, base_url):
-        self.base_url = str(base_url or "").strip().rstrip("/")
-        if not self.base_url:
-            raise ValueError("Remote manager URL is required.")
+        self.base_url = normalize_manager_url(base_url)
 
     def install_host(self):
         parsed = urlparse(self.base_url)

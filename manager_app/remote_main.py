@@ -3,7 +3,7 @@ import sys
 from PySide6.QtWidgets import QMessageBox
 
 from manager_app.main import ManagerWindow, ResilientApplication
-from manager_app.remote_state import RemoteManagerState
+from manager_app.remote_state import RemoteManagerState, normalize_manager_url
 
 
 def main():
@@ -13,6 +13,7 @@ def main():
     if not remote_url:
         remote_url = input("Manager Pi URL, for example http://192.168.1.50:8765: ").strip()
 
+    remote_url = normalize_manager_url(remote_url)
     state = RemoteManagerState(remote_url)
     app = ResilientApplication(sys.argv, state)
     app.setQuitOnLastWindowClosed(True)
@@ -21,6 +22,7 @@ def main():
         state.get_update_status()
     except Exception as error:
         QMessageBox.warning(None, "Remote Manager", f"Could not connect to the Manager Pi:\n{error}")
+        return 1
 
     window = ManagerWindow(state)
     window.setWindowTitle(f"Warehouse Dashboard Remote Control - {remote_url.rstrip('/')}")
