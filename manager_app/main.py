@@ -48,6 +48,9 @@ ALERT_LABELS = [
 
 SOUNDS_DIR = PROJECT_ROOT / "sounds"
 MANAGER_EXIT_FLAG = DATA_DIR / "allow_manager_exit.flag"
+PI_BOOTSTRAP_URL = (
+    "https://raw.githubusercontent.com/demiwidget/warehouse-job-display/main/scripts/bootstrap_pi.sh"
+)
 
 
 def local_addresses():
@@ -220,23 +223,13 @@ class ConnectionTab(QWidget):
         lines = [f"http://{address}:{port}" for address in local_addresses()]
         self.addresses.setPlainText("\n".join(lines))
         self.install_command.setPlainText(
-            "cd ~ && "
-            "(git clone https://github.com/demiwidget/warehouse-job-display.git ~/warehouse-job-display "
-            "|| (cd ~/warehouse-job-display && git pull --ff-only)) && "
-            "cd ~/warehouse-job-display/scripts && "
-            f"WAREHOUSE_MANAGER_IP={install_host} WAREHOUSE_MANAGER_PORT={port} ./install_pi.sh"
+            f"WAREHOUSE_MANAGER_IP={install_host} WAREHOUSE_MANAGER_PORT={port} "
+            f"bash -c \"$(curl -fsSL {PI_BOOTSTRAP_URL} || wget -qO- {PI_BOOTSTRAP_URL})\""
         )
         self.overwrite_install_command.setPlainText(
-            "cd ~ && "
-            "sudo systemctl stop nodered node-red home-assistant@homeassistant home-assistant docker containerd "
-            "2>/dev/null || true; "
-            "sudo systemctl disable nodered node-red home-assistant@homeassistant home-assistant "
-            "2>/dev/null || true; "
-            "rm -rf ~/warehouse-job-display; "
-            "git clone https://github.com/demiwidget/warehouse-job-display.git ~/warehouse-job-display && "
-            "cd ~/warehouse-job-display/scripts && "
-            f"WAREHOUSE_MANAGER_IP={install_host} WAREHOUSE_MANAGER_PORT={port} ./install_pi.sh && "
-            "sudo reboot"
+            f"WAREHOUSE_MANAGER_IP={install_host} WAREHOUSE_MANAGER_PORT={port} "
+            "WAREHOUSE_OVERWRITE_OLD_SYSTEM=1 WAREHOUSE_REBOOT_AFTER_INSTALL=1 "
+            f"bash -c \"$(curl -fsSL {PI_BOOTSTRAP_URL} || wget -qO- {PI_BOOTSTRAP_URL})\""
         )
         self.status.setText("The manager server is running. Connection changes take effect next time the app starts.")
 
