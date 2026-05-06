@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 VENV_DIR="$APP_DIR/.venv"
 PYTHON_BIN="/usr/bin/python3"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.36')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.37')"
 SYSTEMCTL_BIN="$(command -v systemctl 2>/dev/null || printf '/usr/bin/systemctl')"
 REBOOT_BIN="$(command -v reboot 2>/dev/null || printf '/usr/sbin/reboot')"
 

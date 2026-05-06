@@ -7,11 +7,13 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QApplication,
     QGridLayout,
-    QHBoxLayout,
+    QHeaderView,
     QLabel,
     QMainWindow,
+    QScroller,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -56,39 +58,51 @@ class StatusCard(QLabel):
         self.title = title
         self.setAlignment(Qt.AlignCenter)
         self.setWordWrap(True)
-        self.setMinimumHeight(90)
+        self.setMinimumHeight(78)
         self.setStyleSheet(
             "background:#15181b; border:1px solid #29323a; border-radius:14px; "
-            "padding:14px; font-size:22px; font-weight:700; color:#e8f1f2;"
+            "padding:10px; font-size:18px; font-weight:700; color:#e8f1f2;"
         )
         self.set_value("Waiting")
 
     def set_value(self, value):
-        self.setText(f"<div style='color:#6bdcff;font-size:16px'>{self.title}</div><div>{value}</div>")
+        self.setText(f"<div style='color:#6bdcff;font-size:14px'>{self.title}</div><div>{value}</div>")
 
 
 class ManagerStatusWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Warehouse Manager Pi Status")
-        self.resize(1600, 900)
+        self.resize(800, 480)
 
         root_widget = QWidget()
         root = QVBoxLayout(root_widget)
-        root.setContentsMargins(24, 24, 24, 24)
-        root.setSpacing(18)
+        root.setContentsMargins(10, 8, 10, 8)
+        root.setSpacing(8)
 
         heading = QLabel("Warehouse Manager Pi")
-        heading.setStyleSheet("font-size:42px; font-weight:800; color:#ffffff;")
+        heading.setStyleSheet("font-size:26px; font-weight:800; color:#ffffff;")
         root.addWidget(heading)
 
         subheading = QLabel("")
         subheading.setObjectName("subheading")
-        subheading.setStyleSheet("font-size:18px; color:#a9b8c0;")
+        subheading.setWordWrap(True)
+        subheading.setStyleSheet("font-size:14px; color:#a9b8c0;")
         self.subheading = subheading
         root.addWidget(subheading)
 
+        tabs = QTabWidget()
+        tabs.setTabPosition(QTabWidget.North)
+        tabs.setDocumentMode(True)
+        root.addWidget(tabs, 1)
+
+        overview_tab = QWidget()
+        overview = QVBoxLayout(overview_tab)
+        overview.setContentsMargins(4, 6, 4, 4)
+        overview.setSpacing(8)
+
         cards = QGridLayout()
+        cards.setSpacing(8)
         self.backend_card = StatusCard("Backend")
         self.refresh_card = StatusCard("Current RMS")
         self.devices_card = StatusCard("Display Pis")
@@ -96,23 +110,35 @@ class ManagerStatusWindow(QMainWindow):
         self.security_card = StatusCard("Security")
         cards.addWidget(self.backend_card, 0, 0)
         cards.addWidget(self.refresh_card, 0, 1)
-        cards.addWidget(self.devices_card, 0, 2)
-        cards.addWidget(self.version_card, 0, 3)
-        cards.addWidget(self.security_card, 1, 0, 1, 4)
-        root.addLayout(cards)
-
-        tables = QHBoxLayout()
-        self.device_table = QTableWidget(0, 5)
-        self.device_table.setHorizontalHeaderLabels(["Name", "IP", "Screen", "Version", "State"])
-        self.activity_table = QTableWidget(0, 4)
-        self.activity_table.setHorizontalHeaderLabels(["Time", "Level", "Category", "Message"])
-        tables.addWidget(self.device_table, 1)
-        tables.addWidget(self.activity_table, 2)
-        root.addLayout(tables, 1)
+        cards.addWidget(self.devices_card, 1, 0)
+        cards.addWidget(self.version_card, 1, 1)
+        cards.addWidget(self.security_card, 2, 0, 1, 2)
+        overview.addLayout(cards)
 
         self.footer = QLabel("")
-        self.footer.setStyleSheet("font-size:16px; color:#8ea0aa;")
-        root.addWidget(self.footer)
+        self.footer.setWordWrap(True)
+        self.footer.setStyleSheet("font-size:14px; color:#8ea0aa;")
+        overview.addWidget(self.footer)
+        overview.addStretch(1)
+        tabs.addTab(overview_tab, "Overview")
+
+        device_tab = QWidget()
+        device_layout = QVBoxLayout(device_tab)
+        device_layout.setContentsMargins(4, 6, 4, 4)
+        self.device_table = QTableWidget(0, 5)
+        self.device_table.setHorizontalHeaderLabels(["Name", "IP", "Screen", "Version", "State"])
+        self.configure_touch_table(self.device_table)
+        device_layout.addWidget(self.device_table)
+        tabs.addTab(device_tab, "Screens")
+
+        activity_tab = QWidget()
+        activity_layout = QVBoxLayout(activity_tab)
+        activity_layout.setContentsMargins(4, 6, 4, 4)
+        self.activity_table = QTableWidget(0, 4)
+        self.activity_table.setHorizontalHeaderLabels(["Time", "Level", "Category", "Message"])
+        self.configure_touch_table(self.activity_table)
+        activity_layout.addWidget(self.activity_table)
+        tabs.addTab(activity_tab, "Log")
 
         self.setCentralWidget(root_widget)
         self.apply_theme()
@@ -127,10 +153,30 @@ class ManagerStatusWindow(QMainWindow):
         self.setStyleSheet(
             """
             QMainWindow, QWidget { background:#0c1014; color:#e8f1f2; font-family: Arial; }
-            QTableWidget { background:#111820; color:#e8f1f2; gridline-color:#26313a; font-size:16px; }
+            QTabWidget::pane { border:1px solid #26313a; border-radius:10px; background:#0f151b; }
+            QTabBar::tab {
+                background:#18222b; color:#d9e7eb; min-height:42px; min-width:112px;
+                padding:8px 14px; margin-right:4px; border-top-left-radius:10px; border-top-right-radius:10px;
+                font-size:16px; font-weight:700;
+            }
+            QTabBar::tab:selected { background:#2a3b47; color:#ffffff; }
+            QTableWidget { background:#111820; color:#e8f1f2; gridline-color:#26313a; font-size:15px; }
             QHeaderView::section { background:#1f2a33; color:#ffffff; padding:8px; border:0; font-weight:700; }
             """
         )
+
+    def configure_touch_table(self, table):
+        table.setAlternatingRowColors(True)
+        table.setSelectionBehavior(QTableWidget.SelectRows)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setVerticalScrollMode(QTableWidget.ScrollPerPixel)
+        table.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
+        table.verticalHeader().setDefaultSectionSize(44)
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setMinimumSectionSize(90)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        table.horizontalHeader().setStretchLastSection(True)
+        QScroller.grabGesture(table.viewport(), QScroller.TouchGesture)
 
     def fetch_json(self, path, default):
         try:
