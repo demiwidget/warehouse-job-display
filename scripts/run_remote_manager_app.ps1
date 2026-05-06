@@ -1,10 +1,31 @@
 param(
-    [string]$ManagerUrl = ""
+    [string]$ManagerUrl = "",
+    [switch]$GuiLaunch
 )
 
 $ErrorActionPreference = "Stop"
 
 try {
+    function Show-LauncherError {
+        param([Parameter(Mandatory = $true)][string]$Message)
+
+        if ($GuiLaunch) {
+            Add-Type -AssemblyName System.Windows.Forms
+            [void][System.Windows.Forms.MessageBox]::Show(
+                $Message,
+                "Warehouse Remote Manager",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Error
+            )
+        } else {
+            Write-Host ""
+            Write-Host "Warehouse Remote Manager failed:" -ForegroundColor Red
+            Write-Host $Message
+            Write-Host ""
+            Read-Host "Press Enter to close"
+        }
+    }
+
     function Invoke-CheckedCommand {
         param(
             [Parameter(Mandatory = $true)]
@@ -23,6 +44,7 @@ try {
     $ProjectDir = Split-Path -Parent $ScriptDir
     $VenvDir = Join-Path $ProjectDir ".venv"
     $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
+    $VenvPythonw = Join-Path $VenvDir "Scripts\pythonw.exe"
     $RequirementsPath = Join-Path $ProjectDir "requirements.txt"
 
     Set-Location $ProjectDir
@@ -56,15 +78,18 @@ try {
         $RemoteArgs += $ManagerUrl
     }
 
-    & $VenvPython @RemoteArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "Remote manager exited with code $LASTEXITCODE."
+    if ($GuiLaunch -and (Test-Path $VenvPythonw)) {
+        $Process = Start-Process -FilePath $VenvPythonw -ArgumentList $RemoteArgs -WorkingDirectory $ProjectDir -Wait -PassThru -WindowStyle Hidden
+        if ($Process.ExitCode -ne 0) {
+            throw "Remote manager exited with code $($Process.ExitCode)."
+        }
+    } else {
+        & $VenvPython @RemoteArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw "Remote manager exited with code $LASTEXITCODE."
+        }
     }
 } catch {
-    Write-Host ""
-    Write-Host "Warehouse Remote Manager failed:" -ForegroundColor Red
-    Write-Host $_.Exception.Message
-    Write-Host ""
-    Read-Host "Press Enter to close"
+    Show-LauncherError $_.Exception.Message
     exit 1
 }

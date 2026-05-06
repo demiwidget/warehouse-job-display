@@ -77,7 +77,7 @@ The normal PC manager still works as before. For a trial split, install a spare 
 WAREHOUSE_REBOOT_AFTER_INSTALL=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/demiwidget/warehouse-job-display/main/scripts/bootstrap_manager_pi.sh || wget -qO- https://raw.githubusercontent.com/demiwidget/warehouse-job-display/main/scripts/bootstrap_manager_pi.sh)"
 ```
 
-After it reboots, the Manager Pi status display shows the URL and PC Login Code. On the PC, run `Warehouse Remote Manager.cmd`; the first successful login is remembered locally under your Windows user profile, so you should not need to enter the Manager Pi address every time.
+After it reboots, the Manager Pi status display shows the URL and PC Login Code. On the PC, run `Warehouse Remote Manager.vbs` for the normal no-command-window app launcher, or run `scripts/create_remote_manager_shortcut.ps1` once to create a desktop shortcut. The first successful login is remembered locally under your Windows user profile, so you should not need to enter the Manager Pi address every time. `Warehouse Remote Manager.cmd` is kept as a troubleshooting launcher if you ever need to see command output.
 
 Display Pis can then be installed or repointed with the live install commands shown in the PC manager Connection page, using the Manager Pi IP instead of the PC IP.
 
