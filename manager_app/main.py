@@ -747,6 +747,10 @@ class ManagerPiTab(QWidget):
         self.security_status.setWordWrap(True)
         layout.addWidget(self.security_status)
 
+        self.manager_update_status = QLabel("")
+        self.manager_update_status.setWordWrap(True)
+        layout.addWidget(self.manager_update_status)
+
         buttons = QHBoxLayout()
         check_btn = QPushButton("Check For Updates")
         update_btn = QPushButton("Update Manager Pi")
@@ -771,6 +775,12 @@ class ManagerPiTab(QWidget):
         self.command_status = QLabel("Ready.")
         self.command_status.setWordWrap(True)
         layout.addWidget(self.command_status)
+
+        self.manager_update_log = QTextEdit()
+        self.manager_update_log.setReadOnly(True)
+        self.manager_update_log.setMinimumHeight(120)
+        self.manager_update_log.setPlaceholderText("Manager Pi update log will appear here after an update starts.")
+        layout.addWidget(self.manager_update_log)
 
         password_box = QGridLayout()
         password_heading = QLabel("Change Manager Pi Password")
@@ -843,6 +853,24 @@ class ManagerPiTab(QWidget):
         else:
             security_text = "Security: initial password has not been confirmed yet."
         self.security_status.setText(security_text)
+
+        manager_update = status.get("manager_update_status", {}) or {}
+        if manager_update:
+            progress = manager_update.get("progress", 0)
+            state = str(manager_update.get("state", "")).strip()
+            title = str(manager_update.get("title", "")).strip()
+            detail = str(manager_update.get("detail", "")).strip()
+            updated_at = str(manager_update.get("updated_at", "")).strip()
+            self.manager_update_status.setText(
+                f"Last Manager Pi update: {progress}% {state} - {title}. {detail} {updated_at}".strip()
+            )
+        else:
+            self.manager_update_status.setText("Last Manager Pi update: no update log yet.")
+
+        log_text = str(status.get("manager_update_log") or "").strip()
+        if log_text and self.manager_update_log.toPlainText() != log_text:
+            self.manager_update_log.setPlainText(log_text)
+            self.manager_update_log.verticalScrollBar().setValue(self.manager_update_log.verticalScrollBar().maximum())
 
     def run_command(self, action, confirm=False):
         confirm_messages = {

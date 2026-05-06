@@ -20,6 +20,8 @@ OFFLINE_AFTER_SECONDS = 35
 TRANSITIONAL_STATUS_SECONDS = 180
 UPDATE_CHECK_CACHE_SECONDS = 300
 SCREEN_NAMES = ("today", "tomorrow", "prep", "outstanding", "notifications")
+MANAGER_UPDATE_STATUS_FILE = "/tmp/warehouse-manager-update-status.json"
+MANAGER_UPDATE_LOG_FILE = "/tmp/warehouse-manager-update.log"
 STATUS_LABELS = {
     "online": "Online",
     "display_restarting": "Display Restarting",
@@ -222,6 +224,24 @@ class ManagerState:
         except Exception:
             return "unknown"
 
+    def _read_json_file(self, path):
+        try:
+            import json
+
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _read_log_tail(self, path, max_lines=80):
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as handle:
+                lines = handle.readlines()
+            return "".join(lines[-max_lines:]).strip()
+        except Exception:
+            return ""
+
     def get_manager_status(self):
         update_status = self.get_update_status()
         return {
@@ -231,6 +251,8 @@ class ManagerState:
             "display_service": self._service_state("warehouse-manager-display.service"),
             "update_service": self._service_state("warehouse-manager-update.service"),
             "update_status": update_status,
+            "manager_update_status": self._read_json_file(MANAGER_UPDATE_STATUS_FILE),
+            "manager_update_log": self._read_log_tail(MANAGER_UPDATE_LOG_FILE),
             "security": security_status(),
         }
 
