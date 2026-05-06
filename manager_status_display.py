@@ -3,16 +3,14 @@ import sys
 
 import requests
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QApplication,
     QGridLayout,
-    QHeaderView,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QScroller,
-    QTableWidget,
-    QTableWidgetItem,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -77,17 +75,17 @@ class ManagerStatusWindow(QMainWindow):
 
         root_widget = QWidget()
         root = QVBoxLayout(root_widget)
-        root.setContentsMargins(10, 8, 10, 8)
-        root.setSpacing(8)
+        root.setContentsMargins(14, 10, 14, 10)
+        root.setSpacing(10)
 
         heading = QLabel("Warehouse Manager Pi")
-        heading.setStyleSheet("font-size:26px; font-weight:800; color:#ffffff;")
+        heading.setStyleSheet("font-size:30px; font-weight:800; color:#ffffff;")
         root.addWidget(heading)
 
         subheading = QLabel("")
         subheading.setObjectName("subheading")
         subheading.setWordWrap(True)
-        subheading.setStyleSheet("font-size:14px; color:#a9b8c0;")
+        subheading.setStyleSheet("font-size:18px; color:#a9b8c0;")
         self.subheading = subheading
         root.addWidget(subheading)
 
@@ -98,11 +96,11 @@ class ManagerStatusWindow(QMainWindow):
 
         overview_tab = QWidget()
         overview = QVBoxLayout(overview_tab)
-        overview.setContentsMargins(4, 6, 4, 4)
-        overview.setSpacing(8)
+        overview.setContentsMargins(8, 10, 8, 8)
+        overview.setSpacing(10)
 
         cards = QGridLayout()
-        cards.setSpacing(8)
+        cards.setSpacing(10)
         self.backend_card = StatusCard("Backend")
         self.refresh_card = StatusCard("Current RMS")
         self.devices_card = StatusCard("Display Pis")
@@ -124,20 +122,18 @@ class ManagerStatusWindow(QMainWindow):
 
         device_tab = QWidget()
         device_layout = QVBoxLayout(device_tab)
-        device_layout.setContentsMargins(4, 6, 4, 4)
-        self.device_table = QTableWidget(0, 5)
-        self.device_table.setHorizontalHeaderLabels(["Name", "IP", "Screen", "Version", "State"])
-        self.configure_touch_table(self.device_table)
-        device_layout.addWidget(self.device_table)
+        device_layout.setContentsMargins(8, 10, 8, 8)
+        self.device_list = QListWidget()
+        self.configure_touch_list(self.device_list)
+        device_layout.addWidget(self.device_list)
         tabs.addTab(device_tab, "Screens")
 
         activity_tab = QWidget()
         activity_layout = QVBoxLayout(activity_tab)
-        activity_layout.setContentsMargins(4, 6, 4, 4)
-        self.activity_table = QTableWidget(0, 4)
-        self.activity_table.setHorizontalHeaderLabels(["Time", "Level", "Category", "Message"])
-        self.configure_touch_table(self.activity_table)
-        activity_layout.addWidget(self.activity_table)
+        activity_layout.setContentsMargins(8, 10, 8, 8)
+        self.activity_list = QListWidget()
+        self.configure_touch_list(self.activity_list)
+        activity_layout.addWidget(self.activity_list)
         tabs.addTab(activity_tab, "Log")
 
         self.setCentralWidget(root_widget)
@@ -155,28 +151,43 @@ class ManagerStatusWindow(QMainWindow):
             QMainWindow, QWidget { background:#0c1014; color:#e8f1f2; font-family: Arial; }
             QTabWidget::pane { border:1px solid #26313a; border-radius:10px; background:#0f151b; }
             QTabBar::tab {
-                background:#18222b; color:#d9e7eb; min-height:42px; min-width:112px;
-                padding:8px 14px; margin-right:4px; border-top-left-radius:10px; border-top-right-radius:10px;
-                font-size:16px; font-weight:700;
+                background:#18222b; color:#d9e7eb; min-height:54px; min-width:144px;
+                padding:10px 18px; margin-right:6px; border-top-left-radius:12px; border-top-right-radius:12px;
+                font-size:21px; font-weight:800;
             }
             QTabBar::tab:selected { background:#2a3b47; color:#ffffff; }
-            QTableWidget { background:#111820; color:#e8f1f2; gridline-color:#26313a; font-size:15px; }
-            QHeaderView::section { background:#1f2a33; color:#ffffff; padding:8px; border:0; font-weight:700; }
+            QListWidget { background:#0f151b; border:0; color:#e8f1f2; font-size:20px; }
+            QListWidget::item {
+                background:#14202a; color:#e8f1f2; border:1px solid #263746;
+                border-radius:12px; margin:6px 2px; padding:12px;
+            }
+            QListWidget::item:alternate { background:#182734; color:#e8f1f2; }
+            QListWidget::item:selected { background:#25475a; color:#ffffff; }
+            QScrollBar:vertical { background:#0b1116; width:28px; margin:0; border-radius:14px; }
+            QScrollBar::handle:vertical { background:#4b6475; min-height:50px; border-radius:14px; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }
             """
         )
 
-    def configure_touch_table(self, table):
-        table.setAlternatingRowColors(True)
-        table.setSelectionBehavior(QTableWidget.SelectRows)
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
-        table.setVerticalScrollMode(QTableWidget.ScrollPerPixel)
-        table.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
-        table.verticalHeader().setDefaultSectionSize(44)
-        table.verticalHeader().setVisible(False)
-        table.horizontalHeader().setMinimumSectionSize(90)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        table.horizontalHeader().setStretchLastSection(True)
-        QScroller.grabGesture(table.viewport(), QScroller.TouchGesture)
+    def configure_touch_list(self, list_widget):
+        list_widget.setAlternatingRowColors(True)
+        list_widget.setVerticalScrollMode(QListWidget.ScrollPerPixel)
+        list_widget.setSpacing(2)
+        QScroller.grabGesture(list_widget.viewport(), QScroller.TouchGesture)
+
+    def set_list_rows(self, list_widget, rows):
+        list_widget.clear()
+        if not rows:
+            item = QListWidgetItem("No entries yet.")
+            item.setFlags(item.flags() & ~Qt.ItemIsSelectable)
+            item.setSizeHint(item.sizeHint().expandedTo(item.sizeHint()))
+            list_widget.addItem(item)
+            return
+
+        for row in rows:
+            item = QListWidgetItem(row)
+            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+            list_widget.addItem(item)
 
     def fetch_json(self, path, default):
         try:
@@ -221,46 +232,25 @@ class ManagerStatusWindow(QMainWindow):
         self.populate_activity(activity)
 
     def populate_devices(self, devices):
-        self.device_table.setRowCount(len(devices))
-        for row, device in enumerate(devices):
-            values = [
-                device.get("name", ""),
-                device.get("ip", ""),
-                device.get("screen", ""),
-                device.get("version", ""),
-                device.get("state", ""),
-            ]
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(str(value))
-                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                if column == 4:
-                    if str(value) == "Offline":
-                        item.setBackground(QColor("#8a3b3b"))
-                    else:
-                        item.setBackground(QColor("#2f6f4e"))
-                self.device_table.setItem(row, column, item)
-        self.device_table.resizeColumnsToContents()
+        rows = []
+        for device in devices:
+            name = str(device.get("name") or device.get("id") or "Unnamed screen")
+            state = str(device.get("state") or "Unknown")
+            screen = str(device.get("screen") or "unknown")
+            ip = str(device.get("ip") or "no IP")
+            version = str(device.get("version") or "unknown version")
+            rows.append(f"{name}  |  {state}\n{ip}  |  {screen}  |  v{version}")
+        self.set_list_rows(self.device_list, rows)
 
     def populate_activity(self, activity):
-        self.activity_table.setRowCount(len(activity))
-        for row, entry in enumerate(activity):
-            values = [
-                entry.get("ts", ""),
-                str(entry.get("level", "")).upper(),
-                entry.get("category", ""),
-                entry.get("message", ""),
-            ]
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(str(value))
-                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                if column == 1 and str(value).lower() == "error":
-                    item.setBackground(QColor("#9b2226"))
-                elif column == 1 and str(value).lower() == "warning":
-                    item.setBackground(QColor("#bb7f16"))
-                self.activity_table.setItem(row, column, item)
-        self.activity_table.resizeColumnsToContents()
-        if self.activity_table.columnCount() >= 4:
-            self.activity_table.setColumnWidth(3, 760)
+        rows = []
+        for entry in activity:
+            ts = str(entry.get("ts") or "")
+            level = str(entry.get("level") or "info").upper()
+            category = str(entry.get("category") or "Log")
+            message = str(entry.get("message") or "")
+            rows.append(f"{level}  |  {category}\n{ts}\n{message}")
+        self.set_list_rows(self.activity_list, rows)
 
 
 def main():
