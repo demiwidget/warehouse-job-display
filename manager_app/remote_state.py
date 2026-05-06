@@ -1,3 +1,4 @@
+import ipaddress
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -15,6 +16,15 @@ def normalize_manager_url(value):
     parsed = urlparse(raw_value)
     if not parsed.hostname:
         raise ValueError(f"Could not understand Manager Pi address: {value}")
+
+    try:
+        parsed_ip = ipaddress.ip_address(parsed.hostname)
+    except ValueError:
+        parsed_ip = None
+    if parsed_ip and parsed_ip.is_loopback:
+        raise ValueError(
+            f"{parsed.hostname} is a local loopback address. Use the Manager Pi's network IP, usually 192.168.x.x."
+        )
 
     if parsed.port is None:
         raw_value = raw_value.rstrip("/") + ":8765"

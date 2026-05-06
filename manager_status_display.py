@@ -26,7 +26,17 @@ def local_addresses():
     addresses = set()
     hostname = socket.gethostname()
     try:
-        addresses.add(socket.gethostbyname(hostname))
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as route_socket:
+            route_socket.connect(("8.8.8.8", 80))
+            address = route_socket.getsockname()[0]
+            if address and not address.startswith("127.") and not address.startswith("169.254."):
+                addresses.add(address)
+    except Exception:
+        pass
+    try:
+        address = socket.gethostbyname(hostname)
+        if address and not address.startswith("127.") and not address.startswith("169.254."):
+            addresses.add(address)
     except Exception:
         pass
     try:
