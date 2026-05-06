@@ -169,3 +169,21 @@ def set_admin_password(current_password, new_password):
     except Exception:
         pass
     return security_status()
+
+
+def reset_admin_password(new_password):
+    new_password = str(new_password or "")
+    if len(new_password) < MIN_PASSWORD_LENGTH:
+        raise ValueError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters long.")
+
+    data = {
+        **_hash_password(new_password),
+        "password_updated_at": datetime.now().isoformat(timespec="seconds"),
+        "reset_locally": True,
+    }
+    _save_security(data)
+    try:
+        INITIAL_PASSWORD_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+    return security_status()

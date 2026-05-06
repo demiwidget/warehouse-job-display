@@ -83,6 +83,12 @@ Display Pis can then be installed or repointed with the live install commands sh
 
 Use the `Manager Pi` tab in the PC remote app to change the Manager Pi password, check for GitHub updates, update the Manager Pi, restart the backend/status display, or reboot the Manager Pi.
 
+If the Manager Pi password is lost, reset it from a terminal on the Manager Pi:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/demiwidget/warehouse-job-display/main/scripts/reset_manager_password.sh || wget -qO- https://raw.githubusercontent.com/demiwidget/warehouse-job-display/main/scripts/reset_manager_password.sh)"
+```
+
 ## Custom Sounds
 Use `.wav` files for reliable Pi playback. In the manager `Alerts` tab, use `Import WAV Sound` to copy a sound into the repo's `sounds/` folder, then use that filename in the relevant alert sound box.
 

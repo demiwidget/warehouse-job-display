@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 VENV_DIR="$APP_DIR/.venv"
 PYTHON_BIN="/usr/bin/python3"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.35')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.36')"
 SYSTEMCTL_BIN="$(command -v systemctl 2>/dev/null || printf '/usr/bin/systemctl')"
 REBOOT_BIN="$(command -v reboot 2>/dev/null || printf '/usr/sbin/reboot')"
 
@@ -71,7 +71,7 @@ fi
 
 run_as_app_user "$VENV_DIR/bin/python" -m pip install --upgrade pip
 run_as_app_user "$VENV_DIR/bin/python" -m pip install -r "$APP_DIR/requirements.txt"
-chmod +x "$APP_DIR/scripts/update_manager_pi.sh" 2>/dev/null || true
+chmod +x "$APP_DIR/scripts/update_manager_pi.sh" "$APP_DIR/scripts/reset_manager_password.sh" 2>/dev/null || true
 
 log "Preparing manager settings..."
 run_as_app_user "$PYTHON_BIN" - "$APP_DIR" "$VERSION" <<'PY'
