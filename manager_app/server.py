@@ -4,7 +4,7 @@ from pathlib import Path
 
 from flask import Flask, abort, jsonify, request, send_from_directory
 
-from manager_app.security import TOKEN_HEADER, get_admin_token, token_matches
+from manager_app.security import TOKEN_HEADER, ensure_admin_password, security_status, token_matches
 from manager_app.settings_store import PROJECT_ROOT
 
 
@@ -37,8 +37,8 @@ def create_app(state):
 
     @app.get("/api/auth/status")
     def auth_status():
-        get_admin_token()
-        return jsonify({"ok": True, "auth_required": True})
+        ensure_admin_password()
+        return jsonify({"ok": True, "auth_required": True, "security": security_status()})
 
     @app.post("/register")
     def register():
@@ -138,6 +138,19 @@ def create_app(state):
             return jsonify(state.run_manager_command(payload.get("action", "")))
         except Exception as error:
             state.log_exception("Manager", "Manager Pi command failed", error)
+            return jsonify({"ok": False, "message": str(error)}), 400
+
+    @app.post("/api/auth/password")
+    def change_auth_password():
+        payload = request.get_json(silent=True) or {}
+        try:
+            status = state.change_admin_password(
+                payload.get("current_password", ""),
+                payload.get("new_password", ""),
+            )
+            return jsonify({"ok": True, "security": status})
+        except Exception as error:
+            state.log_exception("Manager", "Manager Pi password change failed", error)
             return jsonify({"ok": False, "message": str(error)}), 400
 
     @app.post("/api/devices/command")

@@ -91,8 +91,8 @@ def build_login_dialog(ui):
             layout.addWidget(heading)
 
             intro = QLabel(
-                "Enter the Manager Pi address and the PC Login Code shown on the Manager Pi screen. "
-                "This PC remembers the address, but asks for the login code each time."
+                "Enter the Manager Pi address and password. This PC remembers the address, "
+                "but asks for the password each time."
             )
             intro.setWordWrap(True)
             intro.setStyleSheet("color:#4b5563;")
@@ -102,10 +102,10 @@ def build_login_dialog(ui):
             self.url_input = QLineEdit(remote_url)
             self.url_input.setPlaceholderText("192.168.1.50 or http://192.168.1.50:8765")
             self.token_input = QLineEdit(admin_token)
-            self.token_input.setPlaceholderText("PC Login Code")
+            self.token_input.setPlaceholderText("Manager Pi password")
             self.token_input.setEchoMode(QLineEdit.Password)
             form.addRow("Manager Pi address", self.url_input)
-            form.addRow("PC Login Code", self.token_input)
+            form.addRow("Password", self.token_input)
             layout.addLayout(form)
 
             self.remember_input = QCheckBox("Remember this Manager Pi address on this PC")
@@ -182,7 +182,7 @@ def main():
         except Exception as error:
             status_text = f"Could not connect to the Manager Pi: {error}"
     elif remote_url:
-        status_text = "Enter the PC Login Code shown on the Manager Pi screen."
+        status_text = "Enter the Manager Pi password."
 
     if state is None:
         RemoteLoginDialog = build_login_dialog(ui)

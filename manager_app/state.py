@@ -13,6 +13,7 @@ import traceback
 from app_version import CURRENT_VERSION
 from manager_app.activity_log import ActivityLog
 from manager_app.current_rms import DashboardBuilder
+from manager_app.security import security_status, set_admin_password
 from manager_app.settings_store import PROJECT_ROOT, SettingsStore
 
 OFFLINE_AFTER_SECONDS = 35
@@ -230,7 +231,13 @@ class ManagerState:
             "display_service": self._service_state("warehouse-manager-display.service"),
             "update_service": self._service_state("warehouse-manager-update.service"),
             "update_status": update_status,
+            "security": security_status(),
         }
+
+    def change_admin_password(self, current_password, new_password):
+        status = set_admin_password(current_password, new_password)
+        self.log_activity("Manager", "Manager Pi password changed.")
+        return status
 
     def _sudo_prefix(self):
         if hasattr(os, "geteuid") and os.geteuid() == 0:

@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from app_version import CURRENT_VERSION
-from manager_app.security import get_admin_token
+from manager_app.security import security_status
 
 
 BACKEND_URL = "http://127.0.0.1:8765"
@@ -93,12 +93,12 @@ class ManagerStatusWindow(QMainWindow):
         self.refresh_card = StatusCard("Current RMS")
         self.devices_card = StatusCard("Display Pis")
         self.version_card = StatusCard("Version")
-        self.admin_card = StatusCard("PC Login Code")
+        self.security_card = StatusCard("Security")
         cards.addWidget(self.backend_card, 0, 0)
         cards.addWidget(self.refresh_card, 0, 1)
         cards.addWidget(self.devices_card, 0, 2)
         cards.addWidget(self.version_card, 0, 3)
-        cards.addWidget(self.admin_card, 1, 0, 1, 4)
+        cards.addWidget(self.security_card, 1, 0, 1, 4)
         root.addLayout(cards)
 
         tables = QHBoxLayout()
@@ -157,7 +157,13 @@ class ManagerStatusWindow(QMainWindow):
         self.backend_card.set_value("Online")
         self.devices_card.set_value(f"{online} online / {offline} offline")
         self.version_card.set_value(f"v{CURRENT_VERSION}")
-        self.admin_card.set_value(get_admin_token())
+        status = security_status()
+        if status.get("legacy_code_active"):
+            self.security_card.set_value("Legacy password active - change it in the PC app")
+        elif status.get("password_set"):
+            self.security_card.set_value("Password protected")
+        else:
+            self.security_card.set_value("Password setup pending")
         latest_refresh = next(
             (entry for entry in activity if entry.get("category") == "Current RMS" and "finished" in entry.get("message", "")),
             None,

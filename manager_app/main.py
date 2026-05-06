@@ -743,6 +743,10 @@ class ManagerPiTab(QWidget):
         self.service_status.setWordWrap(True)
         layout.addWidget(self.service_status)
 
+        self.security_status = QLabel("")
+        self.security_status.setWordWrap(True)
+        layout.addWidget(self.security_status)
+
         buttons = QHBoxLayout()
         check_btn = QPushButton("Check For Updates")
         update_btn = QPushButton("Update Manager Pi")
@@ -767,6 +771,32 @@ class ManagerPiTab(QWidget):
         self.command_status = QLabel("Ready.")
         self.command_status.setWordWrap(True)
         layout.addWidget(self.command_status)
+
+        password_box = QGridLayout()
+        password_heading = QLabel("Change Manager Pi Password")
+        password_heading.setStyleSheet("font-size: 16px; font-weight: 700;")
+        layout.addWidget(password_heading)
+
+        self.current_password_input = QLineEdit()
+        self.current_password_input.setEchoMode(QLineEdit.Password)
+        self.current_password_input.setPlaceholderText("Current password or old legacy code")
+        self.new_password_input = QLineEdit()
+        self.new_password_input.setEchoMode(QLineEdit.Password)
+        self.new_password_input.setPlaceholderText("New password, at least 8 characters")
+        self.confirm_password_input = QLineEdit()
+        self.confirm_password_input.setEchoMode(QLineEdit.Password)
+        self.confirm_password_input.setPlaceholderText("Confirm new password")
+        change_password_btn = QPushButton("Change Password")
+        change_password_btn.clicked.connect(self.change_password)
+
+        password_box.addWidget(QLabel("Current"), 0, 0)
+        password_box.addWidget(self.current_password_input, 0, 1)
+        password_box.addWidget(QLabel("New"), 1, 0)
+        password_box.addWidget(self.new_password_input, 1, 1)
+        password_box.addWidget(QLabel("Confirm"), 2, 0)
+        password_box.addWidget(self.confirm_password_input, 2, 1)
+        password_box.addWidget(change_password_btn, 3, 1)
+        layout.addLayout(password_box)
         layout.addStretch(1)
 
         self.command_finished.connect(self.on_command_finished)
@@ -804,6 +834,15 @@ class ManagerPiTab(QWidget):
             f"display={status.get('display_service', 'unknown')}, "
             f"update={status.get('update_service', 'unknown')}"
         )
+        security = status.get("security", {}) or {}
+        if security.get("legacy_code_active"):
+            security_text = "Security: old legacy code is active. Change it to a private password below."
+        elif security.get("password_set"):
+            updated = str(security.get("updated_at") or "").strip()
+            security_text = f"Security: password protected{f' since {updated}' if updated else ''}."
+        else:
+            security_text = "Security: initial password has not been confirmed yet."
+        self.security_status.setText(security_text)
 
     def run_command(self, action, confirm=False):
         confirm_messages = {
@@ -831,6 +870,31 @@ class ManagerPiTab(QWidget):
 
     def on_command_finished(self, message):
         self.command_status.setText(message)
+        self.refresh()
+
+    def change_password(self):
+        current_password = self.current_password_input.text()
+        new_password = self.new_password_input.text()
+        confirm_password = self.confirm_password_input.text()
+
+        if len(new_password) < 8:
+            QMessageBox.warning(self, "Password Too Short", "Use at least 8 characters for the new Manager Pi password.")
+            return
+        if new_password != confirm_password:
+            QMessageBox.warning(self, "Passwords Do Not Match", "The new password and confirmation do not match.")
+            return
+
+        try:
+            self.state.change_admin_password(current_password, new_password)
+        except Exception as error:
+            QMessageBox.warning(self, "Password Change Failed", str(error))
+            return
+
+        self.current_password_input.clear()
+        self.new_password_input.clear()
+        self.confirm_password_input.clear()
+        self.command_status.setText("Manager Pi password changed.")
+        QMessageBox.information(self, "Password Changed", "Manager Pi password changed successfully.")
         self.refresh()
 
 

@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 VENV_DIR="$APP_DIR/.venv"
 PYTHON_BIN="/usr/bin/python3"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.34')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.35')"
 SYSTEMCTL_BIN="$(command -v systemctl 2>/dev/null || printf '/usr/bin/systemctl')"
 REBOOT_BIN="$(command -v reboot 2>/dev/null || printf '/usr/sbin/reboot')"
 
@@ -96,6 +96,27 @@ server["port"] = int(server.get("port") or 8765)
 data["manager_pi"] = {"version": version, "role": "backend"}
 settings_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 PY
+
+log "Preparing manager security..."
+security_message="$(
+    cd "$APP_DIR"
+    run_as_app_user env PYTHONPATH="$APP_DIR" "$VENV_DIR/bin/python" - <<'PY'
+from manager_app.security import ensure_admin_password, security_status
+
+password = ensure_admin_password()
+status = security_status()
+if password:
+    print(f"Temporary Manager Pi password: {password}")
+    print("Use it from the PC app, then change it in the Manager Pi tab.")
+elif status.get("legacy_code_active"):
+    print("Temporary legacy password is active. Change it in the PC app.")
+else:
+    print("Manager Pi password is already configured.")
+PY
+)"
+while IFS= read -r line; do
+    [[ -n "$line" ]] && log "$line"
+done <<< "$security_message"
 
 log "Writing service environment..."
 "${SUDO[@]}" tee /etc/default/warehouse-manager-pi >/dev/null <<ENVFILE

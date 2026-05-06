@@ -91,7 +91,7 @@ class RemoteManagerState:
 
     def _handle_response(self, response):
         if response.status_code == 401:
-            raise PermissionError("Manager Pi login failed. Check the PC Login Code shown on the Manager Pi screen.")
+            raise PermissionError("Manager Pi login failed. Check the Manager Pi password.")
         response.raise_for_status()
         return response.json()
 
@@ -173,6 +173,17 @@ class RemoteManagerState:
 
     def run_manager_command(self, action):
         return self._post("/api/manager/command", {"action": action})
+
+    def change_admin_password(self, current_password, new_password):
+        result = self._post(
+            "/api/auth/password",
+            {
+                "current_password": current_password,
+                "new_password": new_password,
+            },
+        )
+        self.admin_token = str(new_password or "").strip()
+        return result.get("security", {})
 
     def upload_sound(self, source_path):
         source = Path(source_path)

@@ -77,11 +77,11 @@ The normal PC manager still works as before. For a trial split, install a spare 
 WAREHOUSE_REBOOT_AFTER_INSTALL=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/demiwidget/warehouse-job-display/main/scripts/bootstrap_manager_pi.sh || wget -qO- https://raw.githubusercontent.com/demiwidget/warehouse-job-display/main/scripts/bootstrap_manager_pi.sh)"
 ```
 
-After it reboots, the Manager Pi status display shows the URL and PC Login Code. On the PC, run `Warehouse Remote Manager.vbs` for the normal no-command-window app launcher, or run `scripts/create_remote_manager_shortcut.ps1` once to create a desktop shortcut. The Manager Pi address is remembered locally under your Windows user profile, but the PC Login Code is requested on each startup. `Warehouse Remote Manager.cmd` is kept as a troubleshooting launcher if you ever need to see command output.
+After it reboots, the Manager Pi status display shows the URL, but it does not show the password. On the PC, run `Warehouse Remote Manager.vbs` for the normal no-command-window app launcher, or run `scripts/create_remote_manager_shortcut.ps1` once to create a desktop shortcut. The Manager Pi address is remembered locally under your Windows user profile, but the password is requested on each startup. `Warehouse Remote Manager.cmd` is kept as a troubleshooting launcher if you ever need to see command output.
 
 Display Pis can then be installed or repointed with the live install commands shown in the PC manager Connection page, using the Manager Pi IP instead of the PC IP.
 
-Use the `Manager Pi` tab in the PC remote app to check for GitHub updates, update the Manager Pi, restart the backend/status display, or reboot the Manager Pi.
+Use the `Manager Pi` tab in the PC remote app to change the Manager Pi password, check for GitHub updates, update the Manager Pi, restart the backend/status display, or reboot the Manager Pi.
 
 ## Custom Sounds
 Use `.wav` files for reliable Pi playback. In the manager `Alerts` tab, use `Import WAV Sound` to copy a sound into the repo's `sounds/` folder, then use that filename in the relevant alert sound box.
