@@ -1,6 +1,5 @@
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$ManagerUrl
+    [string]$ManagerUrl = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,7 +51,12 @@ try {
         Invoke-CheckedCommand $VenvPython @("-m", "pip", "install", "-r", $RequirementsPath)
     }
 
-    & $VenvPython -m manager_app.remote_main $ManagerUrl
+    $RemoteArgs = @("-m", "manager_app.remote_main")
+    if (-not [string]::IsNullOrWhiteSpace($ManagerUrl)) {
+        $RemoteArgs += $ManagerUrl
+    }
+
+    & $VenvPython @RemoteArgs
     if ($LASTEXITCODE -ne 0) {
         throw "Remote manager exited with code $LASTEXITCODE."
     }

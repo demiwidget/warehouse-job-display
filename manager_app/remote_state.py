@@ -1,8 +1,40 @@
 import ipaddress
+import json
+import os
 from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
+
+from manager_app.security import TOKEN_HEADER
+
+
+def remote_config_file():
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        base = Path(appdata) / "WarehouseDashboardRemote"
+    else:
+        base = Path.home() / ".warehouse-dashboard-remote"
+    return base / "connection.json"
+
+
+def load_remote_connection():
+    path = remote_config_file()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        data = {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_remote_connection(manager_url, admin_token=""):
+    path = remote_config_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "manager_url": normalize_manager_url(manager_url),
+        "admin_token": str(admin_token or "").strip(),
+    }
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def normalize_manager_url(value):
@@ -35,8 +67,9 @@ def normalize_manager_url(value):
 class RemoteManagerState:
     is_remote = True
 
-    def __init__(self, base_url):
+    def __init__(self, base_url, admin_token=""):
         self.base_url = normalize_manager_url(base_url)
+        self.admin_token = str(admin_token or "").strip()
 
     def install_host(self):
         parsed = urlparse(self.base_url)
@@ -45,15 +78,32 @@ class RemoteManagerState:
     def _url(self, path):
         return self.base_url + path
 
-    def _get(self, path, **params):
-        response = requests.get(self._url(path), params=params, timeout=15)
+    def _headers(self, extra=None):
+        headers = dict(extra or {})
+        if self.admin_token:
+            headers[TOKEN_HEADER] = self.admin_token
+        return headers
+
+    def _handle_response(self, response):
+        if response.status_code == 401:
+            raise PermissionError("Manager Pi login failed. Check the PC Login Code shown on the Manager Pi screen.")
         response.raise_for_status()
         return response.json()
 
+    def _get(self, path, **params):
+        response = requests.get(self._url(path), params=params, headers=self._headers(), timeout=15)
+        return self._handle_response(response)
+
     def _post(self, path, payload=None, **kwargs):
-        response = requests.post(self._url(path), json=payload or {}, timeout=30, **kwargs)
-        response.raise_for_status()
-        return response.json()
+        headers = kwargs.pop("headers", None)
+        response = requests.post(
+            self._url(path),
+            json=payload or {},
+            headers=self._headers(headers),
+            timeout=30,
+            **kwargs,
+        )
+        return self._handle_response(response)
 
     def log_activity(self, *_args, **_kwargs):
         return None
@@ -119,10 +169,10 @@ class RemoteManagerState:
             response = requests.post(
                 self._url("/api/sounds/upload"),
                 files={"file": (source.name, handle, "audio/wav")},
+                headers=self._headers(),
                 timeout=60,
             )
-        response.raise_for_status()
-        result = response.json()
+        result = self._handle_response(response)
         if not result.get("success"):
             raise RuntimeError(str(result.get("message") or "Sound upload failed."))
         return str(result.get("filename") or source.name)

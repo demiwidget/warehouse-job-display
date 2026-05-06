@@ -4,6 +4,7 @@ from pathlib import Path
 
 from flask import Flask, abort, jsonify, request, send_from_directory
 
+from manager_app.security import TOKEN_HEADER, get_admin_token, token_matches
 from manager_app.settings_store import PROJECT_ROOT
 
 
@@ -12,6 +13,32 @@ SOUNDS_DIR = PROJECT_ROOT / "sounds"
 
 def create_app(state):
     app = Flask(__name__)
+
+    def is_loopback_request():
+        remote_addr = str(request.remote_addr or "").strip()
+        return remote_addr in {"127.0.0.1", "::1"} or remote_addr.startswith("127.")
+
+    @app.before_request
+    def require_admin_token():
+        if not request.path.startswith("/api/"):
+            return None
+        if request.path == "/api/auth/status":
+            return None
+        if is_loopback_request():
+            return None
+
+        token = request.headers.get(TOKEN_HEADER, "")
+        auth_header = request.headers.get("Authorization", "")
+        if not token and auth_header.lower().startswith("bearer "):
+            token = auth_header[7:].strip()
+        if token_matches(token):
+            return None
+        return jsonify({"error": "Manager Pi admin token is required."}), 401
+
+    @app.get("/api/auth/status")
+    def auth_status():
+        get_admin_token()
+        return jsonify({"ok": True, "auth_required": True})
 
     @app.post("/register")
     def register():
