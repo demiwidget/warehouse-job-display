@@ -79,6 +79,7 @@ sync_repo() {
 
     if [[ -d "$APP_DIR/.git" ]]; then
         log "Updating existing repository in $APP_DIR..."
+        git -C "$APP_DIR" config core.fileMode false || true
         git -C "$APP_DIR" fetch origin "$REPO_BRANCH"
         git -C "$APP_DIR" checkout "$REPO_BRANCH"
         git -C "$APP_DIR" pull --ff-only origin "$REPO_BRANCH"
@@ -93,6 +94,7 @@ sync_repo() {
 
     log "Cloning latest Warehouse Dashboard from GitHub..."
     git clone --branch "$REPO_BRANCH" "$REPO_URL" "$APP_DIR"
+    git -C "$APP_DIR" config core.fileMode false || true
 }
 
 sync_repo

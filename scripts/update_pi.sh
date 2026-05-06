@@ -219,8 +219,10 @@ main() {
         return 0
     fi
 
+    run_git config core.fileMode false >/dev/null 2>&1 || true
+
     local tracked_changes
-    tracked_changes="$(run_git status --porcelain --untracked-files=no)"
+    tracked_changes="$(run_git -c core.fileMode=false status --porcelain --untracked-files=no)"
     if [[ -n "$tracked_changes" ]]; then
         log "Tracked local changes detected; skipping auto-update to avoid overwriting them."
         finish_without_update

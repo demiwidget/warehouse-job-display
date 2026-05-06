@@ -24,6 +24,7 @@ fi
 
 if [[ -d "$APP_DIR/.git" ]]; then
     log "Updating existing repository in $APP_DIR..."
+    git -C "$APP_DIR" config core.fileMode false || true
     git -C "$APP_DIR" fetch origin "$REPO_BRANCH"
     git -C "$APP_DIR" checkout "$REPO_BRANCH"
     git -C "$APP_DIR" pull --ff-only origin "$REPO_BRANCH"
@@ -37,6 +38,7 @@ else
     git clone --branch "$REPO_BRANCH" "$REPO_URL" "$APP_DIR"
 fi
 
+git -C "$APP_DIR" config core.fileMode false || true
 chmod +x "$APP_DIR/scripts/install_manager_pi.sh" 2>/dev/null || true
 "$APP_DIR/scripts/install_manager_pi.sh"
 

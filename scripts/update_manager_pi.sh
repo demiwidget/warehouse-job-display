@@ -88,7 +88,9 @@ main() {
         fail "Manager Pi folder is not a Git clone."
     fi
 
-    tracked_changes="$(run_git status --porcelain --untracked-files=no)"
+    run_git config core.fileMode false >/dev/null 2>&1 || true
+
+    tracked_changes="$(run_git -c core.fileMode=false status --porcelain --untracked-files=no)"
     if [[ -n "$tracked_changes" ]]; then
         log "Tracked local changes:"
         printf '%s\n' "$tracked_changes"

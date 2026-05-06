@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 VENV_DIR="$APP_DIR/.venv"
 PYTHON_BIN="/usr/bin/python3"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.40')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.41')"
 SYSTEMCTL_BIN="$(command -v systemctl 2>/dev/null || printf '/usr/bin/systemctl')"
 REBOOT_BIN="$(command -v reboot 2>/dev/null || printf '/usr/sbin/reboot')"
 
@@ -62,6 +62,10 @@ if [[ "${WAREHOUSE_SKIP_APT:-0}" != "1" ]]; then
     "${SUDO[@]}" apt-get install -y git python3 python3-venv python3-full curl unzip
 else
     log "Skipping apt package installation because WAREHOUSE_SKIP_APT=1"
+fi
+
+if [[ -d "$APP_DIR/.git" ]]; then
+    run_as_app_user git -C "$APP_DIR" config core.fileMode false >/dev/null 2>&1 || true
 fi
 
 log "Creating Python virtual environment..."
