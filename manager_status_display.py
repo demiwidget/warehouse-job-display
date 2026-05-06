@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QScrollArea,
     QScroller,
+    QSizePolicy,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -131,6 +132,7 @@ class Card(QFrame):
         super().__init__()
         self.setObjectName(object_name)
         self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
 
 class Pill(QLabel):
@@ -165,16 +167,17 @@ class MetricCard(Card):
         self.title_label.setObjectName("MetricTitle")
         self.value_label = QLabel("Waiting")
         self.value_label.setObjectName("MetricValue")
+        self.value_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.value_label.setWordWrap(True)
         self.detail_label = QLabel("")
         self.detail_label.setObjectName("MetricDetail")
+        self.detail_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.detail_label.setWordWrap(True)
 
         layout.addWidget(self.title_label)
-        layout.addWidget(self.value_label)
+        layout.addWidget(self.value_label, 1)
         layout.addWidget(self.detail_label)
-        layout.addStretch(1)
-        self.setMinimumHeight(92)
+        self.setMinimumHeight(132)
         self.set_content("Waiting", "", "muted")
 
     def set_content(self, value, detail="", tone="muted"):
@@ -202,6 +205,7 @@ class InfoPanel(Card):
         self.body_label.setWordWrap(True)
         layout.addWidget(self.title_label)
         layout.addWidget(self.body_label, 1)
+        self.setMinimumHeight(132)
 
     def set_body(self, body):
         self.body_label.setText(clean_text(body, "Waiting for data."))
@@ -352,6 +356,7 @@ class ManagerStatusWindow(QMainWindow):
         layout.setSpacing(10)
 
         self.system_panel = Card("HeroPanel")
+        self.system_panel.setMinimumHeight(112)
         hero = QHBoxLayout(self.system_panel)
         hero.setContentsMargins(18, 16, 18, 16)
         hero.setSpacing(14)
@@ -367,10 +372,15 @@ class ManagerStatusWindow(QMainWindow):
         self.system_pill = Pill("Starting", "muted")
         hero.addLayout(left, 1)
         hero.addWidget(self.system_pill, 0, Qt.AlignTop)
-        layout.addWidget(self.system_panel)
+        layout.addWidget(self.system_panel, 2)
 
         grid = QGridLayout()
         grid.setSpacing(10)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        grid.setRowStretch(0, 1)
+        grid.setRowStretch(1, 1)
+        grid.setRowStretch(2, 1)
         self.backend_metric = MetricCard("Backend")
         self.screens_metric = MetricCard("Screens")
         self.rms_metric = MetricCard("Current RMS")
@@ -383,16 +393,17 @@ class ManagerStatusWindow(QMainWindow):
         grid.addWidget(self.update_metric, 1, 1)
         grid.addWidget(self.security_metric, 2, 0)
         grid.addWidget(self.version_metric, 2, 1)
-        layout.addLayout(grid)
+        layout.addLayout(grid, 6)
 
         bottom = QGridLayout()
         bottom.setSpacing(10)
+        bottom.setColumnStretch(0, 1)
+        bottom.setColumnStretch(1, 1)
         self.attention_panel = InfoPanel("Needs Attention")
         self.latest_panel = InfoPanel("Latest Activity")
         bottom.addWidget(self.attention_panel, 0, 0)
         bottom.addWidget(self.latest_panel, 0, 1)
-        layout.addLayout(bottom)
-        layout.addStretch(1)
+        layout.addLayout(bottom, 2)
 
         self.tabs.addTab(content, "Overview")
 
@@ -530,12 +541,12 @@ class ManagerStatusWindow(QMainWindow):
             }
             QLabel#HeroTitle {
                 color:#ffffff;
-                font-size:30px;
+                font-size:34px;
                 font-weight:900;
             }
             QLabel#HeroDetail {
                 color:#b6cacb;
-                font-size:17px;
+                font-size:20px;
                 font-weight:650;
             }
             QLabel#MetricTitle, QLabel#PanelTitle {
@@ -546,17 +557,17 @@ class ManagerStatusWindow(QMainWindow):
             }
             QLabel#MetricValue {
                 color:#ffffff;
-                font-size:25px;
+                font-size:32px;
                 font-weight:950;
             }
             QLabel#MetricDetail {
                 color:#9eb3bb;
-                font-size:14px;
+                font-size:17px;
                 font-weight:650;
             }
             QLabel#PanelBody {
                 color:#e4efed;
-                font-size:18px;
+                font-size:22px;
                 font-weight:750;
             }
             QLabel#RowTitle {
