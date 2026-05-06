@@ -51,6 +51,9 @@ MANAGER_EXIT_FLAG = DATA_DIR / "allow_manager_exit.flag"
 PI_BOOTSTRAP_URL = (
     "https://raw.githubusercontent.com/demiwidget/warehouse-job-display/main/scripts/bootstrap_pi.sh"
 )
+MANAGER_PI_BOOTSTRAP_URL = (
+    "https://raw.githubusercontent.com/demiwidget/warehouse-job-display/main/scripts/bootstrap_manager_pi.sh"
+)
 
 
 def local_addresses():
@@ -191,17 +194,28 @@ class ConnectionTab(QWidget):
         self.overwrite_install_command.setMinimumHeight(130)
         layout.addWidget(self.overwrite_install_command)
 
+        layout.addWidget(QLabel("Trial Manager Pi install command:"))
+        self.manager_pi_install_command = QTextEdit()
+        self.manager_pi_install_command.setReadOnly(True)
+        self.manager_pi_install_command.setMinimumHeight(90)
+        layout.addWidget(self.manager_pi_install_command)
+
         copy_buttons = QHBoxLayout()
         copy_install_btn = QPushButton("Copy Standard Install")
         copy_overwrite_btn = QPushButton("Copy Old-System Install")
+        copy_manager_pi_btn = QPushButton("Copy Manager Pi Install")
         copy_install_btn.clicked.connect(
             lambda: self.copy_command(self.install_command, "Copied the standard Pi install command.")
         )
         copy_overwrite_btn.clicked.connect(
             lambda: self.copy_command(self.overwrite_install_command, "Copied the old-system overwrite command.")
         )
+        copy_manager_pi_btn.clicked.connect(
+            lambda: self.copy_command(self.manager_pi_install_command, "Copied the Manager Pi install command.")
+        )
         copy_buttons.addWidget(copy_install_btn)
         copy_buttons.addWidget(copy_overwrite_btn)
+        copy_buttons.addWidget(copy_manager_pi_btn)
         copy_buttons.addStretch(1)
         layout.addLayout(copy_buttons)
 
@@ -219,8 +233,12 @@ class ConnectionTab(QWidget):
         settings = self.state.get_settings(include_secret=True)
         server = settings.get("server", {})
         port = server.get("port", 8765)
-        install_host = pi_install_host(settings)
-        lines = [f"http://{address}:{port}" for address in local_addresses()]
+        if getattr(self.state, "is_remote", False):
+            install_host = self.state.install_host()
+            lines = [getattr(self.state, "base_url", f"http://{install_host}:{port}")]
+        else:
+            install_host = pi_install_host(settings)
+            lines = [f"http://{address}:{port}" for address in local_addresses()]
         self.addresses.setPlainText("\n".join(lines))
         self.install_command.setPlainText(
             f"WAREHOUSE_MANAGER_IP={install_host} WAREHOUSE_MANAGER_PORT={port} "
@@ -231,7 +249,14 @@ class ConnectionTab(QWidget):
             "WAREHOUSE_OVERWRITE_OLD_SYSTEM=1 WAREHOUSE_REBOOT_AFTER_INSTALL=1 "
             f"bash -c \"$(curl -fsSL {PI_BOOTSTRAP_URL} || wget -qO- {PI_BOOTSTRAP_URL})\""
         )
-        self.status.setText("The manager server is running. Connection changes take effect next time the app starts.")
+        self.manager_pi_install_command.setPlainText(
+            "WAREHOUSE_REBOOT_AFTER_INSTALL=1 "
+            f"bash -c \"$(curl -fsSL {MANAGER_PI_BOOTSTRAP_URL} || wget -qO- {MANAGER_PI_BOOTSTRAP_URL})\""
+        )
+        if getattr(self.state, "is_remote", False):
+            self.status.setText("Connected to the Manager Pi. Connection changes take effect when its backend restarts.")
+        else:
+            self.status.setText("The manager server is running. Connection changes take effect next time the app starts.")
 
     def copy_command(self, widget, message):
         QApplication.clipboard().setText(widget.toPlainText())
@@ -247,7 +272,7 @@ class ConnectionTab(QWidget):
             }
         )
         self.refresh_addresses()
-        QMessageBox.information(self, "Saved", "Connection settings saved. Restart the manager app to use a changed port.")
+        QMessageBox.information(self, "Saved", "Connection settings saved. Restart the manager backend to use a changed port.")
 
 
 class CurrentRMSTab(QWidget):
@@ -311,7 +336,7 @@ class CurrentRMSTab(QWidget):
         layout.addLayout(buttons)
 
         note = QLabel(
-            "API details and view IDs are stored only in manager_data/settings.json on this PC. "
+            "API details and view IDs are stored only in manager_data/settings.json on the manager. "
             "That folder is ignored by Git and must not be committed."
         )
         note.setWordWrap(True)
@@ -336,7 +361,7 @@ class CurrentRMSTab(QWidget):
 
     def save(self):
         self.state.save_settings({"current_rms": self.settings_payload()})
-        QMessageBox.information(self, "Saved", "Current RMS details saved locally on this PC.")
+        QMessageBox.information(self, "Saved", "Current RMS details saved on the manager.")
 
     def test(self):
         success, message = self.state.test_current_rms(self.settings_payload())
@@ -590,6 +615,13 @@ class AlertsTab(QWidget):
         return ids
 
     def open_sounds_folder(self):
+        if getattr(self.state, "is_remote", False):
+            QMessageBox.information(
+                self,
+                "Remote Sounds Folder",
+                "Sounds are stored on the Manager Pi. Use Import WAV Sound to upload from this PC.",
+            )
+            return
         SOUNDS_DIR.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(SOUNDS_DIR)))
 
@@ -620,7 +652,11 @@ class AlertsTab(QWidget):
                 return
 
         try:
-            shutil.copy2(source, target)
+            if hasattr(self.state, "upload_sound"):
+                uploaded_name = self.state.upload_sound(source)
+                target = SOUNDS_DIR / uploaded_name
+            else:
+                shutil.copy2(source, target)
         except Exception as error:
             QMessageBox.warning(self, "Import Sound Failed", f"Could not import the sound file:\n{error}")
             return
@@ -1024,6 +1060,10 @@ class ManagerWindow(QMainWindow):
         self.setCentralWidget(tabs)
 
     def closeEvent(self, event):
+        if getattr(self.state, "is_remote", False):
+            event.accept()
+            return
+
         choice = QMessageBox.question(
             self,
             "Close Manager?",

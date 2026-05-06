@@ -70,6 +70,17 @@ Manual update:
 ## Pi Audio
 Pi alert sounds default to the attached HDMI screen output. The installer writes this into `viewer_config.json`, and the viewer reapplies the preferred sink on startup so sound stays on the screen after reboots.
 
+## Manager Pi Trial
+The normal PC manager still works as before. For a trial split, install a spare Raspberry Pi as an always-on Manager Pi:
+
+```bash
+WAREHOUSE_REBOOT_AFTER_INSTALL=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/demiwidget/warehouse-job-display/main/scripts/bootstrap_manager_pi.sh || wget -qO- https://raw.githubusercontent.com/demiwidget/warehouse-job-display/main/scripts/bootstrap_manager_pi.sh)"
+```
+
+After it reboots, the Manager Pi status display shows the URL to use from the PC remote app. On the PC, run `Warehouse Remote Manager.cmd` and enter that URL, for example `http://192.168.1.50:8765`.
+
+Display Pis can then be installed or repointed with the live install commands shown in the PC manager Connection page, using the Manager Pi IP instead of the PC IP.
+
 ## Custom Sounds
 Use `.wav` files for reliable Pi playback. In the manager `Alerts` tab, use `Import WAV Sound` to copy a sound into the repo's `sounds/` folder, then use that filename in the relevant alert sound box.
 

@@ -66,6 +66,12 @@ def create_app(state):
     def devices():
         return jsonify(state.list_devices())
 
+    @app.post("/api/devices/remove")
+    def remove_devices():
+        payload = request.get_json(silent=True) or {}
+        removed = state.remove_devices(payload.get("device_ids") or [])
+        return jsonify({"ok": True, "removed": removed})
+
     @app.get("/api/activity")
     def activity():
         return jsonify(
@@ -79,6 +85,19 @@ def create_app(state):
     @app.post("/api/activity/clear")
     def clear_activity():
         state.clear_activity()
+        return jsonify({"ok": True})
+
+    @app.get("/api/update-status")
+    def update_status():
+        return jsonify(state.get_update_status())
+
+    @app.post("/api/update-status/refresh")
+    def refresh_update_status():
+        return jsonify(state.refresh_update_status(force=True))
+
+    @app.post("/api/dashboard/refresh")
+    def refresh_dashboard():
+        state.refresh_dashboard()
         return jsonify({"ok": True})
 
     @app.post("/api/devices/command")
@@ -98,13 +117,44 @@ def create_app(state):
 
     @app.get("/api/settings")
     def get_settings():
-        return jsonify(state.get_settings(include_secret=False))
+        include_secret = str(request.args.get("include_secret", "")).strip().lower() in {"1", "true", "yes"}
+        return jsonify(state.get_settings(include_secret=include_secret))
+
+    @app.post("/api/settings")
+    def save_settings():
+        payload = request.get_json(silent=True) or {}
+        return jsonify(state.save_settings(payload))
 
     @app.post("/api/current-rms/test")
     def test_current_rms():
         payload = request.get_json(silent=True) or {}
         success, message = state.test_current_rms(payload)
         return jsonify({"success": success, "message": message})
+
+    @app.post("/api/notifications/test")
+    def test_notification():
+        payload = request.get_json(silent=True) or {}
+        success, message = state.send_test_notification(
+            title=payload.get("title", ""),
+            message=payload.get("message", ""),
+            sound_name=payload.get("sound_name", ""),
+            play_sound=payload.get("play_sound", True),
+            device_ids=payload.get("device_ids"),
+        )
+        return jsonify({"success": success, "message": message})
+
+    @app.post("/api/sounds/upload")
+    def upload_sound():
+        upload = request.files.get("file")
+        if upload is None:
+            return jsonify({"success": False, "message": "No sound file was uploaded."}), 400
+        safe_name = Path(str(upload.filename or "").strip()).name
+        if not safe_name or Path(safe_name).suffix.lower() != ".wav":
+            return jsonify({"success": False, "message": "Upload a .wav sound file."}), 400
+        SOUNDS_DIR.mkdir(parents=True, exist_ok=True)
+        upload.save(SOUNDS_DIR / safe_name)
+        state.log_activity("Settings", f"Uploaded alert sound {safe_name}.")
+        return jsonify({"success": True, "filename": safe_name})
 
     return app
 
