@@ -398,6 +398,7 @@ class ViewerWindow(QMainWindow):
         self.sound_effect = QSoundEffect(self) if QSoundEffect else None
         self.sound_process = None
         self.last_audio_apply_at = 0.0
+        self.last_audio_message = ""
         self.refresh_in_progress = False
         self.refresh_queued = False
         self.alert_poll_in_progress = False
@@ -802,7 +803,12 @@ class ViewerWindow(QMainWindow):
         now = time.monotonic()
         if not force and (now - self.last_audio_apply_at) < 20:
             return
-        ok, _message = apply_audio_preferences(self.config)
+        ok, message = apply_audio_preferences(self.config)
+        if message and (force or message != self.last_audio_message):
+            level = "info" if ok else "warning"
+            prefix = "Audio output set to" if ok else "Audio output not ready:"
+            self.report_audio_event(f"{prefix} {message}", level=level)
+            self.last_audio_message = message
         if ok:
             self.last_audio_apply_at = now
 

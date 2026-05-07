@@ -7,7 +7,9 @@ from typing import Dict, List, Optional, Tuple
 DEFAULT_AUDIO_OUTPUT = "hdmi"
 DEFAULT_AUDIO_VOLUME = 100
 
-_SINK_LINE_RE = re.compile(r"^[\s│\?]*(\*)?\s*(\d+)\.\s+(.+?)(?:\s+\[vol:.*\])?\s*$")
+# wpctl draws sink rows with unicode tree characters on Raspberry Pi OS.
+# Ignore all prefix drawing characters and capture the optional default marker.
+_SINK_LINE_RE = re.compile(r"^[^\d*]*(\*)?\s*(\d+)\.\s+(.+?)(?:\s+\[vol:.*\])?\s*$")
 
 
 def normalize_audio_volume(value) -> int:
