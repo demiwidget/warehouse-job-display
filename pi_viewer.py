@@ -427,7 +427,7 @@ class LeaderboardCard(QWidget):
             f"background:{background}; color:{color}; "
             f"border:0; border-radius:{scaled(10, self.ui_scale)}px; "
             f"padding:{scaled(8, self.ui_scale)}px {scaled(10, self.ui_scale)}px; "
-            f"font-size:{scaled(16, self.ui_scale)}px; font-weight:900;"
+            f"font-size:{scaled(20, self.ui_scale)}px; font-weight:900;"
         )
 
     def set_data(self, total, rows, status=""):
