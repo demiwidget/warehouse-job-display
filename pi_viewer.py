@@ -392,7 +392,7 @@ class LeaderboardCard(QWidget):
         self.rows_grid.setSpacing(scaled(8, self.ui_scale))
 
         layout.addLayout(left, 1)
-        layout.addWidget(self.rows_widget, 3)
+        layout.addWidget(self.rows_widget, 5)
         self.apply_scale(1.0)
 
     def apply_scale(self, scale=1.0):
@@ -422,12 +422,12 @@ class LeaderboardCard(QWidget):
 
     def _style_rank_label(self, label, background):
         color = readable_text_color(background)
-        label.setMinimumHeight(scaled(58, self.ui_scale))
+        label.setMinimumHeight(scaled(42, self.ui_scale))
         label.setStyleSheet(
             f"background:{background}; color:{color}; "
-            f"border:0; border-radius:{scaled(10, self.ui_scale)}px; "
-            f"padding:{scaled(8, self.ui_scale)}px {scaled(10, self.ui_scale)}px; "
-            f"font-size:{scaled(20, self.ui_scale)}px; font-weight:900;"
+            f"border:0; border-radius:{scaled(9, self.ui_scale)}px; "
+            f"padding:{scaled(6, self.ui_scale)}px {scaled(8, self.ui_scale)}px; "
+            f"font-size:{scaled(13, self.ui_scale)}px; font-weight:900;"
         )
 
     def set_data(self, total, rows, status=""):
@@ -447,15 +447,15 @@ class LeaderboardCard(QWidget):
             self.rows_grid.addWidget(placeholder, 0, 0)
             return
 
-        column_count = 4 if len(display_rows) > 4 else len(display_rows)
+        column_count = max(1, len(display_rows))
         total_rows = len(display_rows)
         for index, row in enumerate(display_rows):
             rank = row.get("Rank", "")
             department = row.get("Department", "Unknown")
             count = row.get("Quarantines", 0)
-            label = QLabel(f"#{rank}\n{department}\n{count}")
+            label = QLabel(f"#{rank} {department}: {count}")
             label.setAlignment(Qt.AlignCenter)
-            label.setWordWrap(True)
+            label.setWordWrap(False)
             self._style_rank_label(label, rank_color(index, total_rows))
             self.rank_labels.append(label)
             self.rows_grid.addWidget(label, index // column_count, index % column_count)
