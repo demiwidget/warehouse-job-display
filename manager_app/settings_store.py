@@ -38,12 +38,11 @@ DEFAULT_SETTINGS = {
             "max_pages": 20,
             "active_only": True,
             "department_mappings": {
-                "1000055": "Department 1",
+                "1000055": "Technology",
                 "1000056": "TV Lights",
                 "1000057": "Rigging",
                 "1000058": "Power",
                 "1000059": "3rd Party",
-                "1000067": "Technology",
                 "1000090": "Adam Baker Repairs",
             },
         },
@@ -111,6 +110,12 @@ DEFAULT_SETTINGS = {
     },
 }
 
+DEPRECATED_QUARANTINE_DEPARTMENT_IDS = {"1000067"}
+LEGACY_QUARANTINE_DEPARTMENT_NAMES = {
+    "1000055": {"Department 1", "Department 1000055"},
+    "1000067": {"Technology", "Department 1000067"},
+}
+
 
 def _merge_defaults(defaults, values):
     merged = deepcopy(defaults)
@@ -128,10 +133,13 @@ def _migrate_settings(settings):
     if not isinstance(mappings, dict):
         mappings = {}
     default_mappings = DEFAULT_SETTINGS["current_rms"]["quarantines"]["department_mappings"]
+    for department_id in DEPRECATED_QUARANTINE_DEPARTMENT_IDS:
+        mappings.pop(department_id, None)
     for department_id, default_name in default_mappings.items():
         current_name = str(mappings.get(department_id, "")).strip()
         old_placeholder = f"Department {department_id}"
-        if not current_name or current_name == old_placeholder:
+        legacy_names = LEGACY_QUARANTINE_DEPARTMENT_NAMES.get(department_id, set())
+        if not current_name or current_name == old_placeholder or current_name in legacy_names:
             mappings[department_id] = default_name
     quarantine_settings["department_mappings"] = mappings
     return settings
