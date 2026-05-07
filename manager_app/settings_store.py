@@ -37,7 +37,12 @@ DEFAULT_SETTINGS = {
             "per_page": 100,
             "max_pages": 20,
             "active_only": True,
-            "department_mappings": {},
+            "department_mappings": {
+                "1000055": "Department 1000055",
+                "1000058": "Department 1000058",
+                "1000059": "Department 1000059",
+                "1000067": "Department 1000067",
+            },
         },
         "excluded_item_ids": [
             "691109",
