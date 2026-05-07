@@ -557,7 +557,18 @@ class DashboardBuilder:
             if str(key).strip() and str(value).strip()
         }
         active_only = as_bool(quarantine_settings.get("active_only", True))
+        meta = dict((quarantine_view or {}).get("meta", {}) or {})
+        seed_configured_departments = not meta.get("disabled") and not meta.get("error")
         rows_by_department = {}
+        if seed_configured_departments:
+            rows_by_department = {
+                department_id: {
+                    "Tag": department_id,
+                    "Department": department_name,
+                    "Quarantines": 0,
+                }
+                for department_id, department_name in mappings.items()
+            }
         unassigned_count = 0
 
         for quarantine in (quarantine_view or {}).get("quarantines", []):
@@ -589,7 +600,6 @@ class DashboardBuilder:
             row["Rank"] = index
 
         total = sum(safe_int(row.get("Quarantines"), 0) for row in rows)
-        meta = dict((quarantine_view or {}).get("meta", {}) or {})
         summary = {
             "Total": total,
             "Departments": len(rows),

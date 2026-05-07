@@ -38,10 +38,13 @@ DEFAULT_SETTINGS = {
             "max_pages": 20,
             "active_only": True,
             "department_mappings": {
-                "1000055": "Department 1000055",
-                "1000058": "Department 1000058",
-                "1000059": "Department 1000059",
-                "1000067": "Department 1000067",
+                "1000055": "Department 1",
+                "1000056": "TV Lights",
+                "1000057": "Rigging",
+                "1000058": "Power",
+                "1000059": "3rd Party",
+                "1000067": "Technology",
+                "1000090": "Adam Baker Repairs",
             },
         },
         "excluded_item_ids": [
@@ -119,6 +122,21 @@ def _merge_defaults(defaults, values):
     return merged
 
 
+def _migrate_settings(settings):
+    quarantine_settings = settings.get("current_rms", {}).get("quarantines", {})
+    mappings = quarantine_settings.get("department_mappings", {})
+    if not isinstance(mappings, dict):
+        mappings = {}
+    default_mappings = DEFAULT_SETTINGS["current_rms"]["quarantines"]["department_mappings"]
+    for department_id, default_name in default_mappings.items():
+        current_name = str(mappings.get(department_id, "")).strip()
+        old_placeholder = f"Department {department_id}"
+        if not current_name or current_name == old_placeholder:
+            mappings[department_id] = default_name
+    quarantine_settings["department_mappings"] = mappings
+    return settings
+
+
 def _atomic_write_text(path, text):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -160,10 +178,10 @@ class SettingsStore:
             data = json.loads(self.settings_file.read_text(encoding="utf-8"))
         except Exception:
             data = {}
-        return _merge_defaults(DEFAULT_SETTINGS, data)
+        return _migrate_settings(_merge_defaults(DEFAULT_SETTINGS, data))
 
     def save_settings(self, settings):
-        safe_settings = _merge_defaults(DEFAULT_SETTINGS, settings)
+        safe_settings = _migrate_settings(_merge_defaults(DEFAULT_SETTINGS, settings))
         _atomic_write_text(self.settings_file, json.dumps(safe_settings, indent=2))
         return safe_settings
 

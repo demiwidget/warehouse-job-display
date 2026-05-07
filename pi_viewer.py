@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QHBoxLayout,
     QDialog,
+    QGridLayout,
     QPushButton,
     QScroller,
 )
@@ -66,9 +67,33 @@ DEFAULT_CONFIG = {
     "audio_volume": 100,
 }
 
+RANK_COLORS = (
+    "#29b765",
+    "#70c84f",
+    "#bdd64a",
+    "#f4d35e",
+    "#f7a23a",
+    "#ef6c35",
+    "#d94841",
+    "#aa2435",
+)
+
 
 def scaled(value, scale=1.0, minimum=1):
     return max(minimum, int(round(float(value) * float(scale))))
+
+
+def rank_color(index, total):
+    if total <= 1:
+        return RANK_COLORS[0]
+    palette_index = round(index * (len(RANK_COLORS) - 1) / max(total - 1, 1))
+    return RANK_COLORS[max(0, min(len(RANK_COLORS) - 1, palette_index))]
+
+
+def readable_text_color(background):
+    color = QColor(background)
+    brightness = ((color.red() * 299) + (color.green() * 587) + (color.blue() * 114)) / 1000
+    return "#071012" if brightness > 150 else "#ffffff"
 
 
 def write_json_atomic(path, payload):
@@ -344,31 +369,42 @@ class LeaderboardCard(QWidget):
     def __init__(self, title, accent="#ffb000"):
         super().__init__()
         self.accent = accent
+        self.ui_scale = 1.0
+        self.rank_labels = []
         layout = QHBoxLayout(self)
+        layout.setSpacing(scaled(14, self.ui_scale))
 
         left = QVBoxLayout()
         self.title = QLabel(title)
+        self.title.setAlignment(Qt.AlignCenter)
         self.value = QLabel("0")
+        self.value.setAlignment(Qt.AlignCenter)
         self.caption = QLabel("total quarantines")
+        self.caption.setAlignment(Qt.AlignCenter)
         self.caption.setWordWrap(True)
         left.addWidget(self.title)
         left.addWidget(self.value)
         left.addWidget(self.caption)
 
-        self.rows_label = QLabel("Waiting for quarantine data")
-        self.rows_label.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
-        self.rows_label.setWordWrap(True)
+        self.rows_widget = QWidget()
+        self.rows_grid = QGridLayout(self.rows_widget)
+        self.rows_grid.setContentsMargins(0, 0, 0, 0)
+        self.rows_grid.setSpacing(scaled(8, self.ui_scale))
 
         layout.addLayout(left, 1)
-        layout.addWidget(self.rows_label, 3)
+        layout.addWidget(self.rows_widget, 3)
         self.apply_scale(1.0)
 
     def apply_scale(self, scale=1.0):
         scale = float(scale or 1.0)
+        self.ui_scale = scale
         self.title.setStyleSheet(f"font-size:{scaled(18, scale)}px; font-weight:800; color:{self.accent};")
         self.value.setStyleSheet(f"font-size:{scaled(48, scale)}px; font-weight:900; padding:{scaled(4, scale)}px;")
         self.caption.setStyleSheet(f"font-size:{scaled(14, scale)}px; color:#d8d8d8;")
-        self.rows_label.setStyleSheet(f"font-size:{scaled(18, scale)}px; font-weight:800; color:#f3f3f3;")
+        self.layout().setSpacing(scaled(14, scale))
+        self.rows_grid.setSpacing(scaled(8, scale))
+        for index, label in enumerate(self.rank_labels):
+            self._style_rank_label(label, rank_color(index, max(1, len(self.rank_labels))))
         self.setMinimumHeight(scaled(132, scale))
         self.setStyleSheet(
             f"background:#15181b; border:1px solid #3b2f13; "
@@ -376,16 +412,53 @@ class LeaderboardCard(QWidget):
             f"border-radius:{scaled(14, scale)}px; padding:{scaled(10, scale)}px;"
         )
 
+    def _clear_rank_labels(self):
+        self.rank_labels = []
+        while self.rows_grid.count():
+            item = self.rows_grid.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _style_rank_label(self, label, background):
+        color = readable_text_color(background)
+        label.setMinimumHeight(scaled(58, self.ui_scale))
+        label.setStyleSheet(
+            f"background:{background}; color:{color}; "
+            f"border:0; border-radius:{scaled(10, self.ui_scale)}px; "
+            f"padding:{scaled(8, self.ui_scale)}px {scaled(10, self.ui_scale)}px; "
+            f"font-size:{scaled(16, self.ui_scale)}px; font-weight:900;"
+        )
+
     def set_data(self, total, rows, status=""):
         self.value.setText(str(total))
         self.caption.setText(str(status or "total quarantines"))
-        leaderboard = []
-        for row in list(rows or [])[:6]:
+        self._clear_rank_labels()
+
+        display_rows = list(rows or [])[:8]
+        if not display_rows:
+            placeholder = QLabel("No department data yet")
+            placeholder.setAlignment(Qt.AlignCenter)
+            placeholder.setWordWrap(True)
+            placeholder.setStyleSheet(
+                f"font-size:{scaled(18, self.ui_scale)}px; font-weight:800; color:#f3f3f3;"
+            )
+            self.rank_labels.append(placeholder)
+            self.rows_grid.addWidget(placeholder, 0, 0)
+            return
+
+        column_count = 4 if len(display_rows) > 4 else len(display_rows)
+        total_rows = len(display_rows)
+        for index, row in enumerate(display_rows):
             rank = row.get("Rank", "")
             department = row.get("Department", "Unknown")
             count = row.get("Quarantines", 0)
-            leaderboard.append(f"#{rank}  {department}: {count}")
-        self.rows_label.setText("   |   ".join(leaderboard) if leaderboard else "No department data yet")
+            label = QLabel(f"#{rank}\n{department}\n{count}")
+            label.setAlignment(Qt.AlignCenter)
+            label.setWordWrap(True)
+            self._style_rank_label(label, rank_color(index, total_rows))
+            self.rank_labels.append(label)
+            self.rows_grid.addWidget(label, index // column_count, index % column_count)
 
 
 def load_config():
