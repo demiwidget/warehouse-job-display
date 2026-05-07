@@ -421,13 +421,12 @@ class LeaderboardCard(QWidget):
                 widget.deleteLater()
 
     def _style_rank_label(self, label, background):
-        color = readable_text_color(background)
-        label.setMinimumHeight(scaled(42, self.ui_scale))
+        label.setMinimumHeight(scaled(58, self.ui_scale))
         label.setStyleSheet(
-            f"background:{background}; color:{color}; "
+            f"background:{background}; color:#000000; "
             f"border:0; border-radius:{scaled(9, self.ui_scale)}px; "
             f"padding:{scaled(6, self.ui_scale)}px {scaled(8, self.ui_scale)}px; "
-            f"font-size:{scaled(15, self.ui_scale)}px; font-weight:900;"
+            f"font-size:{scaled(30, self.ui_scale)}px; font-weight:900;"
         )
 
     def set_data(self, total, rows, status=""):
