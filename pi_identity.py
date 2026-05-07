@@ -8,6 +8,17 @@ from app_version import CURRENT_VERSION
 
 PLACEHOLDER_DEVICE_NAMES = {"", "Warehouse Screen 1"}
 PLACEHOLDER_DEVICE_IDS = {"", "pi-1"}
+DEFAULT_DISPLAY_SCALE = 100
+MIN_DISPLAY_SCALE = 75
+MAX_DISPLAY_SCALE = 200
+
+
+def normalize_display_scale(value):
+    try:
+        scale = int(float(value))
+    except Exception:
+        scale = DEFAULT_DISPLAY_SCALE
+    return max(MIN_DISPLAY_SCALE, min(MAX_DISPLAY_SCALE, scale))
 
 
 def _slugify(value, fallback="pi"):
@@ -102,11 +113,16 @@ def registration_id(cfg):
 
 def registration_payload(cfg, screen=None):
     cfg, changed, legacy_device_id, device_uid = ensure_device_identity(cfg)
+    display_scale = normalize_display_scale(cfg.get("display_scale", DEFAULT_DISPLAY_SCALE))
+    if cfg.get("display_scale") != display_scale:
+        cfg["display_scale"] = display_scale
+        changed = True
     payload = {
         "id": device_uid,
         "name": str(cfg.get("device_name", "")).strip() or device_uid,
         "screen": screen if screen is not None else cfg.get("screen", "today"),
         "version": str(cfg.get("version", "")).strip() or CURRENT_VERSION,
+        "display_scale": display_scale,
     }
     if legacy_device_id and legacy_device_id != device_uid:
         payload["legacy_id"] = legacy_device_id

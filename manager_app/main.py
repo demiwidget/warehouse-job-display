@@ -927,7 +927,7 @@ class ManagerPiTab(QWidget):
 
 
 class PiScreensTab(QWidget):
-    COLUMNS = ["ID", "Name", "IP", "Screen", "Version", "Update", "State", "Activity", "Last Seen"]
+    COLUMNS = ["ID", "Name", "IP", "Screen", "Scale", "Version", "Update", "State", "Activity", "Last Seen"]
     STATUS_COLORS = {
         "Online": "#2e7d32",
         "Display Restarting": "#f9a825",
@@ -973,6 +973,7 @@ class PiScreensTab(QWidget):
 
         command_buttons = QHBoxLayout()
         rename_btn = QPushButton("Rename Pi")
+        display_size_btn = QPushButton("Set Display Size")
         restart_btn = QPushButton("Restart Display App")
         update_btn = QPushButton("Update Pi From GitHub")
         check_updates_btn = QPushButton("Check GitHub Updates")
@@ -980,6 +981,7 @@ class PiScreensTab(QWidget):
         remove_btn = QPushButton("Remove Selected")
         refresh_btn = QPushButton("Refresh List")
         rename_btn.clicked.connect(self.rename_selected_pi)
+        display_size_btn.clicked.connect(self.set_display_size_selected)
         restart_btn.clicked.connect(lambda: self.send_action("restart"))
         update_btn.clicked.connect(lambda: self.send_action("update"))
         check_updates_btn.clicked.connect(self.check_updates_now)
@@ -987,6 +989,7 @@ class PiScreensTab(QWidget):
         remove_btn.clicked.connect(self.remove_selected_pis)
         refresh_btn.clicked.connect(self.refresh)
         command_buttons.addWidget(rename_btn)
+        command_buttons.addWidget(display_size_btn)
         command_buttons.addWidget(restart_btn)
         command_buttons.addWidget(update_btn)
         command_buttons.addWidget(reboot_btn)
@@ -1020,12 +1023,14 @@ class PiScreensTab(QWidget):
         for row in sorted(rows):
             device_id_item = self.table.item(row, 0)
             device_name_item = self.table.item(row, 1)
+            scale_item = self.table.item(row, 4)
             if not device_id_item:
                 continue
             devices.append(
                 {
                     "id": device_id_item.text(),
                     "name": device_name_item.text() if device_name_item else "",
+                    "display_scale": scale_item.text().rstrip("%") if scale_item else "",
                 }
             )
         return devices
@@ -1043,6 +1048,7 @@ class PiScreensTab(QWidget):
                 device.get("name", ""),
                 device.get("ip", ""),
                 device.get("screen", ""),
+                f"{device.get('display_scale', 100)}%",
                 device.get("version", ""),
                 device.get("update", ""),
                 device.get("state", ""),
@@ -1121,6 +1127,35 @@ class PiScreensTab(QWidget):
 
         self.state.queue_command([device["id"]], "rename", device_name=clean_name)
         self.status.setText(f"Queued rename for {device['id']} to '{clean_name}'.")
+
+    def set_display_size_selected(self):
+        devices = self.selected_devices()
+        if not devices:
+            QMessageBox.warning(self, "No Pi Selected", "Select one or more Pi screens first.")
+            return
+
+        default_scale = 100
+        if len(devices) == 1:
+            try:
+                default_scale = int(float(devices[0].get("display_scale") or 100))
+            except Exception:
+                default_scale = 100
+
+        scale, accepted = QInputDialog.getInt(
+            self,
+            "Set Display Size",
+            "Display size percent:\n100 = normal, 125 = larger, 150 = very large",
+            default_scale,
+            75,
+            200,
+            5,
+        )
+        if not accepted:
+            return
+
+        device_ids = [device["id"] for device in devices]
+        self.state.queue_command(device_ids, "set_display_scale", display_scale=int(scale))
+        self.status.setText(f"Queued {scale}% display size for {len(device_ids)} Pi screen(s).")
 
     def remove_selected_pis(self):
         devices = self.selected_devices()

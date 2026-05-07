@@ -46,7 +46,7 @@ except Exception:
 
 from app_version import CURRENT_VERSION, sync_config_version
 from pi_audio import apply_audio_preferences, sync_audio_config
-from pi_identity import registration_id, registration_payload
+from pi_identity import normalize_display_scale, registration_id, registration_payload
 from pi_status import post_status
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -61,9 +61,14 @@ DEFAULT_CONFIG = {
     "version": CURRENT_VERSION,
     "screen": "today",
     "allow_all_screens": True,
+    "display_scale": 100,
     "audio_output": "hdmi",
     "audio_volume": 100,
 }
+
+
+def scaled(value, scale=1.0, minimum=1):
+    return max(minimum, int(round(float(value) * float(scale))))
 
 
 def write_json_atomic(path, payload):
@@ -160,8 +165,9 @@ def enable_click_drag_scroll(widget):
 
 
 class DashboardTable(QTableWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, scale=1.0):
         super().__init__(parent)
+        self.ui_scale = float(scale or 1.0)
         self.row_payloads = []
         self.headers_for_data = []
         self.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -169,12 +175,12 @@ class DashboardTable(QTableWidget):
         self.setSelectionMode(QTableWidget.SingleSelection)
         self.setAlternatingRowColors(True)
         self.verticalHeader().setVisible(False)
-        self.verticalHeader().setDefaultSectionSize(42)
+        self.verticalHeader().setDefaultSectionSize(scaled(42, self.ui_scale))
         self.setShowGrid(False)
         self.setWordWrap(False)
         self.horizontalHeader().setStretchLastSection(False)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.horizontalHeader().setMinimumSectionSize(90)
+        self.horizontalHeader().setMinimumSectionSize(scaled(90, self.ui_scale))
         self.setVerticalScrollMode(QTableWidget.ScrollPerPixel)
         self.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
         self.setAutoScroll(False)
@@ -215,18 +221,19 @@ class DashboardTable(QTableWidget):
 
 
 class CombinedJobsPage(QWidget):
-    def __init__(self, title_out, title_in):
+    def __init__(self, title_out, title_in, scale=1.0):
         super().__init__()
+        self.ui_scale = float(scale or 1.0)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(14)
+        layout.setSpacing(scaled(14, self.ui_scale))
 
         self.out_label = QLabel(title_out)
         self.out_label.setObjectName("sectionHeading")
-        self.out_table = DashboardTable()
+        self.out_table = DashboardTable(scale=self.ui_scale)
         self.in_label = QLabel(title_in)
         self.in_label.setObjectName("sectionHeading")
-        self.in_table = DashboardTable()
+        self.in_table = DashboardTable(scale=self.ui_scale)
 
         layout.addWidget(self.out_label)
         layout.addWidget(self.out_table, 1)
@@ -237,13 +244,14 @@ class CombinedJobsPage(QWidget):
 class UnpreppedItemsDialog(QDialog):
     def __init__(self, job_name, job_number, items, parent=None):
         super().__init__(parent)
+        self.ui_scale = float(getattr(parent, "ui_scale", 1.0) or 1.0)
         self.setWindowTitle(f"Unprepped Items - {job_name}")
-        self.resize(1000, 650)
+        self.resize(scaled(1000, self.ui_scale), scaled(650, self.ui_scale))
 
         layout = QVBoxLayout(self)
         heading = QLabel(f"<h2>{job_name} <span style='font-weight:400'>(#{job_number})</span></h2>")
         sub = QLabel("Items below are not yet fully prepared.")
-        table = DashboardTable()
+        table = DashboardTable(scale=self.ui_scale)
         table.set_rows(["Item", "Code", "Prepared", "Total", "Unprepped", "Status", "Reserved Detail"], items)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
@@ -257,9 +265,10 @@ class UnpreppedItemsDialog(QDialog):
 class AlertDialog(QDialog):
     def __init__(self, title, html, parent=None):
         super().__init__(parent)
+        self.ui_scale = float(getattr(parent, "ui_scale", 1.0) or 1.0)
         self.acknowledged = False
         self.setWindowTitle(title or "Notification")
-        self.resize(1200, 760)
+        self.resize(scaled(1200, self.ui_scale), scaled(760, self.ui_scale))
         self.setModal(True)
         flags = self.windowFlags()
         flags |= Qt.WindowStaysOnTopHint
@@ -298,22 +307,33 @@ class AlertDialog(QDialog):
 class SummaryCard(QWidget):
     def __init__(self, title, accent="#5bc0eb"):
         super().__init__()
+        self.accent = accent
         layout = QVBoxLayout(self)
 
         self.title = QLabel(title)
-        self.title.setStyleSheet(f"font-size:16px; font-weight:700; color:{accent};")
         self.value = QLabel("0")
         self.value.setAlignment(Qt.AlignCenter)
-        self.value.setStyleSheet("font-size:34px; font-weight:700; padding:8px;")
         self.caption = QLabel("")
         self.caption.setAlignment(Qt.AlignCenter)
-        self.caption.setStyleSheet("font-size:13px; color:#bbb;")
         self.caption.setWordWrap(True)
 
         layout.addWidget(self.title)
         layout.addWidget(self.value)
         layout.addWidget(self.caption)
-        self.setStyleSheet("background:#15181b; border:1px solid #22282e; border-radius:12px; padding:8px;")
+        self.apply_scale(1.0)
+
+    def apply_scale(self, scale=1.0):
+        scale = float(scale or 1.0)
+        self.title.setStyleSheet(f"font-size:{scaled(16, scale)}px; font-weight:700; color:{self.accent};")
+        self.value.setStyleSheet(
+            f"font-size:{scaled(34, scale)}px; font-weight:700; padding:{scaled(8, scale)}px;"
+        )
+        self.caption.setStyleSheet(f"font-size:{scaled(13, scale)}px; color:#bbb;")
+        self.setMinimumHeight(scaled(118, scale))
+        self.setStyleSheet(
+            f"background:#15181b; border:1px solid #22282e; "
+            f"border-radius:{scaled(12, scale)}px; padding:{scaled(8, scale)}px;"
+        )
 
     def set_data(self, value, caption=""):
         self.value.setText(str(value))
@@ -370,6 +390,8 @@ class ViewerWindow(QMainWindow):
         super().__init__()
         self.config = load_config()
         self.current_screen = self.config.get("screen", "today")
+        self.display_scale = normalize_display_scale(self.config.get("display_scale", 100))
+        self.ui_scale = self.display_scale / 100.0
         self.pending_alerts = []
         self.remote_alert_queue_remaining = 0
         self.active_alert_dialog = None
@@ -412,14 +434,32 @@ class ViewerWindow(QMainWindow):
 
         central = QWidget()
         root = QVBoxLayout(central)
+        root.setContentsMargins(
+            scaled(10, self.ui_scale),
+            scaled(10, self.ui_scale),
+            scaled(10, self.ui_scale),
+            scaled(10, self.ui_scale),
+        )
+        root.setSpacing(scaled(10, self.ui_scale))
 
         cards = QGridLayout()
+        cards.setSpacing(scaled(10, self.ui_scale))
         self.card_today_out = SummaryCard("Today Out")
         self.card_today_in = SummaryCard("Today In", "#9bc53d")
         self.card_tomorrow_out = SummaryCard("Tomorrow Out", "#fde74c")
         self.card_tomorrow_in = SummaryCard("Tomorrow In", "#e55934")
         self.card_prep = SummaryCard("Prep", "#5bc0eb")
         self.card_outstanding = SummaryCard("Outstanding", "#c3423f")
+        self.summary_cards = [
+            self.card_today_out,
+            self.card_today_in,
+            self.card_tomorrow_out,
+            self.card_tomorrow_in,
+            self.card_prep,
+            self.card_outstanding,
+        ]
+        for card in self.summary_cards:
+            card.apply_scale(self.ui_scale)
         cards.addWidget(self.card_today_out, 0, 0)
         cards.addWidget(self.card_today_in, 0, 1)
         cards.addWidget(self.card_tomorrow_out, 0, 2)
@@ -437,11 +477,19 @@ class ViewerWindow(QMainWindow):
         root.addLayout(alert_bar)
 
         self.tabs = QTabWidget()
-        self.today_page = CombinedJobsPage("Jobs Collecting / Delivering Today", "Jobs Returning Today")
-        self.tomorrow_page = CombinedJobsPage("Jobs Collecting / Delivering Tomorrow", "Jobs Returning Tomorrow")
-        self.prep_table = DashboardTable()
-        self.outstanding_table = DashboardTable()
-        self.notifications_table = DashboardTable()
+        self.today_page = CombinedJobsPage(
+            "Jobs Collecting / Delivering Today",
+            "Jobs Returning Today",
+            scale=self.ui_scale,
+        )
+        self.tomorrow_page = CombinedJobsPage(
+            "Jobs Collecting / Delivering Tomorrow",
+            "Jobs Returning Tomorrow",
+            scale=self.ui_scale,
+        )
+        self.prep_table = DashboardTable(scale=self.ui_scale)
+        self.outstanding_table = DashboardTable(scale=self.ui_scale)
+        self.notifications_table = DashboardTable(scale=self.ui_scale)
 
         self.tabs.addTab(self.today_page, "Today")
         self.tabs.addTab(self.tomorrow_page, "Tomorrow")
@@ -470,43 +518,44 @@ class ViewerWindow(QMainWindow):
         view_menu.addAction(fullscreen_action)
 
     def apply_theme(self):
+        scale = self.ui_scale
         self.setStyleSheet(
-            """
-            QMainWindow, QWidget { background-color: #111315; color: #f3f3f3; font-size: 14px; }
-            QTableWidget { background-color: #171a1d; gridline-color: #2a2f35; alternate-background-color: #1d2126; border: 1px solid #2a2f35; border-radius: 12px; font-size: 16px; selection-background-color: #27445d; }
-            QTableWidget::item { padding: 10px; height: 34px; }
-            QHeaderView::section { background-color: #1f252b; color: #f3f3f3; padding: 10px; border: none; border-bottom: 1px solid #2a2f35; font-size: 15px; font-weight: 600; }
-            QTabWidget::pane { border: 1px solid #2a2f35; border-radius: 14px; }
-            QTabBar::tab { background: #1a1f24; color: #dcdcdc; padding: 12px 20px; border-top-left-radius: 10px; border-top-right-radius: 10px; }
-            QTabBar::tab:selected { background: #2b343d; }
-            QPushButton { background-color: #2b343d; color: white; padding: 10px 14px; border-radius: 10px; }
-            QPushButton:hover { background-color: #36424d; }
-            QPushButton#prepActionButton {
+            f"""
+            QMainWindow, QWidget {{ background-color: #111315; color: #f3f3f3; font-size: {scaled(14, scale)}px; }}
+            QTableWidget {{ background-color: #171a1d; gridline-color: #2a2f35; alternate-background-color: #1d2126; border: 1px solid #2a2f35; border-radius: {scaled(12, scale)}px; font-size: {scaled(16, scale)}px; selection-background-color: #27445d; }}
+            QTableWidget::item {{ padding: {scaled(10, scale)}px; height: {scaled(34, scale)}px; }}
+            QHeaderView::section {{ background-color: #1f252b; color: #f3f3f3; padding: {scaled(10, scale)}px; border: none; border-bottom: 1px solid #2a2f35; font-size: {scaled(15, scale)}px; font-weight: 600; }}
+            QTabWidget::pane {{ border: 1px solid #2a2f35; border-radius: {scaled(14, scale)}px; }}
+            QTabBar::tab {{ background: #1a1f24; color: #dcdcdc; padding: {scaled(12, scale)}px {scaled(20, scale)}px; border-top-left-radius: {scaled(10, scale)}px; border-top-right-radius: {scaled(10, scale)}px; font-size: {scaled(14, scale)}px; }}
+            QTabBar::tab:selected {{ background: #2b343d; }}
+            QPushButton {{ background-color: #2b343d; color: white; padding: {scaled(10, scale)}px {scaled(14, scale)}px; border-radius: {scaled(10, scale)}px; font-size: {scaled(14, scale)}px; }}
+            QPushButton:hover {{ background-color: #36424d; }}
+            QPushButton#prepActionButton {{
                 background-color: #f4c542;
                 color: #111315;
-                font-size: 18px;
+                font-size: {scaled(18, scale)}px;
                 font-weight: 800;
-                padding: 14px 18px;
+                padding: {scaled(14, scale)}px {scaled(18, scale)}px;
                 border: 2px solid #fff0a6;
-                border-radius: 8px;
-            }
-            QPushButton#prepActionButton:disabled {
+                border-radius: {scaled(8, scale)}px;
+            }}
+            QPushButton#prepActionButton:disabled {{
                 background-color: #343a40;
                 color: #8e979f;
                 border: 1px solid #4a525a;
-            }
-            QLabel { color: #f3f3f3; }
-            QLabel#sectionHeading { font-size: 22px; font-weight: 700; padding: 8px 4px; }
-            QLabel#alertQueueBadge {
+            }}
+            QLabel {{ color: #f3f3f3; }}
+            QLabel#sectionHeading {{ font-size: {scaled(22, scale)}px; font-weight: 700; padding: {scaled(8, scale)}px {scaled(4, scale)}px; }}
+            QLabel#alertQueueBadge {{
                 background-color: #c3423f;
                 color: white;
-                font-size: 15px;
+                font-size: {scaled(15, scale)}px;
                 font-weight: 700;
-                padding: 8px 14px;
-                border-radius: 14px;
-            }
-            QStatusBar { background-color: #15181b; }
-            QTextBrowser { background-color: #171a1d; border: 1px solid #2a2f35; border-radius: 12px; padding: 16px; font-size: 18px; }
+                padding: {scaled(8, scale)}px {scaled(14, scale)}px;
+                border-radius: {scaled(14, scale)}px;
+            }}
+            QStatusBar {{ background-color: #15181b; font-size: {scaled(13, scale)}px; }}
+            QTextBrowser {{ background-color: #171a1d; border: 1px solid #2a2f35; border-radius: {scaled(12, scale)}px; padding: {scaled(16, scale)}px; font-size: {scaled(18, scale)}px; }}
             """
         )
 
@@ -867,9 +916,9 @@ class ViewerWindow(QMainWindow):
         except ValueError:
             return
 
-        self.prep_table.set_touch_row_height(74)
+        self.prep_table.set_touch_row_height(scaled(74, self.ui_scale))
         self.prep_table.horizontalHeader().setSectionResizeMode(action_col, QHeaderView.Fixed)
-        self.prep_table.setColumnWidth(action_col, 310)
+        self.prep_table.setColumnWidth(action_col, scaled(310, self.ui_scale))
 
         for row in range(self.prep_table.rowCount()):
             data = self.prep_table.row_data(row)
@@ -877,7 +926,7 @@ class ViewerWindow(QMainWindow):
             unprepped_qty = sum(int(item.get("Unprepped", 0) or 0) for item in items)
             button = QPushButton(f"VIEW UNPREPPED ({unprepped_qty})" if items else "ALL PREPPED")
             button.setObjectName("prepActionButton")
-            button.setMinimumHeight(56)
+            button.setMinimumHeight(scaled(56, self.ui_scale))
             button.setEnabled(bool(items))
             button.clicked.connect(lambda _checked=False, row_index=row: self.open_unprepped_items_dialog(row_index, 0))
             self.prep_table.setCellWidget(row, action_col, button)

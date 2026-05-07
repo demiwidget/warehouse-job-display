@@ -12,7 +12,7 @@ import requests
 
 from app_version import sync_config_version
 from pi_audio import sync_audio_config
-from pi_identity import registration_id, registration_payload
+from pi_identity import normalize_display_scale, registration_id, registration_payload
 from pi_status import post_status
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -314,6 +314,12 @@ def handle_command(cfg, cmd):
         cfg["screen"] = new_screen
         save_config(cfg)
         restart_viewer(cfg, f"Restarting display app on {new_screen.title()} screen.", state="switching_screen")
+    elif action == "set_display_scale":
+        new_scale = normalize_display_scale(cmd.get("display_scale", cfg.get("display_scale", 100)))
+        cfg["display_scale"] = new_scale
+        save_config(cfg)
+        register(cfg)
+        restart_viewer(cfg, f"Restarting display app at {new_scale}% display size.", state="display_restarting")
 
 
 def main():

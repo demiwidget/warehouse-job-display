@@ -51,7 +51,7 @@ MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 DISABLE_LEGACY_KIOSK="${WAREHOUSE_DISABLE_LEGACY_KIOSK:-1}"
 DISABLE_LEGACY_STACK="${WAREHOUSE_DISABLE_LEGACY_STACK:-1}"
 SKIP_SERVICE_RESTART="${WAREHOUSE_SKIP_SERVICE_RESTART:-0}"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.44')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.45')"
 
 if [[ ! -f "$APP_DIR/pi_viewer.py" || ! -f "$APP_DIR/pi_agent.py" ]]; then
     fail "Cannot find pi_viewer.py and pi_agent.py. Run this from the repository scripts directory."
@@ -410,6 +410,7 @@ PY
   "version": "${VERSION}",
   "screen": "today",
   "allow_all_screens": true,
+  "display_scale": 100,
   "audio_output": "hdmi",
   "audio_volume": 100
 }
@@ -459,6 +460,15 @@ except Exception:
 audio_volume = max(0, min(100, audio_volume))
 if cfg.get("audio_volume") != audio_volume:
     cfg["audio_volume"] = audio_volume
+    changed = True
+
+try:
+    display_scale = int(float(cfg.get("display_scale", 100)))
+except Exception:
+    display_scale = 100
+display_scale = max(75, min(200, display_scale))
+if cfg.get("display_scale") != display_scale:
+    cfg["display_scale"] = display_scale
     changed = True
 
 if changed:
