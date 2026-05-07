@@ -51,7 +51,7 @@ MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 DISABLE_LEGACY_KIOSK="${WAREHOUSE_DISABLE_LEGACY_KIOSK:-1}"
 DISABLE_LEGACY_STACK="${WAREHOUSE_DISABLE_LEGACY_STACK:-1}"
 SKIP_SERVICE_RESTART="${WAREHOUSE_SKIP_SERVICE_RESTART:-0}"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.43')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.44')"
 
 if [[ ! -f "$APP_DIR/pi_viewer.py" || ! -f "$APP_DIR/pi_agent.py" ]]; then
     fail "Cannot find pi_viewer.py and pi_agent.py. Run this from the repository scripts directory."
@@ -339,11 +339,27 @@ disable_legacy_stack() {
     kill_legacy_processes
 }
 
+disable_manager_pi_stack() {
+    update_status 74 "Disabling Manager Pi services" "This Pi is being configured as a dashboard screen only."
+    log "Disabling Manager Pi backend/display services if present..."
+
+    disable_service_if_present warehouse-manager-backend.service
+    disable_service_if_present warehouse-manager-display.service
+    disable_service_if_present warehouse-manager-update.service
+    disable_service_if_present warehouse-manager-update-on-boot.service
+
+    "${SUDO[@]}" rm -f /etc/default/warehouse-manager-pi >/dev/null 2>&1 || true
+    "${SUDO[@]}" rm -f /etc/sudoers.d/warehouse-manager-pi >/dev/null 2>&1 || true
+    run_as_app_user pkill -f "manager_status_display.py|manager_app/backend.py|manager_app.backend" >/dev/null 2>&1 || true
+    "${SUDO[@]}" pkill -f "manager_status_display.py|manager_app/backend.py|manager_app.backend" >/dev/null 2>&1 || true
+}
+
 log "Installing Warehouse Dashboard from: $APP_DIR"
 log "Services will run as user: $APP_USER"
 
 disable_legacy_kiosk
 disable_legacy_stack
+disable_manager_pi_stack
 
 if [[ "${WAREHOUSE_SKIP_APT:-0}" != "1" ]]; then
     update_status 60 "Updating Raspberry Pi packages" "Refreshing apt package lists."
