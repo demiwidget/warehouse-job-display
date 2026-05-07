@@ -340,6 +340,54 @@ class SummaryCard(QWidget):
         self.caption.setText(caption)
 
 
+class LeaderboardCard(QWidget):
+    def __init__(self, title, accent="#ffb000"):
+        super().__init__()
+        self.accent = accent
+        layout = QHBoxLayout(self)
+
+        left = QVBoxLayout()
+        self.title = QLabel(title)
+        self.value = QLabel("0")
+        self.caption = QLabel("total quarantines")
+        self.caption.setWordWrap(True)
+        left.addWidget(self.title)
+        left.addWidget(self.value)
+        left.addWidget(self.caption)
+
+        self.rows_label = QLabel("Waiting for quarantine data")
+        self.rows_label.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
+        self.rows_label.setWordWrap(True)
+
+        layout.addLayout(left, 1)
+        layout.addWidget(self.rows_label, 3)
+        self.apply_scale(1.0)
+
+    def apply_scale(self, scale=1.0):
+        scale = float(scale or 1.0)
+        self.title.setStyleSheet(f"font-size:{scaled(18, scale)}px; font-weight:800; color:{self.accent};")
+        self.value.setStyleSheet(f"font-size:{scaled(48, scale)}px; font-weight:900; padding:{scaled(4, scale)}px;")
+        self.caption.setStyleSheet(f"font-size:{scaled(14, scale)}px; color:#d8d8d8;")
+        self.rows_label.setStyleSheet(f"font-size:{scaled(18, scale)}px; font-weight:800; color:#f3f3f3;")
+        self.setMinimumHeight(scaled(132, scale))
+        self.setStyleSheet(
+            f"background:#15181b; border:1px solid #3b2f13; "
+            f"border-left:{scaled(8, scale)}px solid {self.accent}; "
+            f"border-radius:{scaled(14, scale)}px; padding:{scaled(10, scale)}px;"
+        )
+
+    def set_data(self, total, rows, status=""):
+        self.value.setText(str(total))
+        self.caption.setText(str(status or "total quarantines"))
+        leaderboard = []
+        for row in list(rows or [])[:6]:
+            rank = row.get("Rank", "")
+            department = row.get("Department", "Unknown")
+            count = row.get("Quarantines", 0)
+            leaderboard.append(f"#{rank}  {department}: {count}")
+        self.rows_label.setText("   |   ".join(leaderboard) if leaderboard else "No department data yet")
+
+
 def load_config():
     cfg = DEFAULT_CONFIG.copy()
     changed = False
@@ -445,6 +493,7 @@ class ViewerWindow(QMainWindow):
 
         cards = QGridLayout()
         cards.setSpacing(scaled(10, self.ui_scale))
+        self.card_quarantines = LeaderboardCard("Quarantines")
         self.card_today_out = SummaryCard("Today Out")
         self.card_today_in = SummaryCard("Today In", "#9bc53d")
         self.card_tomorrow_out = SummaryCard("Tomorrow Out", "#fde74c")
@@ -452,6 +501,7 @@ class ViewerWindow(QMainWindow):
         self.card_prep = SummaryCard("Prep", "#5bc0eb")
         self.card_outstanding = SummaryCard("Outstanding", "#c3423f")
         self.summary_cards = [
+            self.card_quarantines,
             self.card_today_out,
             self.card_today_in,
             self.card_tomorrow_out,
@@ -461,12 +511,13 @@ class ViewerWindow(QMainWindow):
         ]
         for card in self.summary_cards:
             card.apply_scale(self.ui_scale)
-        cards.addWidget(self.card_today_out, 0, 0)
-        cards.addWidget(self.card_today_in, 0, 1)
-        cards.addWidget(self.card_tomorrow_out, 0, 2)
-        cards.addWidget(self.card_tomorrow_in, 0, 3)
-        cards.addWidget(self.card_prep, 1, 0, 1, 2)
-        cards.addWidget(self.card_outstanding, 1, 2, 1, 2)
+        cards.addWidget(self.card_quarantines, 0, 0, 1, 4)
+        cards.addWidget(self.card_today_out, 1, 0)
+        cards.addWidget(self.card_today_in, 1, 1)
+        cards.addWidget(self.card_tomorrow_out, 1, 2)
+        cards.addWidget(self.card_tomorrow_in, 1, 3)
+        cards.addWidget(self.card_prep, 2, 0, 1, 2)
+        cards.addWidget(self.card_outstanding, 2, 2, 1, 2)
         root.addLayout(cards)
 
         alert_bar = QHBoxLayout()
@@ -850,7 +901,14 @@ class ViewerWindow(QMainWindow):
         prep = bundle.get("prep", {"title": "Prep", "summary": {}, "rows": []})
         outstanding = bundle.get("outstanding", {"title": "Outstanding", "summary": {}, "rows": []})
         notifications = bundle.get("notifications", {"title": "Notifications", "summary": {}, "rows": []})
+        quarantines = bundle.get("quarantines", {"title": "Quarantines", "summary": {}, "rows": []})
 
+        quarantine_summary = quarantines.get("summary", {}) or {}
+        self.card_quarantines.set_data(
+            quarantine_summary.get("Total", 0),
+            quarantines.get("rows", []),
+            quarantine_summary.get("Status", "total quarantines"),
+        )
         self.card_today_out.set_data(today.get("summary", {}).get("Jobs Out", 0), "Jobs collecting / delivering today")
         self.card_today_in.set_data(today.get("summary", {}).get("Jobs In", 0), "Jobs returning today")
         self.card_tomorrow_out.set_data(

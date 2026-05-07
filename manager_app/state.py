@@ -19,7 +19,7 @@ from manager_app.settings_store import PROJECT_ROOT, SettingsStore
 OFFLINE_AFTER_SECONDS = 35
 TRANSITIONAL_STATUS_SECONDS = 180
 UPDATE_CHECK_CACHE_SECONDS = 300
-SCREEN_NAMES = ("today", "tomorrow", "prep", "outstanding", "notifications")
+SCREEN_NAMES = ("today", "tomorrow", "prep", "outstanding", "notifications", "quarantines")
 MANAGER_UPDATE_STATUS_FILE = "/tmp/warehouse-manager-update-status.json"
 MANAGER_UPDATE_LOG_FILE = "/tmp/warehouse-manager-update.log"
 STATUS_LABELS = {

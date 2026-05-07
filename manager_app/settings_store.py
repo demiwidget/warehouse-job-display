@@ -31,6 +31,14 @@ DEFAULT_SETTINGS = {
             "prep": "1000067",
             "outstanding": "1000070",
         },
+        "quarantines": {
+            "enabled": True,
+            "department_field": "department_responsible_for_repair",
+            "per_page": 100,
+            "max_pages": 20,
+            "active_only": True,
+            "department_mappings": {},
+        },
         "excluded_item_ids": [
             "691109",
             "691110",

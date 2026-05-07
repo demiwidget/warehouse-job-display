@@ -276,6 +276,38 @@ class ConnectionTab(QWidget):
 
 
 class CurrentRMSTab(QWidget):
+    @staticmethod
+    def format_department_mappings(mappings):
+        return "\n".join(
+            f"{key} = {value}"
+            for key, value in sorted((mappings or {}).items(), key=lambda item: str(item[0]))
+        )
+
+    @staticmethod
+    def parse_department_mappings(text):
+        mappings = {}
+        for raw_line in str(text or "").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            separator = None
+            for candidate in ("=", ":", ","):
+                if candidate in line:
+                    separator = candidate
+                    break
+            if separator:
+                key, value = line.split(separator, 1)
+            else:
+                parts = line.split(None, 1)
+                if len(parts) != 2:
+                    continue
+                key, value = parts
+            key = key.strip()
+            value = value.strip()
+            if key and value:
+                mappings[key] = value
+        return mappings
+
     def __init__(self, state):
         super().__init__()
         self.state = state
@@ -284,6 +316,7 @@ class CurrentRMSTab(QWidget):
 
         rms = self.state.get_settings(include_secret=True).get("current_rms", {})
         views = rms.get("views", {})
+        quarantines = rms.get("quarantines", {}) or {}
         self.api_base_input = QLineEdit(rms.get("api_base", "https://api.current-rms.com/api/v1"))
         self.subdomain_input = QLineEdit(rms.get("subdomain", ""))
         self.api_key_input = QLineEdit(rms.get("api_key", ""))
@@ -307,6 +340,27 @@ class CurrentRMSTab(QWidget):
             "outstanding": QLineEdit(str(views.get("outstanding", ""))),
         }
         self.excluded_items_input = QLineEdit(", ".join(str(item) for item in rms.get("excluded_item_ids", [])))
+        self.quarantine_enabled_input = QCheckBox()
+        self.quarantine_enabled_input.setChecked(bool(quarantines.get("enabled", True)))
+        self.quarantine_field_input = QLineEdit(
+            str(quarantines.get("department_field", "department_responsible_for_repair"))
+        )
+        self.quarantine_per_page_input = QSpinBox()
+        self.quarantine_per_page_input.setRange(1, 500)
+        self.quarantine_per_page_input.setValue(int(quarantines.get("per_page", 100)))
+        self.quarantine_max_pages_input = QSpinBox()
+        self.quarantine_max_pages_input.setRange(1, 100)
+        self.quarantine_max_pages_input.setValue(int(quarantines.get("max_pages", 20)))
+        self.quarantine_active_only_input = QCheckBox()
+        self.quarantine_active_only_input.setChecked(bool(quarantines.get("active_only", True)))
+        self.quarantine_departments_input = QTextEdit()
+        self.quarantine_departments_input.setMinimumHeight(110)
+        self.quarantine_departments_input.setPlaceholderText(
+            "One per line, for example:\n1000055 = Lighting\n1000067 = Power"
+        )
+        self.quarantine_departments_input.setPlainText(
+            self.format_department_mappings(quarantines.get("department_mappings", {}))
+        )
 
         form.addRow("API base URL", self.api_base_input)
         form.addRow("Subdomain", self.subdomain_input)
@@ -321,6 +375,12 @@ class CurrentRMSTab(QWidget):
         form.addRow("Prep / next 7 days view", self.view_inputs["prep"])
         form.addRow("Outstanding view", self.view_inputs["outstanding"])
         form.addRow("Prep / alert excluded item IDs", self.excluded_items_input)
+        form.addRow("Show quarantine leaderboard", self.quarantine_enabled_input)
+        form.addRow("Quarantine department field", self.quarantine_field_input)
+        form.addRow("Quarantine rows per page", self.quarantine_per_page_input)
+        form.addRow("Quarantine max pages", self.quarantine_max_pages_input)
+        form.addRow("Active quarantines only", self.quarantine_active_only_input)
+        form.addRow("Quarantine department names", self.quarantine_departments_input)
         layout.addLayout(form)
 
         buttons = QHBoxLayout()
@@ -352,6 +412,17 @@ class CurrentRMSTab(QWidget):
             "max_pages": self.max_pages_input.value(),
             "api_workers": self.api_workers_input.value(),
             "views": {key: field.text().strip() for key, field in self.view_inputs.items()},
+            "quarantines": {
+                "enabled": self.quarantine_enabled_input.isChecked(),
+                "department_field": self.quarantine_field_input.text().strip()
+                or "department_responsible_for_repair",
+                "per_page": self.quarantine_per_page_input.value(),
+                "max_pages": self.quarantine_max_pages_input.value(),
+                "active_only": self.quarantine_active_only_input.isChecked(),
+                "department_mappings": self.parse_department_mappings(
+                    self.quarantine_departments_input.toPlainText()
+                ),
+            },
             "excluded_item_ids": [
                 item.strip()
                 for item in self.excluded_items_input.text().split(",")

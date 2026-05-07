@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import html
+import math
 import re
 
 import requests
@@ -195,6 +196,45 @@ class CurrentRMSClient:
         response.raise_for_status()
         return response.json().get("opportunity_items", [])
 
+    def fetch_quarantines(self, per_page=None, max_pages=None):
+        if not self.configured:
+            return {"quarantines": [], "meta": {"total_row_count": 0}}
+
+        page_size = max(1, min(500, safe_int(per_page, self.per_page)))
+        page_limit = max(1, min(100, safe_int(max_pages, 20)))
+
+        def fetch_page(page):
+            response = requests.get(
+                f"{self.api_base}/quarantines",
+                headers=self.headers(),
+                params={"page": page, "per_page": page_size},
+                timeout=15,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            return page, payload
+
+        first_page, first_payload = fetch_page(1)
+        quarantines = list(first_payload.get("quarantines", []) or [])
+        meta = dict(first_payload.get("meta", {}) or {})
+        total_rows = safe_int(meta.get("total_row_count"), len(quarantines))
+        actual_page_size = safe_int(meta.get("per_page"), page_size) or page_size
+        expected_pages = max(1, math.ceil(total_rows / max(1, actual_page_size)))
+        final_page = min(page_limit, expected_pages)
+
+        if final_page > first_page:
+            with ThreadPoolExecutor(max_workers=min(self.max_workers, final_page - first_page)) as executor:
+                futures = [executor.submit(fetch_page, page) for page in range(first_page + 1, final_page + 1)]
+                page_payloads = []
+                for future in as_completed(futures):
+                    page_payloads.append(future.result())
+            for _page, payload in sorted(page_payloads, key=lambda item: item[0]):
+                quarantines.extend(payload.get("quarantines", []) or [])
+
+        meta["total_row_count"] = total_rows
+        meta["fetched_row_count"] = len(quarantines)
+        return {"quarantines": quarantines, "meta": meta}
+
 
 class DashboardBuilder:
     def __init__(self):
@@ -265,11 +305,13 @@ class DashboardBuilder:
             views = self._fetch_views(client, settings)
             item_cache = {}
             self._prefetch_refresh_items(client, item_cache, views)
+            quarantine_view = self._fetch_quarantine_view(client, settings)
             payloads = {
                 "today": self._today_payload(views.get("today_out"), views.get("today_in"), settings),
                 "tomorrow": self._tomorrow_payload(views.get("tomorrow_out"), views.get("tomorrow_in")),
                 "prep": self._prep_payload(views.get("prep"), client, item_cache, settings),
                 "outstanding": self._outstanding_payload(views.get("outstanding"), client, item_cache),
+                "quarantines": self._quarantine_payload(quarantine_view, settings),
             }
 
             alerts = []
@@ -350,6 +392,19 @@ class DashboardBuilder:
         for name, view_id in requested.items():
             results[name] = by_view_id[view_id]
         return results
+
+    def _fetch_quarantine_view(self, client, settings):
+        quarantine_settings = settings.get("current_rms", {}).get("quarantines", {}) or {}
+        if not as_bool(quarantine_settings.get("enabled", True)):
+            return {"quarantines": [], "meta": {"disabled": True, "total_row_count": 0}}
+
+        try:
+            return client.fetch_quarantines(
+                per_page=quarantine_settings.get("per_page", 100),
+                max_pages=quarantine_settings.get("max_pages", 20),
+            )
+        except Exception as error:
+            return {"quarantines": [], "meta": {"error": str(error), "total_row_count": 0}}
 
     def _prefetch_refresh_items(self, client, item_cache, views):
         opportunity_ids = []
@@ -488,6 +543,75 @@ class DashboardBuilder:
             "rows": rows,
         }
 
+    def _quarantine_payload(self, quarantine_view, settings):
+        quarantine_settings = settings.get("current_rms", {}).get("quarantines", {}) or {}
+        field_name = str(
+            quarantine_settings.get("department_field") or "department_responsible_for_repair"
+        ).strip()
+        if not field_name:
+            field_name = "department_responsible_for_repair"
+
+        mappings = {
+            str(key).strip(): str(value).strip()
+            for key, value in (quarantine_settings.get("department_mappings", {}) or {}).items()
+            if str(key).strip() and str(value).strip()
+        }
+        active_only = as_bool(quarantine_settings.get("active_only", True))
+        rows_by_department = {}
+        unassigned_count = 0
+
+        for quarantine in (quarantine_view or {}).get("quarantines", []):
+            if active_only and quarantine.get("active") is False:
+                continue
+
+            department_id = str(first_value(quarantine.get("custom_fields", {}), field_name, default="")).strip()
+            if not department_id:
+                department_id = "Unassigned"
+                unassigned_count += 1
+            department_name = mappings.get(department_id) or (
+                "Unassigned" if department_id == "Unassigned" else f"Department {department_id}"
+            )
+            row = rows_by_department.setdefault(
+                department_id,
+                {
+                    "Tag": department_id,
+                    "Department": department_name,
+                    "Quarantines": 0,
+                },
+            )
+            row["Quarantines"] += 1
+
+        rows = sorted(
+            rows_by_department.values(),
+            key=lambda row: (safe_int(row.get("Quarantines"), 0), str(row.get("Department", "")).lower()),
+        )
+        for index, row in enumerate(rows, start=1):
+            row["Rank"] = index
+
+        total = sum(safe_int(row.get("Quarantines"), 0) for row in rows)
+        meta = dict((quarantine_view or {}).get("meta", {}) or {})
+        summary = {
+            "Total": total,
+            "Departments": len(rows),
+            "Unassigned": unassigned_count,
+            "Fetched": safe_int(meta.get("fetched_row_count"), total),
+            "API Total": safe_int(meta.get("total_row_count"), total),
+        }
+        if meta.get("disabled"):
+            summary["Status"] = "Disabled in PC Manager"
+        elif meta.get("error"):
+            summary["Status"] = f"Error: {meta.get('error')}"
+        elif summary["Fetched"] < summary["API Total"]:
+            summary["Status"] = f"Limited to {summary['Fetched']} of {summary['API Total']} rows"
+        else:
+            summary["Status"] = "Current"
+
+        return {
+            "title": "Quarantines",
+            "summary": summary,
+            "rows": rows,
+        }
+
     def _payloads_with_notice(self, message):
         rows = self._history_payload().get("rows", [])
         if not rows:
@@ -504,6 +628,7 @@ class DashboardBuilder:
             "tomorrow": self._empty_payload("Tomorrow"),
             "prep": self._empty_payload("Prep Status"),
             "outstanding": self._empty_payload("Outstanding Items"),
+            "quarantines": self._empty_payload("Quarantines"),
             "notifications": {
                 "title": "Notification History",
                 "summary": {"Notifications": len(rows)},
