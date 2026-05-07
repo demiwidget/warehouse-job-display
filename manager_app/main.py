@@ -308,6 +308,10 @@ class CurrentRMSTab(QWidget):
                 mappings[key] = value
         return mappings
 
+    @staticmethod
+    def parse_csv_ids(text):
+        return [item.strip() for item in str(text or "").split(",") if item.strip()]
+
     def __init__(self, state):
         super().__init__()
         self.state = state
@@ -353,10 +357,13 @@ class CurrentRMSTab(QWidget):
         self.quarantine_max_pages_input.setValue(int(quarantines.get("max_pages", 20)))
         self.quarantine_active_only_input = QCheckBox()
         self.quarantine_active_only_input.setChecked(bool(quarantines.get("active_only", True)))
+        self.quarantine_excluded_departments_input = QLineEdit(
+            ", ".join(str(item) for item in quarantines.get("excluded_department_ids", []))
+        )
         self.quarantine_departments_input = QTextEdit()
         self.quarantine_departments_input.setMinimumHeight(110)
         self.quarantine_departments_input.setPlaceholderText(
-            "One per line, for example:\n1000055 = Lighting\n1000067 = Power"
+            "One per line, for example:\n1000055 = Technology\n1000058 = Power"
         )
         self.quarantine_departments_input.setPlainText(
             self.format_department_mappings(quarantines.get("department_mappings", {}))
@@ -380,6 +387,7 @@ class CurrentRMSTab(QWidget):
         form.addRow("Quarantine rows per page", self.quarantine_per_page_input)
         form.addRow("Quarantine max pages", self.quarantine_max_pages_input)
         form.addRow("Active quarantines only", self.quarantine_active_only_input)
+        form.addRow("Ignored quarantine department IDs", self.quarantine_excluded_departments_input)
         form.addRow("Quarantine department names", self.quarantine_departments_input)
         layout.addLayout(form)
 
@@ -419,15 +427,14 @@ class CurrentRMSTab(QWidget):
                 "per_page": self.quarantine_per_page_input.value(),
                 "max_pages": self.quarantine_max_pages_input.value(),
                 "active_only": self.quarantine_active_only_input.isChecked(),
+                "excluded_department_ids": self.parse_csv_ids(
+                    self.quarantine_excluded_departments_input.text()
+                ),
                 "department_mappings": self.parse_department_mappings(
                     self.quarantine_departments_input.toPlainText()
                 ),
             },
-            "excluded_item_ids": [
-                item.strip()
-                for item in self.excluded_items_input.text().split(",")
-                if item.strip()
-            ],
+            "excluded_item_ids": self.parse_csv_ids(self.excluded_items_input.text()),
         }
 
     def save(self):

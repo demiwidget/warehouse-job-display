@@ -556,6 +556,11 @@ class DashboardBuilder:
             for key, value in (quarantine_settings.get("department_mappings", {}) or {}).items()
             if str(key).strip() and str(value).strip()
         }
+        excluded_department_ids = {
+            str(item).strip()
+            for item in quarantine_settings.get("excluded_department_ids", []) or []
+            if str(item).strip()
+        }
         active_only = as_bool(quarantine_settings.get("active_only", True))
         meta = dict((quarantine_view or {}).get("meta", {}) or {})
         seed_configured_departments = not meta.get("disabled") and not meta.get("error")
@@ -576,6 +581,8 @@ class DashboardBuilder:
                 continue
 
             department_id = str(first_value(quarantine.get("custom_fields", {}), field_name, default="")).strip()
+            if department_id in excluded_department_ids:
+                continue
             if not department_id:
                 department_id = "Unassigned"
                 unassigned_count += 1

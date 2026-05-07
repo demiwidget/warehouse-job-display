@@ -37,6 +37,9 @@ DEFAULT_SETTINGS = {
             "per_page": 100,
             "max_pages": 20,
             "active_only": True,
+            "excluded_department_ids": [
+                "1000067",
+            ],
             "department_mappings": {
                 "1000055": "Technology",
                 "1000056": "TV Lights",
@@ -133,6 +136,14 @@ def _migrate_settings(settings):
     if not isinstance(mappings, dict):
         mappings = {}
     default_mappings = DEFAULT_SETTINGS["current_rms"]["quarantines"]["department_mappings"]
+    excluded_ids = quarantine_settings.get("excluded_department_ids", [])
+    if isinstance(excluded_ids, str):
+        excluded_ids = [item.strip() for item in excluded_ids.split(",") if item.strip()]
+    if not isinstance(excluded_ids, list):
+        excluded_ids = []
+    excluded_ids = {str(item).strip() for item in excluded_ids if str(item).strip()}
+    excluded_ids.update(DEPRECATED_QUARANTINE_DEPARTMENT_IDS)
+    quarantine_settings["excluded_department_ids"] = sorted(excluded_ids)
     for department_id in DEPRECATED_QUARANTINE_DEPARTMENT_IDS:
         mappings.pop(department_id, None)
     for department_id, default_name in default_mappings.items():
