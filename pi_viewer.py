@@ -68,14 +68,14 @@ DEFAULT_CONFIG = {
 }
 
 RANK_COLORS = (
-    "#29b765",
-    "#70c84f",
-    "#bdd64a",
-    "#f4d35e",
-    "#f7a23a",
-    "#ef6c35",
-    "#d94841",
-    "#aa2435",
+    "#c6ead0",
+    "#d7e8b3",
+    "#ece6a9",
+    "#f0d19d",
+    "#edba9d",
+    "#eaa4a0",
+    "#df8f98",
+    "#c97886",
 )
 
 
@@ -372,9 +372,10 @@ class LeaderboardCard(QWidget):
         self.ui_scale = 1.0
         self.rank_labels = []
         layout = QHBoxLayout(self)
-        layout.setSpacing(scaled(14, self.ui_scale))
+        layout.setSpacing(scaled(10, self.ui_scale))
 
         left = QVBoxLayout()
+        left.setSpacing(scaled(2, self.ui_scale))
         self.title = QLabel(title)
         self.title.setAlignment(Qt.AlignCenter)
         self.value = QLabel("0")
@@ -389,7 +390,7 @@ class LeaderboardCard(QWidget):
         self.rows_widget = QWidget()
         self.rows_grid = QGridLayout(self.rows_widget)
         self.rows_grid.setContentsMargins(0, 0, 0, 0)
-        self.rows_grid.setSpacing(scaled(8, self.ui_scale))
+        self.rows_grid.setSpacing(scaled(6, self.ui_scale))
 
         layout.addLayout(left, 1)
         layout.addWidget(self.rows_widget, 5)
@@ -398,18 +399,18 @@ class LeaderboardCard(QWidget):
     def apply_scale(self, scale=1.0):
         scale = float(scale or 1.0)
         self.ui_scale = scale
-        self.title.setStyleSheet(f"font-size:{scaled(18, scale)}px; font-weight:800; color:{self.accent};")
-        self.value.setStyleSheet(f"font-size:{scaled(48, scale)}px; font-weight:900; padding:{scaled(4, scale)}px;")
-        self.caption.setStyleSheet(f"font-size:{scaled(14, scale)}px; color:#d8d8d8;")
-        self.layout().setSpacing(scaled(14, scale))
-        self.rows_grid.setSpacing(scaled(8, scale))
+        self.title.setStyleSheet(f"font-size:{scaled(14, scale)}px; font-weight:800; color:{self.accent};")
+        self.value.setStyleSheet(f"font-size:{scaled(30, scale)}px; font-weight:850; padding:{scaled(2, scale)}px;")
+        self.caption.setStyleSheet(f"font-size:{scaled(11, scale)}px; color:#9fa8ad;")
+        self.layout().setSpacing(scaled(10, scale))
+        self.rows_grid.setSpacing(scaled(6, scale))
         for index, label in enumerate(self.rank_labels):
             self._style_rank_label(label, rank_color(index, max(1, len(self.rank_labels))))
-        self.setMinimumHeight(scaled(132, scale))
+        self.setMinimumHeight(scaled(88, scale))
         self.setStyleSheet(
-            f"background:#15181b; border:1px solid #3b2f13; "
-            f"border-left:{scaled(8, scale)}px solid {self.accent}; "
-            f"border-radius:{scaled(14, scale)}px; padding:{scaled(10, scale)}px;"
+            f"background:#15181b; border:1px solid #2b2f23; "
+            f"border-left:{scaled(4, scale)}px solid {self.accent}; "
+            f"border-radius:{scaled(11, scale)}px; padding:{scaled(6, scale)}px;"
         )
 
     def _clear_rank_labels(self):
@@ -421,12 +422,12 @@ class LeaderboardCard(QWidget):
                 widget.deleteLater()
 
     def _style_rank_label(self, label, background):
-        label.setMinimumHeight(scaled(58, self.ui_scale))
+        label.setMinimumHeight(scaled(34, self.ui_scale))
         label.setStyleSheet(
             f"background:{background}; color:#000000; "
-            f"border:0; border-radius:{scaled(9, self.ui_scale)}px; "
-            f"padding:{scaled(6, self.ui_scale)}px {scaled(8, self.ui_scale)}px; "
-            f"font-size:{scaled(30, self.ui_scale)}px; font-weight:900;"
+            f"border:0; border-radius:{scaled(7, self.ui_scale)}px; "
+            f"padding:{scaled(3, self.ui_scale)}px {scaled(6, self.ui_scale)}px; "
+            f"font-size:{scaled(16, self.ui_scale)}px; font-weight:850;"
         )
 
     def set_data(self, total, rows, status=""):

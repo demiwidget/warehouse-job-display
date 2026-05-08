@@ -2,7 +2,7 @@
   "server": "http://MANAGER_PC_IP:8765",
   "device_id": "warehouse-screen-1",
   "device_name": "Warehouse Screen 1",
-  "version": "2.0.58",
+  "version": "2.0.59",
   "screen": "today",
   "allow_all_screens": true,
   "display_scale": 100,
