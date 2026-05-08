@@ -374,27 +374,31 @@ class ManagerStatusWindow(QMainWindow):
 
         root_widget = QWidget()
         root = QVBoxLayout(root_widget)
-        root.setContentsMargins(14, 10, 14, 10)
-        root.setSpacing(8)
+        root.setContentsMargins(14, 18, 14, 10)
+        root.setSpacing(10)
 
         header = QHBoxLayout()
         header.setSpacing(12)
         title_block = QVBoxLayout()
-        title_block.setSpacing(0)
+        title_block.setSpacing(3)
         heading = QLabel("Warehouse Manager")
         heading.setObjectName("Heading")
+        heading.setMinimumHeight(36)
         self.subheading = QLabel("Starting manager display...")
         self.subheading.setObjectName("Subheading")
+        self.subheading.setMinimumHeight(20)
         self.subheading.setWordWrap(True)
         title_block.addWidget(heading)
         title_block.addWidget(self.subheading)
 
         self.clock_label = QLabel("")
         self.clock_label.setObjectName("Clock")
+        self.clock_label.setMinimumHeight(44)
         self.clock_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         header.addLayout(title_block, 1)
         header.addWidget(self.clock_label)
         root.addLayout(header)
+        root.addSpacing(2)
 
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.North)
@@ -579,9 +583,9 @@ class ManagerStatusWindow(QMainWindow):
             QTabBar::tab {
                 background:#132028;
                 color:#d8e8e6;
-                min-height:46px;
-                min-width:96px;
-                padding:7px 12px;
+                min-height:52px;
+                min-width:100px;
+                padding:8px 14px;
                 margin-right:5px;
                 border-radius:15px;
                 font-size:19px;
