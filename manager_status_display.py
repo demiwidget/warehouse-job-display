@@ -4,7 +4,7 @@ import socket
 import sys
 
 import requests
-from PySide6.QtCore import QSize, QTimer, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, QSize, QTimer, Qt
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import (
     QApplication,
@@ -125,6 +125,69 @@ def available_font(preferred):
         if family in families:
             return family
     return QApplication.font().family()
+
+
+def event_position(event):
+    if hasattr(event, "position"):
+        return event.position().toPoint()
+    if hasattr(event, "pos"):
+        return event.pos()
+    return QPoint()
+
+
+class DragScrollFilter(QObject):
+    def __init__(self, scroll_widget):
+        super().__init__(scroll_widget)
+        self.scroll_widget = scroll_widget
+        self.pressed = False
+        self.dragging = False
+        self.start_pos = QPoint()
+        self.last_pos = QPoint()
+
+    def eventFilter(self, obj, event):
+        event_type = event.type()
+        if event_type == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            self.pressed = True
+            self.dragging = False
+            self.start_pos = event_position(event)
+            self.last_pos = self.start_pos
+            return False
+
+        if event_type == QEvent.MouseMove and self.pressed and event.buttons() & Qt.LeftButton:
+            pos = event_position(event)
+            if not self.dragging:
+                distance = (pos - self.start_pos).manhattanLength()
+                if distance < QApplication.startDragDistance():
+                    return False
+                self.dragging = True
+
+            delta = pos - self.last_pos
+            self.last_pos = pos
+            self.scroll_widget.verticalScrollBar().setValue(
+                self.scroll_widget.verticalScrollBar().value() - delta.y()
+            )
+            event.accept()
+            return True
+
+        if event_type == QEvent.MouseButtonRelease and self.pressed:
+            was_dragging = self.dragging
+            self.pressed = False
+            self.dragging = False
+            if was_dragging:
+                event.accept()
+                return True
+
+        return False
+
+
+def enable_touch_scroll(widget):
+    viewport = widget.viewport() if hasattr(widget, "viewport") else widget
+    viewport.setAttribute(Qt.WA_AcceptTouchEvents, True)
+    QScroller.grabGesture(viewport, QScroller.TouchGesture)
+    QScroller.grabGesture(viewport, QScroller.LeftMouseButtonGesture)
+    drag_filter = DragScrollFilter(widget)
+    viewport.installEventFilter(drag_filter)
+    widget._warehouse_manager_drag_scroll_filter = drag_filter
 
 
 class Card(QFrame):
@@ -303,6 +366,7 @@ class ManagerStatusWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Warehouse Manager Pi Status")
         self.resize(800, 480)
+        self.setAttribute(Qt.WA_AcceptTouchEvents, True)
         self.fetch_errors = {}
         self.ui_font = available_font(("Bahnschrift", "Segoe UI", "Arial", "Noto Sans", "DejaVu Sans"))
         self.mono_font = available_font(("Cascadia Mono", "Consolas", "Courier New", "DejaVu Sans Mono"))
@@ -335,6 +399,8 @@ class ManagerStatusWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.North)
         self.tabs.setDocumentMode(True)
+        self.tabs.setAttribute(Qt.WA_AcceptTouchEvents, True)
+        self.tabs.tabBar().setAttribute(Qt.WA_AcceptTouchEvents, True)
         root.addWidget(self.tabs, 1)
 
         self.build_overview_tab()
@@ -476,8 +542,7 @@ class ManagerStatusWindow(QMainWindow):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        QScroller.grabGesture(scroll.viewport(), QScroller.TouchGesture)
-        QScroller.grabGesture(scroll.viewport(), QScroller.LeftMouseButtonGesture)
+        enable_touch_scroll(scroll)
 
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -636,8 +701,7 @@ class ManagerStatusWindow(QMainWindow):
         list_widget.setVerticalScrollMode(QListWidget.ScrollPerPixel)
         list_widget.setSpacing(6)
         list_widget.setSelectionMode(QListWidget.NoSelection)
-        QScroller.grabGesture(list_widget.viewport(), QScroller.TouchGesture)
-        QScroller.grabGesture(list_widget.viewport(), QScroller.LeftMouseButtonGesture)
+        enable_touch_scroll(list_widget)
 
     def add_widget_item(self, list_widget, widget, height):
         item = QListWidgetItem()
@@ -883,6 +947,7 @@ class ManagerStatusWindow(QMainWindow):
 
 
 def main():
+    QApplication.setAttribute(Qt.AA_SynthesizeMouseForUnhandledTouchEvents, True)
     app = QApplication(sys.argv)
     window = ManagerStatusWindow()
     window.show()
