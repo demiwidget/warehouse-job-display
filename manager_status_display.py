@@ -398,12 +398,17 @@ class ManagerStatusWindow(QMainWindow):
         header.addLayout(title_block, 1)
         header.addWidget(self.clock_label)
         root.addLayout(header)
-        root.addSpacing(2)
+        self.header_divider = QFrame()
+        self.header_divider.setObjectName("HeaderDivider")
+        self.header_divider.setFrameShape(QFrame.HLine)
+        root.addWidget(self.header_divider)
+        root.addSpacing(8)
 
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.North)
         self.tabs.setDocumentMode(True)
         self.tabs.setAttribute(Qt.WA_AcceptTouchEvents, True)
+        self.tabs.tabBar().setDrawBase(False)
         self.tabs.tabBar().setAttribute(Qt.WA_AcceptTouchEvents, True)
         root.addWidget(self.tabs, 1)
 
@@ -579,6 +584,16 @@ class ManagerStatusWindow(QMainWindow):
             QTabWidget::pane {
                 border:0;
                 background:transparent;
+            }
+            QFrame#HeaderDivider {
+                background:#c6d3d4;
+                min-height:1px;
+                max-height:1px;
+                border:0;
+            }
+            QTabBar {
+                background:transparent;
+                border:0;
             }
             QTabBar::tab {
                 background:#132028;
