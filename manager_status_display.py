@@ -24,7 +24,6 @@ from PySide6.QtWidgets import (
 )
 
 from app_version import CURRENT_VERSION
-from manager_app.security import security_status
 
 
 BACKEND_URL = "http://127.0.0.1:8765"
@@ -460,13 +459,13 @@ class ManagerStatusWindow(QMainWindow):
         self.screens_metric = MetricCard("Screens")
         self.rms_metric = MetricCard("Current RMS")
         self.update_metric = MetricCard("Updates")
-        self.security_metric = MetricCard("Security")
+        self.display_metric = MetricCard("Display")
         self.version_metric = MetricCard("Version")
         grid.addWidget(self.backend_metric, 0, 0)
         grid.addWidget(self.screens_metric, 0, 1)
         grid.addWidget(self.rms_metric, 1, 0)
         grid.addWidget(self.update_metric, 1, 1)
-        grid.addWidget(self.security_metric, 2, 0)
+        grid.addWidget(self.display_metric, 2, 0)
         grid.addWidget(self.version_metric, 2, 1)
         layout.addLayout(grid, 6)
 
@@ -792,18 +791,17 @@ class ManagerStatusWindow(QMainWindow):
         refresh_entry = self.latest_refresh_entry(activity)
         refresh_message = clean_text(refresh_entry.get("message") if refresh_entry else "", "Waiting")
         duration = refresh_duration(refresh_message)
-        security = manager_status.get("security") if isinstance(manager_status, dict) else {}
-        if not isinstance(security, dict):
-            security = security_status()
 
         manager_update_available = bool(update_status.get("manager_update_available"))
         update_tone = "warn" if manager_update_available or updates else "good"
-        service_states = [
-            clean_text(manager_status.get("backend_service"), "unknown"),
-            clean_text(manager_status.get("display_service"), "unknown"),
-            clean_text(manager_status.get("update_service"), "unknown"),
+        service_states = {
+            "Backend": clean_text(manager_status.get("backend_service"), "unknown"),
+            "Display": clean_text(manager_status.get("display_service"), "unknown"),
+        }
+        problem_service_names = [
+            name for name, state in service_states.items() if state.lower() in {"failed", "inactive"}
         ]
-        service_problem = any(state.lower() in {"failed", "inactive"} for state in service_states)
+        service_problem = bool(problem_service_names)
 
         if not backend_ok:
             system_title = "Backend connection lost"
@@ -856,20 +854,12 @@ class ManagerStatusWindow(QMainWindow):
             clean_text(update_status.get("message"), "No GitHub check yet."),
             update_tone,
         )
-
-        if security.get("legacy_code_active"):
-            security_value = "Change password"
-            security_detail = "Legacy password is still active."
-            security_tone = "warn"
-        elif security.get("password_set"):
-            security_value = "Protected"
-            security_detail = "PC remote app requires login."
-            security_tone = "good"
-        else:
-            security_value = "Setup needed"
-            security_detail = "Set a manager password from the PC app."
-            security_tone = "warn"
-        self.security_metric.set_content(security_value, security_detail, security_tone)
+        display_state = clean_text(manager_status.get("display_service"), "unknown")
+        self.display_metric.set_content(
+            display_state.title(),
+            "Touch status display service",
+            service_tone(display_state),
+        )
 
         latest_version = clean_text(update_status.get("latest_version"), CURRENT_VERSION)
         self.version_metric.set_content(
@@ -887,7 +877,7 @@ class ManagerStatusWindow(QMainWindow):
             elif update.lower().startswith("available"):
                 attention.append(f"{clean_text(device.get('name') or device.get('id'), 'Screen')}: {update}")
         if service_problem:
-            attention.append("Manager Pi service check failed.")
+            attention.append(f"Manager Pi service issue: {', '.join(problem_service_names)}.")
         if not attention:
             attention.append("No urgent issues.")
         self.attention_panel.set_body("\n".join(attention[:5]))
