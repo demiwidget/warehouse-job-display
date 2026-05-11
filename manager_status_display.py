@@ -459,13 +459,13 @@ class ManagerStatusWindow(QMainWindow):
         self.screens_metric = MetricCard("Screens")
         self.rms_metric = MetricCard("Current RMS")
         self.update_metric = MetricCard("Updates")
-        self.display_metric = MetricCard("Display")
+        self.refresh_metric = MetricCard("Last Refresh")
         self.version_metric = MetricCard("Version")
         grid.addWidget(self.backend_metric, 0, 0)
         grid.addWidget(self.screens_metric, 0, 1)
         grid.addWidget(self.rms_metric, 1, 0)
         grid.addWidget(self.update_metric, 1, 1)
-        grid.addWidget(self.display_metric, 2, 0)
+        grid.addWidget(self.refresh_metric, 2, 0)
         grid.addWidget(self.version_metric, 2, 1)
         layout.addLayout(grid, 6)
 
@@ -854,11 +854,10 @@ class ManagerStatusWindow(QMainWindow):
             clean_text(update_status.get("message"), "No GitHub check yet."),
             update_tone,
         )
-        display_state = clean_text(manager_status.get("display_service"), "unknown")
-        self.display_metric.set_content(
-            display_state.title(),
-            "Touch status display service",
-            service_tone(display_state),
+        self.refresh_metric.set_content(
+            format_time(refresh_entry.get("ts")) if refresh_entry else "Waiting",
+            refresh_message,
+            "good" if refresh_entry else "muted",
         )
 
         latest_version = clean_text(update_status.get("latest_version"), CURRENT_VERSION)
