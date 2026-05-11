@@ -68,14 +68,14 @@ DEFAULT_CONFIG = {
 }
 
 RANK_COLORS = (
-    "#c6ead0",
-    "#d7e8b3",
-    "#ece6a9",
-    "#f0d19d",
-    "#edba9d",
-    "#eaa4a0",
-    "#df8f98",
-    "#c97886",
+    "#58b96f",
+    "#7fbd5a",
+    "#b6bd52",
+    "#d7ad48",
+    "#dc8f3f",
+    "#d66e42",
+    "#c84f49",
+    "#ad3444",
 )
 
 
