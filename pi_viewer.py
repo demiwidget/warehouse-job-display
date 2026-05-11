@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import sys
+from html import escape
 from tempfile import NamedTemporaryFile
 import time
 from pathlib import Path
@@ -453,7 +454,12 @@ class LeaderboardCard(QWidget):
             rank = row.get("Rank", "")
             department = row.get("Department", "Unknown")
             count = row.get("Quarantines", 0)
-            label = QLabel(f"#{rank} {department}: {count}")
+            count_style = f"font-size:{scaled(21, self.ui_scale)}px; font-weight:1000;"
+            label = QLabel(
+                f"#{escape(str(rank))} {escape(str(department))}: "
+                f"<span style='{count_style}'>{escape(str(count))}</span>"
+            )
+            label.setTextFormat(Qt.RichText)
             label.setAlignment(Qt.AlignCenter)
             label.setWordWrap(False)
             self._style_rank_label(label, rank_color(index, total_rows))
