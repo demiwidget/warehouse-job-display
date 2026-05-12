@@ -831,18 +831,21 @@ class ManagerPiTab(QWidget):
 
         buttons = QHBoxLayout()
         check_btn = QPushButton("Check For Updates")
+        update_all_btn = QPushButton("Update Manager + All Pis")
         update_btn = QPushButton("Update Manager Pi")
         restart_backend_btn = QPushButton("Restart Backend")
         restart_display_btn = QPushButton("Restart Status Display")
         reboot_btn = QPushButton("Reboot Manager Pi")
 
         check_btn.clicked.connect(lambda: self.run_command("check_updates"))
+        update_all_btn.clicked.connect(lambda: self.run_command("update_all", confirm=True))
         update_btn.clicked.connect(lambda: self.run_command("update", confirm=True))
         restart_backend_btn.clicked.connect(lambda: self.run_command("restart_backend", confirm=True))
         restart_display_btn.clicked.connect(lambda: self.run_command("restart_display", confirm=True))
         reboot_btn.clicked.connect(lambda: self.run_command("reboot", confirm=True))
 
         buttons.addWidget(check_btn)
+        buttons.addWidget(update_all_btn)
         buttons.addWidget(update_btn)
         buttons.addWidget(restart_backend_btn)
         buttons.addWidget(restart_display_btn)
@@ -952,6 +955,11 @@ class ManagerPiTab(QWidget):
 
     def run_command(self, action, confirm=False):
         confirm_messages = {
+            "update_all": (
+                "Update every registered dashboard Pi and the Manager Pi from GitHub?\n\n"
+                "Dashboard Pi updates will be queued first. The Manager Pi update will start shortly after "
+                "so the screens have time to collect their update command."
+            ),
             "update": "Update the Manager Pi from GitHub now? The backend may restart briefly.",
             "restart_backend": "Restart the Manager Pi backend now? The PC app may disconnect briefly.",
             "restart_display": "Restart the Manager Pi status display now?",
@@ -1005,6 +1013,8 @@ class ManagerPiTab(QWidget):
 
 
 class PiScreensTab(QWidget):
+    command_finished = Signal(str)
+
     COLUMNS = ["ID", "Name", "IP", "Screen", "Scale", "Version", "Update", "State", "Activity", "Last Seen"]
     STATUS_COLORS = {
         "Online": "#2e7d32",
@@ -1054,6 +1064,7 @@ class PiScreensTab(QWidget):
         display_size_btn = QPushButton("Set Display Size")
         restart_btn = QPushButton("Restart Display App")
         update_btn = QPushButton("Update Pi From GitHub")
+        update_all_btn = QPushButton("Update All Pis + Manager")
         check_updates_btn = QPushButton("Check GitHub Updates")
         reboot_btn = QPushButton("Reboot Pi")
         remove_btn = QPushButton("Remove Selected")
@@ -1062,6 +1073,7 @@ class PiScreensTab(QWidget):
         display_size_btn.clicked.connect(self.set_display_size_selected)
         restart_btn.clicked.connect(lambda: self.send_action("restart"))
         update_btn.clicked.connect(lambda: self.send_action("update"))
+        update_all_btn.clicked.connect(self.update_all)
         check_updates_btn.clicked.connect(self.check_updates_now)
         reboot_btn.clicked.connect(lambda: self.send_action("reboot"))
         remove_btn.clicked.connect(self.remove_selected_pis)
@@ -1070,6 +1082,7 @@ class PiScreensTab(QWidget):
         command_buttons.addWidget(display_size_btn)
         command_buttons.addWidget(restart_btn)
         command_buttons.addWidget(update_btn)
+        command_buttons.addWidget(update_all_btn)
         command_buttons.addWidget(reboot_btn)
         command_buttons.addWidget(remove_btn)
         command_buttons.addStretch(1)
@@ -1083,6 +1096,7 @@ class PiScreensTab(QWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
         self.timer.start(3000)
+        self.command_finished.connect(self.on_command_finished)
         self.refresh()
         self.check_updates_now()
 
@@ -1174,6 +1188,35 @@ class PiScreensTab(QWidget):
     def check_updates_now(self):
         self.update_status.setText("Checking GitHub for updates...")
         Thread(target=lambda: self.state.refresh_update_status(force=True), daemon=True).start()
+
+    def update_all(self):
+        choice = QMessageBox.question(
+            self,
+            "Update Manager And All Pis?",
+            (
+                "Update every registered dashboard Pi and the Manager Pi from GitHub?\n\n"
+                "Dashboard Pi updates will be queued first. The Manager Pi update will start shortly after "
+                "so the screens have time to collect their update command."
+            ),
+        )
+        if choice != QMessageBox.Yes:
+            return
+
+        self.status.setText("Starting update all: queueing dashboard Pi updates, then Manager Pi update...")
+
+        def worker():
+            try:
+                result = self.state.run_manager_command("update_all")
+                message = str(result.get("message") or "Update all started.")
+            except Exception as error:
+                message = f"Update all failed: {error}"
+            self.command_finished.emit(message)
+
+        Thread(target=worker, daemon=True).start()
+
+    def on_command_finished(self, message):
+        self.status.setText(message)
+        self.refresh()
 
     def send_screen(self, screen):
         self.send_action("set_screen", screen=screen)

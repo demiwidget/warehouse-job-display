@@ -6,8 +6,8 @@ import re
 import shutil
 import subprocess
 import sys
-from threading import Lock, RLock
-from time import monotonic
+from threading import Lock, RLock, Thread
+from time import monotonic, sleep
 import traceback
 
 from app_version import CURRENT_VERSION
@@ -33,6 +33,7 @@ STATUS_LABELS = {
     "update_failed": "Update Failed",
 }
 TRANSITIONAL_STATES = {"display_restarting", "rebooting", "renaming", "switching_screen", "viewer_starting", "updating"}
+UPDATE_ALL_MANAGER_DELAY_SECONDS = 30
 
 
 def parse_iso(ts):
@@ -287,6 +288,17 @@ class ManagerState:
         self.log_activity("Manager", message, details={"action": action})
         return {"ok": True, "action": action, "message": message}
 
+    def _start_delayed_manager_update(self, delay_seconds=UPDATE_ALL_MANAGER_DELAY_SECONDS):
+        def worker():
+            if delay_seconds > 0:
+                sleep(delay_seconds)
+            try:
+                self.run_manager_command("update")
+            except Exception as error:
+                self.log_exception("Manager", "Delayed Manager Pi update failed", error)
+
+        Thread(target=worker, daemon=True).start()
+
     def run_manager_command(self, action):
         action = str(action or "").strip().lower()
         if action == "check_updates":
@@ -295,6 +307,30 @@ class ManagerState:
 
         if not self._manager_pi_ready():
             raise RuntimeError("Manager Pi controls are only available when connected to a Manager Pi backend.")
+
+        if action == "update_all":
+            with self.lock:
+                device_ids = sorted(str(device_id) for device_id in self.devices.keys() if str(device_id).strip())
+            if device_ids:
+                self.queue_command(device_ids, "update")
+            delay_seconds = UPDATE_ALL_MANAGER_DELAY_SECONDS if device_ids else 0
+            self._start_delayed_manager_update(delay_seconds)
+            message = (
+                f"Queued GitHub update for {len(device_ids)} dashboard Pi screen(s). "
+                f"Manager Pi update will start {'now' if delay_seconds == 0 else f'in {delay_seconds} seconds'}."
+            )
+            self.log_activity(
+                "Updates",
+                message,
+                details={"device_ids": device_ids, "manager_delay_seconds": delay_seconds},
+            )
+            return {
+                "ok": True,
+                "action": action,
+                "message": message,
+                "device_count": len(device_ids),
+                "manager_delay_seconds": delay_seconds,
+            }
 
         systemctl = "/usr/bin/systemctl" if os.path.exists("/usr/bin/systemctl") else (shutil.which("systemctl") or "/usr/bin/systemctl")
         reboot = "/usr/sbin/reboot" if os.path.exists("/usr/sbin/reboot") else (shutil.which("reboot") or "/usr/sbin/reboot")
