@@ -1040,28 +1040,92 @@ class DashboardBuilder:
         checked_in_qty = 0
         outstanding_items = []
         for item in items:
-            qty = safe_int(first_value(item, "quantity", "quantity_total", "booked_quantity", "total_quantity"), 0)
-            if qty <= 0:
+            breakdown = self._outstanding_item_breakdown(item)
+            if breakdown["total_items"] <= 0:
                 continue
 
-            status_code = safe_int(first_value(item, "status", "status_id", default=0), 0)
-            if status_code == 20:
-                booked_out_qty += qty
+            booked_out_qty += breakdown["booked_out_qty"]
+            checked_in_qty += breakdown["checked_in_qty"]
+            if breakdown["booked_out_qty"] > 0:
                 outstanding_items.append(
                     {
                         "Item": first_value(item, ("item", "name"), "name", "description", default="Item"),
                         "Code": first_value(item, ("item", "code"), "code", default=""),
-                        "Outstanding": qty,
-                        "Status": str(first_value(item, "status_name", default="Booked Out") or "Booked Out"),
+                        "Outstanding": breakdown["booked_out_qty"],
+                        "Checked In": breakdown["checked_in_qty"],
+                        "Status": breakdown["status_label"],
+                        "Booked Out Detail": breakdown["detail"],
                     }
                 )
-            elif status_code == 30:
-                checked_in_qty += qty
         return {
             "booked_out_qty": booked_out_qty,
             "checked_in_qty": checked_in_qty,
             "total_items": booked_out_qty + checked_in_qty,
             "outstanding_items": outstanding_items,
+        }
+
+    def _outstanding_item_breakdown(self, item):
+        line_total = safe_int(first_value(item, "quantity", "quantity_total", "booked_quantity", "total_quantity"), 0)
+        status_code = safe_int(first_value(item, "status", "status_id", default=0), 0)
+        status_name = str(first_value(item, "status_name", default="")).strip()
+        assets = item.get("item_assets") if isinstance(item.get("item_assets"), list) else []
+
+        if assets:
+            booked_out_qty = 0
+            checked_in_qty = 0
+            detail_parts = []
+            status_labels = {}
+
+            for asset in assets:
+                asset_status = safe_int(first_value(asset, "status", "status_id", default=0), 0)
+                if asset_status in CANCELLED_STATUS_CODES:
+                    continue
+
+                qty = safe_int(first_value(asset, "quantity", "quantity_total", default=0), 0)
+                if qty <= 0:
+                    continue
+
+                asset_status_name = str(first_value(asset, "status_name", default="")).strip()
+                if asset_status == 20:
+                    booked_out_qty += qty
+                    status_labels[asset_status_name or "Booked Out"] = True
+                    asset_label = first_value(
+                        asset,
+                        "stock_level_asset_number",
+                        "asset_number",
+                        "stock_level_id",
+                        default=asset_status_name or "Booked Out",
+                    )
+                    detail_parts.append(f"{asset_label} x{qty}")
+                elif asset_status == 30:
+                    checked_in_qty += qty
+                    status_labels[asset_status_name or "Checked In"] = True
+
+            return {
+                "booked_out_qty": booked_out_qty,
+                "checked_in_qty": checked_in_qty,
+                "total_items": booked_out_qty + checked_in_qty,
+                "status_label": " / ".join(status_labels) or status_name or "Outstanding",
+                "detail": ", ".join(detail_parts[:12]) + (" ..." if len(detail_parts) > 12 else ""),
+            }
+
+        if line_total <= 0 or status_code in CANCELLED_STATUS_CODES:
+            return {
+                "booked_out_qty": 0,
+                "checked_in_qty": 0,
+                "total_items": 0,
+                "status_label": status_name,
+                "detail": "",
+            }
+
+        booked_out_qty = line_total if status_code == 20 else 0
+        checked_in_qty = line_total if status_code == 30 else 0
+        return {
+            "booked_out_qty": booked_out_qty,
+            "checked_in_qty": checked_in_qty,
+            "total_items": booked_out_qty + checked_in_qty,
+            "status_label": status_name or str(status_code) or "Outstanding",
+            "detail": status_name or "",
         }
 
     def _prep_totals(self, items, settings):

@@ -97,6 +97,15 @@ def readable_text_color(background):
     return "#071012" if brightness > 150 else "#ffffff"
 
 
+def safe_int(value, default=0):
+    try:
+        if value in (None, ""):
+            return default
+        return int(float(value))
+    except Exception:
+        return default
+
+
 def write_json_atomic(path, payload):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -289,7 +298,7 @@ class UnpreppedItemsDialog(QDialog):
 
 
 class OutstandingItemsDialog(QDialog):
-    def __init__(self, job_name, job_number, items, parent=None):
+    def __init__(self, job_name, job_number, items, booked_out_qty=0, parent=None):
         super().__init__(parent)
         self.ui_scale = float(getattr(parent, "ui_scale", 1.0) or 1.0)
         self.setWindowTitle(f"Outstanding Items - {job_name}")
@@ -299,7 +308,19 @@ class OutstandingItemsDialog(QDialog):
         heading = QLabel(f"<h2>{job_name} <span style='font-weight:400'>(#{job_number})</span></h2>")
         sub = QLabel("Items below are still booked out and awaiting check-in.")
         table = DashboardTable(scale=self.ui_scale)
-        table.set_rows(["Item", "Code", "Outstanding", "Status"], items)
+        rows = list(items or [])
+        if not rows and booked_out_qty > 0:
+            rows = [
+                {
+                    "Item": "Outstanding item detail not available yet",
+                    "Code": "",
+                    "Outstanding": booked_out_qty,
+                    "Checked In": "",
+                    "Status": "Update or refresh the Manager Pi to load the item list.",
+                    "Booked Out Detail": "",
+                }
+            ]
+        table.set_rows(["Item", "Code", "Outstanding", "Checked In", "Status", "Booked Out Detail"], rows)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
 
@@ -1110,11 +1131,15 @@ class ViewerWindow(QMainWindow):
         for row in range(self.outstanding_table.rowCount()):
             data = self.outstanding_table.row_data(row)
             items = data.get("__outstanding_items", [])
-            outstanding_qty = sum(int(item.get("Outstanding", 0) or 0) for item in items)
-            button = QPushButton(f"VIEW OUTSTANDING ({outstanding_qty})" if items else "ALL CHECKED IN")
+            detail_qty = sum(safe_int(item.get("Outstanding"), 0) for item in items)
+            row_qty = safe_int(data.get("Booked Out"), 0)
+            outstanding_qty = detail_qty or row_qty
+            button = QPushButton(
+                f"VIEW OUTSTANDING ({outstanding_qty})" if outstanding_qty > 0 else "ALL CHECKED IN"
+            )
             button.setObjectName("jobActionButton")
             button.setMinimumHeight(scaled(56, self.ui_scale))
-            button.setEnabled(bool(items))
+            button.setEnabled(outstanding_qty > 0)
             button.clicked.connect(
                 lambda _checked=False, row_index=row: self.open_outstanding_items_dialog(row_index, 0)
             )
@@ -1132,10 +1157,17 @@ class ViewerWindow(QMainWindow):
     def open_outstanding_items_dialog(self, row, _column):
         data = self.outstanding_table.row_data(row)
         items = data.get("__outstanding_items", [])
-        if not items:
+        booked_out_qty = safe_int(data.get("Booked Out"), 0)
+        if not items and booked_out_qty <= 0:
             QMessageBox.information(self, "Outstanding Items", "Everything on this job is checked in.")
             return
-        dlg = OutstandingItemsDialog(data.get("Job Name", "Job"), data.get("Job Number", ""), items, self)
+        dlg = OutstandingItemsDialog(
+            data.get("Job Name", "Job"),
+            data.get("Job Number", ""),
+            items,
+            booked_out_qty,
+            self,
+        )
         dlg.exec()
 
     def toggle_fullscreen(self):
