@@ -499,15 +499,16 @@ class DashboardBuilder:
                 continue
 
             items = self._opportunity_items(client, item_cache, opportunity_id)
-            booked_out_qty, checked_in_qty, total_items = self._outstanding_totals(items)
+            outstanding = self._outstanding_totals(items)
             rows.append(
                 {
                     "Job Number": self._opportunity_number(opportunity),
                     "Job Name": self._opportunity_name(opportunity),
-                    "Booked Out": booked_out_qty,
-                    "Checked In": checked_in_qty,
-                    "Total Items": total_items,
+                    "Booked Out": outstanding["booked_out_qty"],
+                    "Checked In": outstanding["checked_in_qty"],
+                    "Total Items": outstanding["total_items"],
                     "Owner": self._opportunity_owner(opportunity),
+                    "__outstanding_items": outstanding["outstanding_items"],
                 }
             )
 
@@ -1037,6 +1038,7 @@ class DashboardBuilder:
     def _outstanding_totals(self, items):
         booked_out_qty = 0
         checked_in_qty = 0
+        outstanding_items = []
         for item in items:
             qty = safe_int(first_value(item, "quantity", "quantity_total", "booked_quantity", "total_quantity"), 0)
             if qty <= 0:
@@ -1045,9 +1047,22 @@ class DashboardBuilder:
             status_code = safe_int(first_value(item, "status", "status_id", default=0), 0)
             if status_code == 20:
                 booked_out_qty += qty
+                outstanding_items.append(
+                    {
+                        "Item": first_value(item, ("item", "name"), "name", "description", default="Item"),
+                        "Code": first_value(item, ("item", "code"), "code", default=""),
+                        "Outstanding": qty,
+                        "Status": str(first_value(item, "status_name", default="Booked Out") or "Booked Out"),
+                    }
+                )
             elif status_code == 30:
                 checked_in_qty += qty
-        return booked_out_qty, checked_in_qty, booked_out_qty + checked_in_qty
+        return {
+            "booked_out_qty": booked_out_qty,
+            "checked_in_qty": checked_in_qty,
+            "total_items": booked_out_qty + checked_in_qty,
+            "outstanding_items": outstanding_items,
+        }
 
     def _prep_totals(self, items, settings):
         excluded_ids = self._excluded_item_ids(settings)

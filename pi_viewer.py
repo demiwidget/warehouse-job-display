@@ -288,6 +288,27 @@ class UnpreppedItemsDialog(QDialog):
         layout.addWidget(close_btn)
 
 
+class OutstandingItemsDialog(QDialog):
+    def __init__(self, job_name, job_number, items, parent=None):
+        super().__init__(parent)
+        self.ui_scale = float(getattr(parent, "ui_scale", 1.0) or 1.0)
+        self.setWindowTitle(f"Outstanding Items - {job_name}")
+        self.resize(scaled(900, self.ui_scale), scaled(600, self.ui_scale))
+
+        layout = QVBoxLayout(self)
+        heading = QLabel(f"<h2>{job_name} <span style='font-weight:400'>(#{job_number})</span></h2>")
+        sub = QLabel("Items below are still booked out and awaiting check-in.")
+        table = DashboardTable(scale=self.ui_scale)
+        table.set_rows(["Item", "Code", "Outstanding", "Status"], items)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+
+        layout.addWidget(heading)
+        layout.addWidget(sub)
+        layout.addWidget(table, 1)
+        layout.addWidget(close_btn)
+
+
 class AlertDialog(QDialog):
     def __init__(self, title, html, parent=None):
         super().__init__(parent)
@@ -628,6 +649,7 @@ class ViewerWindow(QMainWindow):
         self.tabs.addTab(self.outstanding_table, "Outstanding Items")
         self.tabs.addTab(self.notifications_table, "Notification History")
         self.prep_table.cellDoubleClicked.connect(self.open_unprepped_items_dialog)
+        self.outstanding_table.cellDoubleClicked.connect(self.open_outstanding_items_dialog)
 
         root.addWidget(self.tabs)
         self.setCentralWidget(central)
@@ -661,7 +683,7 @@ class ViewerWindow(QMainWindow):
             QTabBar::tab:selected {{ background: #2b343d; }}
             QPushButton {{ background-color: #2b343d; color: white; padding: {scaled(10, scale)}px {scaled(14, scale)}px; border-radius: {scaled(10, scale)}px; font-size: {scaled(14, scale)}px; }}
             QPushButton:hover {{ background-color: #36424d; }}
-            QPushButton#prepActionButton {{
+            QPushButton#jobActionButton {{
                 background-color: #f4c542;
                 color: #111315;
                 font-size: {scaled(18, scale)}px;
@@ -670,7 +692,7 @@ class ViewerWindow(QMainWindow):
                 border: 2px solid #fff0a6;
                 border-radius: {scaled(8, scale)}px;
             }}
-            QPushButton#prepActionButton:disabled {{
+            QPushButton#jobActionButton:disabled {{
                 background-color: #343a40;
                 color: #8e979f;
                 border: 1px solid #4a525a;
@@ -1042,9 +1064,10 @@ class ViewerWindow(QMainWindow):
         )
         self.add_prep_action_buttons()
         self.outstanding_table.set_rows(
-            ["Job Number", "Job Name", "Booked Out", "Checked In", "Total Items", "Owner"],
+            ["Job Number", "Job Name", "Booked Out", "Checked In", "Total Items", "Owner", "Action"],
             outstanding.get("rows", []),
         )
+        self.add_outstanding_action_buttons()
         self.notifications_table.set_rows(
             ["Time", "Title", "Source", "Details"],
             notifications.get("rows", []),
@@ -1068,11 +1091,34 @@ class ViewerWindow(QMainWindow):
             items = data.get("__unprepped_items", [])
             unprepped_qty = sum(int(item.get("Unprepped", 0) or 0) for item in items)
             button = QPushButton(f"VIEW UNPREPPED ({unprepped_qty})" if items else "ALL PREPPED")
-            button.setObjectName("prepActionButton")
+            button.setObjectName("jobActionButton")
             button.setMinimumHeight(scaled(56, self.ui_scale))
             button.setEnabled(bool(items))
             button.clicked.connect(lambda _checked=False, row_index=row: self.open_unprepped_items_dialog(row_index, 0))
             self.prep_table.setCellWidget(row, action_col, button)
+
+    def add_outstanding_action_buttons(self):
+        try:
+            action_col = self.outstanding_table.headers_for_data.index("Action")
+        except ValueError:
+            return
+
+        self.outstanding_table.set_touch_row_height(scaled(74, self.ui_scale))
+        self.outstanding_table.horizontalHeader().setSectionResizeMode(action_col, QHeaderView.Fixed)
+        self.outstanding_table.setColumnWidth(action_col, scaled(330, self.ui_scale))
+
+        for row in range(self.outstanding_table.rowCount()):
+            data = self.outstanding_table.row_data(row)
+            items = data.get("__outstanding_items", [])
+            outstanding_qty = sum(int(item.get("Outstanding", 0) or 0) for item in items)
+            button = QPushButton(f"VIEW OUTSTANDING ({outstanding_qty})" if items else "ALL CHECKED IN")
+            button.setObjectName("jobActionButton")
+            button.setMinimumHeight(scaled(56, self.ui_scale))
+            button.setEnabled(bool(items))
+            button.clicked.connect(
+                lambda _checked=False, row_index=row: self.open_outstanding_items_dialog(row_index, 0)
+            )
+            self.outstanding_table.setCellWidget(row, action_col, button)
 
     def open_unprepped_items_dialog(self, row, _column):
         data = self.prep_table.row_data(row)
@@ -1081,6 +1127,15 @@ class ViewerWindow(QMainWindow):
             QMessageBox.information(self, "Prep Status", "Everything on this job is prepared.")
             return
         dlg = UnpreppedItemsDialog(data.get("Job Name", "Job"), data.get("Job Number", ""), items, self)
+        dlg.exec()
+
+    def open_outstanding_items_dialog(self, row, _column):
+        data = self.outstanding_table.row_data(row)
+        items = data.get("__outstanding_items", [])
+        if not items:
+            QMessageBox.information(self, "Outstanding Items", "Everything on this job is checked in.")
+            return
+        dlg = OutstandingItemsDialog(data.get("Job Name", "Job"), data.get("Job Number", ""), items, self)
         dlg.exec()
 
     def toggle_fullscreen(self):
