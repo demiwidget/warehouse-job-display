@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTabWidget,
     QTableWidget,
@@ -813,7 +814,7 @@ class ManagerInfoCard(QFrame):
         self.title_label = QLabel(title.upper())
         self.title_label.setStyleSheet("color:#83c5d8; font-size:12px; font-weight:900; letter-spacing:1px;")
         self.value_label = QLabel("Loading")
-        self.value_label.setStyleSheet("color:#f7fbff; font-size:24px; font-weight:900;")
+        self.value_label.setStyleSheet("color:#f7fbff; font-size:22px; font-weight:900;")
         self.value_label.setWordWrap(True)
         self.detail_label = QLabel("")
         self.detail_label.setStyleSheet("color:#b7c7cf; font-size:13px; font-weight:650;")
@@ -822,7 +823,8 @@ class ManagerInfoCard(QFrame):
         layout.addWidget(self.title_label)
         layout.addWidget(self.value_label)
         layout.addWidget(self.detail_label, 1)
-        self.setMinimumHeight(130)
+        self.setMinimumHeight(112)
+        self.setMaximumHeight(140)
         self.set_content("Loading", "", "muted")
 
     def set_content(self, value, detail="", tone="muted"):
@@ -883,8 +885,19 @@ class ManagerPiTab(QWidget):
             """
         )
         self.state = state
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 14, 14, 14)
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        outer_layout.addWidget(self.scroll_area)
+
+        content = QWidget()
+        content.setObjectName("ManagerPiContent")
+        self.scroll_area.setWidget(content)
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(16, 16, 16, 18)
         layout.setSpacing(14)
 
         heading = QLabel("Manager Pi Control")
@@ -901,6 +914,9 @@ class ManagerPiTab(QWidget):
 
         status_grid = QGridLayout()
         status_grid.setSpacing(12)
+        status_grid.setColumnStretch(0, 1)
+        status_grid.setColumnStretch(1, 1)
+        status_grid.setColumnStretch(2, 1)
         self.connection_card = ManagerInfoCard("Connection")
         self.software_card = ManagerInfoCard("Software")
         self.services_card = ManagerInfoCard("Services")
@@ -1005,8 +1021,8 @@ class ManagerPiTab(QWidget):
             "QFrame#ManagerSection { background:#141b20; border:1px solid #2b3a43; border-radius:12px; }"
         )
         section_layout = QVBoxLayout(frame)
-        section_layout.setContentsMargins(16, 14, 16, 14)
-        section_layout.setSpacing(10)
+        section_layout.setContentsMargins(16, 12, 16, 12)
+        section_layout.setSpacing(8)
 
         title_label = QLabel(title)
         title_label.setStyleSheet("color:#f7fbff; font-size:17px; font-weight:900;")
