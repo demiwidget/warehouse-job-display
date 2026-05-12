@@ -62,10 +62,9 @@ QMainWindow {
     background: #0e1216;
 }
 QWidget {
-    background: #0e1216;
     color: #edf4f7;
     font-family: "Segoe UI", "Aptos", "Verdana";
-    font-size: 13px;
+    font-size: 12px;
 }
 QWidget#WarehousePage {
     background: #0e1216;
@@ -76,13 +75,13 @@ QScrollArea {
 }
 QScrollBar:vertical {
     background: #0b0f13;
-    width: 14px;
+    width: 12px;
     margin: 2px;
-    border-radius: 7px;
+    border-radius: 6px;
 }
 QScrollBar::handle:vertical {
     background: #2f4652;
-    border-radius: 7px;
+    border-radius: 6px;
     min-height: 28px;
 }
 QScrollBar::handle:vertical:hover {
@@ -103,7 +102,7 @@ QTabBar::tab {
     border-bottom-color: #2b3a43;
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
-    padding: 9px 18px;
+    padding: 7px 14px;
     margin-right: 3px;
     font-weight: 750;
 }
@@ -118,20 +117,21 @@ QTabBar::tab:hover:!selected {
 }
 QLabel {
     color: #edf4f7;
+    background: transparent;
 }
 QLabel#PageTitle {
-    font-size: 24px;
+    font-size: 21px;
     font-weight: 900;
     color: #f7fbff;
 }
 QLabel#PageIntro {
     color: #a9bac3;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
 }
 QLabel#SectionTitle {
     color: #f7fbff;
-    font-size: 17px;
+    font-size: 15px;
     font-weight: 900;
 }
 QLabel#SectionSubtitle {
@@ -144,7 +144,7 @@ QLabel#StatusStrip {
     border-radius: 8px;
     color: #c8d6dd;
     font-weight: 800;
-    padding: 9px;
+    padding: 7px;
 }
 QFrame#WarehousePanel,
 QFrame#ManagerSection {
@@ -165,8 +165,8 @@ QComboBox {
     background: #0b0f13;
     color: #f5fbff;
     border: 1px solid #3c515d;
-    border-radius: 8px;
-    padding: 7px;
+    border-radius: 7px;
+    padding: 5px;
     selection-background-color: #57d68d;
     selection-color: #04130b;
 }
@@ -196,7 +196,7 @@ QPushButton {
     color: #f5fbff;
     border: 1px solid #3c515d;
     border-radius: 8px;
-    padding: 8px 12px;
+    padding: 6px 10px;
     font-weight: 800;
 }
 QPushButton:hover {
@@ -227,13 +227,14 @@ QPushButton#QuietAction {
     color: #c9d7dd;
 }
 QCheckBox {
+    background: transparent;
     color: #edf4f7;
-    spacing: 8px;
+    spacing: 6px;
     font-weight: 650;
 }
 QCheckBox::indicator {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     border-radius: 5px;
     border: 1px solid #4a6270;
     background: #0b0f13;
@@ -253,7 +254,7 @@ QTableWidget {
     selection-color: #f7fbff;
 }
 QTableWidget::item {
-    padding: 7px;
+    padding: 5px;
     border-bottom: 1px solid #17232b;
 }
 QTableWidget::item:selected {
@@ -265,7 +266,7 @@ QHeaderView::section {
     border: 0;
     border-right: 1px solid #2b3a43;
     border-bottom: 1px solid #2b3a43;
-    padding: 8px;
+    padding: 6px;
     font-weight: 900;
 }
 QMessageBox {
@@ -303,13 +304,15 @@ def pi_install_host(settings):
     return "MANAGER_PC_IP"
 
 
-def make_scroll_page(parent, margins=(16, 16, 16, 18), spacing=14):
+def make_scroll_page(parent, margins=(12, 12, 12, 14), spacing=10):
+    parent.setObjectName("WarehousePage")
     outer_layout = QVBoxLayout(parent)
     outer_layout.setContentsMargins(0, 0, 0, 0)
     scroll_area = QScrollArea()
     scroll_area.setWidgetResizable(True)
     scroll_area.setFrameShape(QFrame.NoFrame)
     scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    scroll_area.verticalScrollBar().setSingleStep(34)
     outer_layout.addWidget(scroll_area)
 
     content = QWidget()
@@ -338,8 +341,8 @@ def make_panel(title="", subtitle=""):
     frame = QFrame()
     frame.setObjectName("WarehousePanel")
     panel_layout = QVBoxLayout(frame)
-    panel_layout.setContentsMargins(16, 14, 16, 14)
-    panel_layout.setSpacing(10)
+    panel_layout.setContentsMargins(12, 10, 12, 10)
+    panel_layout.setSpacing(8)
     if title:
         title_label = QLabel(title)
         title_label.setObjectName("SectionTitle")
@@ -356,8 +359,8 @@ def make_toolbar_panel():
     frame = QFrame()
     frame.setObjectName("ToolbarPanel")
     layout = QVBoxLayout(frame)
-    layout.setContentsMargins(16, 14, 16, 14)
-    layout.setSpacing(10)
+    layout.setContentsMargins(12, 10, 12, 10)
+    layout.setSpacing(8)
     return frame, layout
 
 
@@ -503,7 +506,7 @@ class ConnectionTab(QWidget):
         )
         self.addresses = QTextEdit()
         self.addresses.setReadOnly(True)
-        self.addresses.setMinimumHeight(130)
+        self.addresses.setMinimumHeight(105)
         address_layout.addWidget(self.addresses)
         layout.addWidget(address_panel)
 
@@ -514,19 +517,19 @@ class ConnectionTab(QWidget):
         install_layout.addWidget(QLabel("Standard Pi install/update command:"))
         self.install_command = QTextEdit()
         self.install_command.setReadOnly(True)
-        self.install_command.setMinimumHeight(95)
+        self.install_command.setMinimumHeight(76)
         install_layout.addWidget(self.install_command)
 
         install_layout.addWidget(QLabel("Overwrite an old Node-RED/Home Assistant Pi:"))
         self.overwrite_install_command = QTextEdit()
         self.overwrite_install_command.setReadOnly(True)
-        self.overwrite_install_command.setMinimumHeight(130)
+        self.overwrite_install_command.setMinimumHeight(104)
         install_layout.addWidget(self.overwrite_install_command)
 
         install_layout.addWidget(QLabel("Trial Manager Pi install command:"))
         self.manager_pi_install_command = QTextEdit()
         self.manager_pi_install_command.setReadOnly(True)
-        self.manager_pi_install_command.setMinimumHeight(90)
+        self.manager_pi_install_command.setMinimumHeight(72)
         install_layout.addWidget(self.manager_pi_install_command)
 
         copy_buttons = QHBoxLayout()
@@ -696,7 +699,7 @@ class CurrentRMSTab(QWidget):
             ", ".join(str(item) for item in quarantines.get("excluded_department_ids", []))
         )
         self.quarantine_departments_input = QTextEdit()
-        self.quarantine_departments_input.setMinimumHeight(110)
+        self.quarantine_departments_input.setMinimumHeight(90)
         self.quarantine_departments_input.setPlaceholderText(
             "One per line, for example:\n1000055 = Technology\n1000058 = Power"
         )
@@ -903,7 +906,7 @@ class AlertsTab(QWidget):
         self.test_title_input = QLineEdit("Test Notification")
         self.test_message_input = QTextEdit()
         self.test_message_input.setPlaceholderText("Type the popup text you want to show on the Pis.")
-        self.test_message_input.setMinimumHeight(120)
+        self.test_message_input.setMinimumHeight(92)
         self.test_sound_input = QLineEdit("job-today.wav")
         self.test_sound_enabled = QCheckBox("Play sound")
         self.test_sound_enabled.setChecked(True)
@@ -932,7 +935,7 @@ class AlertsTab(QWidget):
         self.test_device_table.setHorizontalHeaderLabels(["Send", "Name", "IP", "State"])
         self.test_device_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.test_device_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.test_device_table.setMinimumHeight(150)
+        self.test_device_table.setMinimumHeight(125)
         tune_table(self.test_device_table)
         test_layout.addWidget(self.test_device_table)
 
@@ -1155,23 +1158,23 @@ class ManagerInfoCard(QFrame):
         super().__init__()
         self.setObjectName("ManagerInfoCard")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(6)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(5)
 
         self.title_label = QLabel(title.upper())
-        self.title_label.setStyleSheet("color:#83c5d8; font-size:12px; font-weight:900; letter-spacing:1px;")
+        self.title_label.setStyleSheet("color:#83c5d8; font-size:11px; font-weight:900; letter-spacing:1px;")
         self.value_label = QLabel("Loading")
-        self.value_label.setStyleSheet("color:#f7fbff; font-size:22px; font-weight:900;")
+        self.value_label.setStyleSheet("color:#f7fbff; font-size:19px; font-weight:900;")
         self.value_label.setWordWrap(True)
         self.detail_label = QLabel("")
-        self.detail_label.setStyleSheet("color:#b7c7cf; font-size:13px; font-weight:650;")
+        self.detail_label.setStyleSheet("color:#b7c7cf; font-size:12px; font-weight:650;")
         self.detail_label.setWordWrap(True)
 
         layout.addWidget(self.title_label)
         layout.addWidget(self.value_label)
         layout.addWidget(self.detail_label, 1)
-        self.setMinimumHeight(112)
-        self.setMaximumHeight(140)
+        self.setMinimumHeight(94)
+        self.setMaximumHeight(118)
         self.set_content("Loading", "", "muted")
 
     def set_content(self, value, detail="", tone="muted"):
@@ -1204,7 +1207,7 @@ class ManagerPiTab(QWidget):
                 color:#f5fbff;
                 border:1px solid #3c515d;
                 border-radius:8px;
-                padding:8px 12px;
+                padding:6px 10px;
                 font-weight:750;
             }
             QWidget#ManagerPiTab QPushButton:hover {
@@ -1225,7 +1228,7 @@ class ManagerPiTab(QWidget):
                 color:#f5fbff;
                 border:1px solid #3c515d;
                 border-radius:7px;
-                padding:7px;
+                padding:5px;
                 selection-background-color:#57d68d;
                 selection-color:#04130b;
             }
@@ -1244,11 +1247,11 @@ class ManagerPiTab(QWidget):
         content.setObjectName("ManagerPiContent")
         self.scroll_area.setWidget(content)
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(16, 16, 16, 18)
-        layout.setSpacing(14)
+        layout.setContentsMargins(12, 12, 12, 14)
+        layout.setSpacing(10)
 
         heading = QLabel("Manager Pi Control")
-        heading.setStyleSheet("font-size: 24px; font-weight: 900;")
+        heading.setStyleSheet("font-size: 21px; font-weight: 900;")
         layout.addWidget(heading)
 
         intro = QLabel(
@@ -1256,11 +1259,11 @@ class ManagerPiTab(QWidget):
             "Use this page to update or restart the always-on Manager Pi."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color:#a9bac3; font-size:13px;")
+        intro.setStyleSheet("color:#a9bac3; font-size:12px;")
         layout.addWidget(intro)
 
         status_grid = QGridLayout()
-        status_grid.setSpacing(12)
+        status_grid.setSpacing(10)
         status_grid.setColumnStretch(0, 1)
         status_grid.setColumnStretch(1, 1)
         status_grid.setColumnStretch(2, 1)
@@ -1312,7 +1315,7 @@ class ManagerPiTab(QWidget):
         self.command_status = QLabel("Ready.")
         self.command_status.setWordWrap(True)
         self.command_status.setStyleSheet(
-            "background:#101820; border:1px solid #2b3a43; border-radius:8px; padding:9px; "
+            "background:#101820; border:1px solid #2b3a43; border-radius:8px; padding:7px; "
             "color:#c8d6dd; font-weight:800;"
         )
         actions_layout.addWidget(self.command_status)
@@ -1321,7 +1324,7 @@ class ManagerPiTab(QWidget):
         log_frame, log_layout = self.make_section("Manager Update Log", "Latest output from the Manager Pi updater.")
         self.manager_update_log = QTextEdit()
         self.manager_update_log.setReadOnly(True)
-        self.manager_update_log.setMinimumHeight(135)
+        self.manager_update_log.setMinimumHeight(115)
         self.manager_update_log.setPlaceholderText("Manager Pi update log will appear here after an update starts.")
         log_layout.addWidget(self.manager_update_log)
         layout.addWidget(log_frame, 1)
@@ -1368,11 +1371,11 @@ class ManagerPiTab(QWidget):
             "QFrame#ManagerSection { background:#141b20; border:1px solid #2b3a43; border-radius:12px; }"
         )
         section_layout = QVBoxLayout(frame)
-        section_layout.setContentsMargins(16, 12, 16, 12)
-        section_layout.setSpacing(8)
+        section_layout.setContentsMargins(12, 10, 12, 10)
+        section_layout.setSpacing(7)
 
         title_label = QLabel(title)
-        title_label.setStyleSheet("color:#f7fbff; font-size:17px; font-weight:900;")
+        title_label.setStyleSheet("color:#f7fbff; font-size:15px; font-weight:900;")
         section_layout.addWidget(title_label)
         if subtitle:
             subtitle_label = QLabel(subtitle)
@@ -1550,10 +1553,11 @@ class PiScreensTab(QWidget):
 
     def __init__(self, state):
         super().__init__()
+        self.setObjectName("WarehousePage")
         self.state = state
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 18)
-        layout.setSpacing(14)
+        layout.setContentsMargins(12, 12, 12, 14)
+        layout.setSpacing(10)
         add_page_heading(
             layout,
             "Pi Screens",
@@ -1568,7 +1572,7 @@ class PiScreensTab(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.MultiSelection)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table.setMinimumHeight(300)
+        self.table.setMinimumHeight(260)
         tune_table(self.table)
         layout.addWidget(self.table)
 
@@ -1857,10 +1861,11 @@ class ActivityConsoleTab(QWidget):
 
     def __init__(self, state):
         super().__init__()
+        self.setObjectName("WarehousePage")
         self.state = state
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 18)
-        layout.setSpacing(14)
+        layout.setContentsMargins(12, 12, 12, 14)
+        layout.setSpacing(10)
         add_page_heading(
             layout,
             "Console",
