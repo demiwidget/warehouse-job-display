@@ -807,29 +807,29 @@ class ManagerInfoCard(QFrame):
         super().__init__()
         self.setObjectName("ManagerInfoCard")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(5)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(6)
 
         self.title_label = QLabel(title.upper())
-        self.title_label.setStyleSheet("color:#607d8b; font-size:12px; font-weight:800; letter-spacing:1px;")
+        self.title_label.setStyleSheet("color:#83c5d8; font-size:12px; font-weight:900; letter-spacing:1px;")
         self.value_label = QLabel("Loading")
-        self.value_label.setStyleSheet("font-size:22px; font-weight:800;")
+        self.value_label.setStyleSheet("color:#f7fbff; font-size:24px; font-weight:900;")
         self.value_label.setWordWrap(True)
         self.detail_label = QLabel("")
-        self.detail_label.setStyleSheet("color:#455a64; font-size:13px;")
+        self.detail_label.setStyleSheet("color:#b7c7cf; font-size:13px; font-weight:650;")
         self.detail_label.setWordWrap(True)
 
         layout.addWidget(self.title_label)
         layout.addWidget(self.value_label)
         layout.addWidget(self.detail_label, 1)
-        self.setMinimumHeight(118)
+        self.setMinimumHeight(130)
         self.set_content("Loading", "", "muted")
 
     def set_content(self, value, detail="", tone="muted"):
         color = self.TONE_COLORS.get(tone, self.TONE_COLORS["muted"])
         self.setStyleSheet(
-            f"QFrame#ManagerInfoCard {{ background:#f8fafb; border:1px solid #d7dee2; "
-            f"border-left:7px solid {color}; border-radius:10px; }}"
+            f"QFrame#ManagerInfoCard {{ background:#141b20; border:1px solid #2b3a43; "
+            f"border-left:7px solid {color}; border-radius:12px; }}"
         )
         self.value_label.setText(str(value or "Unknown"))
         self.detail_label.setText(str(detail or ""))
@@ -840,12 +840,55 @@ class ManagerPiTab(QWidget):
 
     def __init__(self, state):
         super().__init__()
+        self.setObjectName("ManagerPiTab")
+        self.setStyleSheet(
+            """
+            QWidget#ManagerPiTab {
+                background:#0e1216;
+                color:#edf4f7;
+            }
+            QWidget#ManagerPiTab QLabel {
+                color:#edf4f7;
+            }
+            QWidget#ManagerPiTab QPushButton {
+                background:#22313a;
+                color:#f5fbff;
+                border:1px solid #3c515d;
+                border-radius:8px;
+                padding:8px 12px;
+                font-weight:750;
+            }
+            QWidget#ManagerPiTab QPushButton:hover {
+                background:#2d414d;
+            }
+            QWidget#ManagerPiTab QPushButton#PrimaryAction {
+                background:#57d68d;
+                color:#04130b;
+                border-color:#57d68d;
+            }
+            QWidget#ManagerPiTab QPushButton#DangerAction {
+                background:#793238;
+                border-color:#a84a52;
+            }
+            QWidget#ManagerPiTab QLineEdit,
+            QWidget#ManagerPiTab QTextEdit {
+                background:#0b0f13;
+                color:#f5fbff;
+                border:1px solid #3c515d;
+                border-radius:7px;
+                padding:7px;
+                selection-background-color:#57d68d;
+                selection-color:#04130b;
+            }
+            """
+        )
         self.state = state
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(14)
 
         heading = QLabel("Manager Pi Control")
-        heading.setStyleSheet("font-size: 20px; font-weight: 700;")
+        heading.setStyleSheet("font-size: 24px; font-weight: 900;")
         layout.addWidget(heading)
 
         intro = QLabel(
@@ -853,10 +896,11 @@ class ManagerPiTab(QWidget):
             "Use this page to update or restart the always-on Manager Pi."
         )
         intro.setWordWrap(True)
+        intro.setStyleSheet("color:#a9bac3; font-size:13px;")
         layout.addWidget(intro)
 
         status_grid = QGridLayout()
-        status_grid.setSpacing(10)
+        status_grid.setSpacing(12)
         self.connection_card = ManagerInfoCard("Connection")
         self.software_card = ManagerInfoCard("Software")
         self.services_card = ManagerInfoCard("Services")
@@ -875,6 +919,7 @@ class ManagerPiTab(QWidget):
         primary_buttons = QHBoxLayout()
         check_btn = QPushButton("Check For Updates")
         update_all_btn = QPushButton("Update Manager + All Pis")
+        update_all_btn.setObjectName("PrimaryAction")
         update_btn = QPushButton("Update Manager Pi")
         primary_buttons.addWidget(check_btn)
         primary_buttons.addWidget(update_all_btn)
@@ -886,6 +931,7 @@ class ManagerPiTab(QWidget):
         restart_backend_btn = QPushButton("Restart Backend")
         restart_display_btn = QPushButton("Restart Status Display")
         reboot_btn = QPushButton("Reboot Manager Pi")
+        reboot_btn.setObjectName("DangerAction")
 
         check_btn.clicked.connect(lambda: self.run_command("check_updates"))
         update_all_btn.clicked.connect(lambda: self.run_command("update_all", confirm=True))
@@ -902,7 +948,10 @@ class ManagerPiTab(QWidget):
 
         self.command_status = QLabel("Ready.")
         self.command_status.setWordWrap(True)
-        self.command_status.setStyleSheet("font-weight:700;")
+        self.command_status.setStyleSheet(
+            "background:#101820; border:1px solid #2b3a43; border-radius:8px; padding:9px; "
+            "color:#c8d6dd; font-weight:800;"
+        )
         actions_layout.addWidget(self.command_status)
         layout.addWidget(actions_frame)
 
@@ -953,19 +1002,19 @@ class ManagerPiTab(QWidget):
         frame = QFrame()
         frame.setObjectName("ManagerSection")
         frame.setStyleSheet(
-            "QFrame#ManagerSection { background:#ffffff; border:1px solid #d7dee2; border-radius:10px; }"
+            "QFrame#ManagerSection { background:#141b20; border:1px solid #2b3a43; border-radius:12px; }"
         )
         section_layout = QVBoxLayout(frame)
-        section_layout.setContentsMargins(14, 12, 14, 12)
-        section_layout.setSpacing(8)
+        section_layout.setContentsMargins(16, 14, 16, 14)
+        section_layout.setSpacing(10)
 
         title_label = QLabel(title)
-        title_label.setStyleSheet("font-size:16px; font-weight:800;")
+        title_label.setStyleSheet("color:#f7fbff; font-size:17px; font-weight:900;")
         section_layout.addWidget(title_label)
         if subtitle:
             subtitle_label = QLabel(subtitle)
             subtitle_label.setWordWrap(True)
-            subtitle_label.setStyleSheet("color:#607d8b;")
+            subtitle_label.setStyleSheet("color:#9fb0b8;")
             section_layout.addWidget(subtitle_label)
         return frame, section_layout
 
@@ -1001,7 +1050,7 @@ class ManagerPiTab(QWidget):
         )
         self.software_card.set_content(
             "Check Failed" if error else "Update Available" if update_status.get("manager_update_available") else "Current",
-            f"{update_text}\nLast checked: {checked_at}.",
+            f"GitHub v{latest} | Manager v{local}\nChecked: {checked_at}.",
             "bad" if error else "warn" if update_status.get("manager_update_available") else "good",
         )
 
@@ -1014,7 +1063,7 @@ class ManagerPiTab(QWidget):
         }
         self.services_card.set_content(
             "Check" if service_problem else "Healthy",
-            f"Backend: {backend_service}\nDisplay: {display_service}\nUpdater: {update_service} (manual service)",
+            f"Backend {backend_service} | Display {display_service}\nUpdater {update_service} (manual service)",
             "bad" if service_problem else "good",
         )
 
