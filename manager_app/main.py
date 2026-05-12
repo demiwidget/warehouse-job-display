@@ -57,6 +57,222 @@ MANAGER_PI_BOOTSTRAP_URL = (
     "https://raw.githubusercontent.com/demiwidget/warehouse-job-display/main/scripts/bootstrap_manager_pi.sh"
 )
 
+APP_STYLESHEET = """
+QMainWindow {
+    background: #0e1216;
+}
+QWidget {
+    background: #0e1216;
+    color: #edf4f7;
+    font-family: "Segoe UI", "Aptos", "Verdana";
+    font-size: 13px;
+}
+QWidget#WarehousePage {
+    background: #0e1216;
+}
+QScrollArea {
+    background: #0e1216;
+    border: 0;
+}
+QScrollBar:vertical {
+    background: #0b0f13;
+    width: 14px;
+    margin: 2px;
+    border-radius: 7px;
+}
+QScrollBar::handle:vertical {
+    background: #2f4652;
+    border-radius: 7px;
+    min-height: 28px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #57d68d;
+}
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0;
+}
+QTabWidget::pane {
+    border-top: 1px solid #2b3a43;
+    background: #0e1216;
+}
+QTabBar::tab {
+    background: #141b20;
+    color: #d7e3e8;
+    border: 1px solid #263640;
+    border-bottom-color: #2b3a43;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    padding: 9px 18px;
+    margin-right: 3px;
+    font-weight: 750;
+}
+QTabBar::tab:selected {
+    background: #57d68d;
+    color: #04130b;
+    border-color: #57d68d;
+}
+QTabBar::tab:hover:!selected {
+    background: #1c2a32;
+    color: #f5fbff;
+}
+QLabel {
+    color: #edf4f7;
+}
+QLabel#PageTitle {
+    font-size: 24px;
+    font-weight: 900;
+    color: #f7fbff;
+}
+QLabel#PageIntro {
+    color: #a9bac3;
+    font-size: 13px;
+    font-weight: 600;
+}
+QLabel#SectionTitle {
+    color: #f7fbff;
+    font-size: 17px;
+    font-weight: 900;
+}
+QLabel#SectionSubtitle {
+    color: #9fb0b8;
+    font-weight: 600;
+}
+QLabel#StatusStrip {
+    background: #101820;
+    border: 1px solid #2b3a43;
+    border-radius: 8px;
+    color: #c8d6dd;
+    font-weight: 800;
+    padding: 9px;
+}
+QFrame#WarehousePanel,
+QFrame#ManagerSection {
+    background: #141b20;
+    border: 1px solid #2b3a43;
+    border-radius: 12px;
+}
+QFrame#ToolbarPanel {
+    background: #111920;
+    border: 1px solid #2b3a43;
+    border-radius: 12px;
+}
+QLineEdit,
+QTextEdit,
+QPlainTextEdit,
+QSpinBox,
+QComboBox {
+    background: #0b0f13;
+    color: #f5fbff;
+    border: 1px solid #3c515d;
+    border-radius: 8px;
+    padding: 7px;
+    selection-background-color: #57d68d;
+    selection-color: #04130b;
+}
+QLineEdit:focus,
+QTextEdit:focus,
+QPlainTextEdit:focus,
+QSpinBox:focus,
+QComboBox:focus {
+    border-color: #57d68d;
+}
+QLineEdit:disabled,
+QTextEdit:disabled,
+QSpinBox:disabled,
+QComboBox:disabled {
+    color: #73828a;
+    border-color: #1d2a31;
+}
+QTextEdit {
+    line-height: 1.35em;
+}
+QComboBox::drop-down {
+    border-left: 1px solid #2b3a43;
+    width: 24px;
+}
+QPushButton {
+    background: #22313a;
+    color: #f5fbff;
+    border: 1px solid #3c515d;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-weight: 800;
+}
+QPushButton:hover {
+    background: #2d414d;
+    border-color: #5f7a88;
+}
+QPushButton:pressed {
+    background: #17232b;
+}
+QPushButton#PrimaryAction {
+    background: #57d68d;
+    color: #04130b;
+    border-color: #57d68d;
+}
+QPushButton#PrimaryAction:hover {
+    background: #6ee6a0;
+}
+QPushButton#DangerAction {
+    background: #793238;
+    color: #fff4f4;
+    border-color: #a84a52;
+}
+QPushButton#DangerAction:hover {
+    background: #93414a;
+}
+QPushButton#QuietAction {
+    background: #17232b;
+    color: #c9d7dd;
+}
+QCheckBox {
+    color: #edf4f7;
+    spacing: 8px;
+    font-weight: 650;
+}
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    border: 1px solid #4a6270;
+    background: #0b0f13;
+}
+QCheckBox::indicator:checked {
+    background: #57d68d;
+    border-color: #57d68d;
+}
+QTableWidget {
+    background: #0b0f13;
+    alternate-background-color: #111a20;
+    color: #f5fbff;
+    gridline-color: #263640;
+    border: 1px solid #2b3a43;
+    border-radius: 10px;
+    selection-background-color: #244d3a;
+    selection-color: #f7fbff;
+}
+QTableWidget::item {
+    padding: 7px;
+    border-bottom: 1px solid #17232b;
+}
+QTableWidget::item:selected {
+    background: #244d3a;
+}
+QHeaderView::section {
+    background: #18252d;
+    color: #83c5d8;
+    border: 0;
+    border-right: 1px solid #2b3a43;
+    border-bottom: 1px solid #2b3a43;
+    padding: 8px;
+    font-weight: 900;
+}
+QMessageBox {
+    background: #141b20;
+}
+"""
+
 
 def local_addresses():
     addresses = {"127.0.0.1"}
@@ -85,6 +301,95 @@ def pi_install_host(settings):
         if not address.startswith("127."):
             return address
     return "MANAGER_PC_IP"
+
+
+def make_scroll_page(parent, margins=(16, 16, 16, 18), spacing=14):
+    outer_layout = QVBoxLayout(parent)
+    outer_layout.setContentsMargins(0, 0, 0, 0)
+    scroll_area = QScrollArea()
+    scroll_area.setWidgetResizable(True)
+    scroll_area.setFrameShape(QFrame.NoFrame)
+    scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    outer_layout.addWidget(scroll_area)
+
+    content = QWidget()
+    content.setObjectName("WarehousePage")
+    scroll_area.setWidget(content)
+    layout = QVBoxLayout(content)
+    layout.setContentsMargins(*margins)
+    layout.setSpacing(spacing)
+    parent.scroll_area = scroll_area
+    parent.scroll_content = content
+    return layout
+
+
+def add_page_heading(layout, title, intro=""):
+    heading = QLabel(title)
+    heading.setObjectName("PageTitle")
+    layout.addWidget(heading)
+    if intro:
+        intro_label = QLabel(intro)
+        intro_label.setObjectName("PageIntro")
+        intro_label.setWordWrap(True)
+        layout.addWidget(intro_label)
+
+
+def make_panel(title="", subtitle=""):
+    frame = QFrame()
+    frame.setObjectName("WarehousePanel")
+    panel_layout = QVBoxLayout(frame)
+    panel_layout.setContentsMargins(16, 14, 16, 14)
+    panel_layout.setSpacing(10)
+    if title:
+        title_label = QLabel(title)
+        title_label.setObjectName("SectionTitle")
+        panel_layout.addWidget(title_label)
+    if subtitle:
+        subtitle_label = QLabel(subtitle)
+        subtitle_label.setObjectName("SectionSubtitle")
+        subtitle_label.setWordWrap(True)
+        panel_layout.addWidget(subtitle_label)
+    return frame, panel_layout
+
+
+def make_toolbar_panel():
+    frame = QFrame()
+    frame.setObjectName("ToolbarPanel")
+    layout = QVBoxLayout(frame)
+    layout.setContentsMargins(16, 14, 16, 14)
+    layout.setSpacing(10)
+    return frame, layout
+
+
+def mark_primary(button):
+    button.setObjectName("PrimaryAction")
+    return button
+
+
+def mark_danger(button):
+    button.setObjectName("DangerAction")
+    return button
+
+
+def mark_quiet(button):
+    button.setObjectName("QuietAction")
+    return button
+
+
+def make_status_label(text=""):
+    label = QLabel(text)
+    label.setObjectName("StatusStrip")
+    label.setWordWrap(True)
+    return label
+
+
+def tune_table(table):
+    table.setAlternatingRowColors(True)
+    table.setShowGrid(False)
+    table.verticalHeader().setVisible(False)
+    table.horizontalHeader().setStretchLastSection(True)
+    table.setWordWrap(False)
+    return table
 
 
 class DashboardMonitorThread(Thread):
@@ -164,11 +469,20 @@ class ConnectionTab(QWidget):
     def __init__(self, state):
         super().__init__()
         self.state = state
-        layout = QVBoxLayout(self)
+        layout = make_scroll_page(self)
+        add_page_heading(
+            layout,
+            "Connection & Install",
+            "Network settings and live one-command installers for dashboard Pis and Manager Pi trials.",
+        )
 
         settings = self.state.get_settings(include_secret=True)
         server = settings.get("server", {})
 
+        server_panel, server_layout = make_panel(
+            "Manager Server",
+            "These settings control where dashboard Pis connect for data, alerts, and commands.",
+        )
         form = QFormLayout()
         self.host_input = QLineEdit(server.get("host", "0.0.0.0"))
         self.port_input = QSpinBox()
@@ -176,31 +490,44 @@ class ConnectionTab(QWidget):
         self.port_input.setValue(int(server.get("port", 8765)))
         form.addRow("Listen address", self.host_input)
         form.addRow("Port", self.port_input)
-        layout.addLayout(form)
+        server_layout.addLayout(form)
 
+        save_btn = mark_primary(QPushButton("Save Connection Settings"))
+        save_btn.clicked.connect(self.save)
+        server_layout.addWidget(save_btn)
+        layout.addWidget(server_panel)
+
+        address_panel, address_layout = make_panel(
+            "Manager Addresses",
+            "Use one of these addresses when installing or reconnecting a dashboard Pi.",
+        )
         self.addresses = QTextEdit()
         self.addresses.setReadOnly(True)
         self.addresses.setMinimumHeight(130)
-        layout.addWidget(QLabel("Use one of these PC addresses when installing a Pi:"))
-        layout.addWidget(self.addresses)
+        address_layout.addWidget(self.addresses)
+        layout.addWidget(address_panel)
 
-        layout.addWidget(QLabel("Standard Pi install/update command:"))
+        install_panel, install_layout = make_panel(
+            "One-Command Installs",
+            "These commands are generated live from the current Manager address and GitHub bootstrap scripts.",
+        )
+        install_layout.addWidget(QLabel("Standard Pi install/update command:"))
         self.install_command = QTextEdit()
         self.install_command.setReadOnly(True)
         self.install_command.setMinimumHeight(95)
-        layout.addWidget(self.install_command)
+        install_layout.addWidget(self.install_command)
 
-        layout.addWidget(QLabel("Overwrite an old Node-RED/Home Assistant Pi:"))
+        install_layout.addWidget(QLabel("Overwrite an old Node-RED/Home Assistant Pi:"))
         self.overwrite_install_command = QTextEdit()
         self.overwrite_install_command.setReadOnly(True)
         self.overwrite_install_command.setMinimumHeight(130)
-        layout.addWidget(self.overwrite_install_command)
+        install_layout.addWidget(self.overwrite_install_command)
 
-        layout.addWidget(QLabel("Trial Manager Pi install command:"))
+        install_layout.addWidget(QLabel("Trial Manager Pi install command:"))
         self.manager_pi_install_command = QTextEdit()
         self.manager_pi_install_command.setReadOnly(True)
         self.manager_pi_install_command.setMinimumHeight(90)
-        layout.addWidget(self.manager_pi_install_command)
+        install_layout.addWidget(self.manager_pi_install_command)
 
         copy_buttons = QHBoxLayout()
         copy_install_btn = QPushButton("Copy Standard Install")
@@ -219,14 +546,10 @@ class ConnectionTab(QWidget):
         copy_buttons.addWidget(copy_overwrite_btn)
         copy_buttons.addWidget(copy_manager_pi_btn)
         copy_buttons.addStretch(1)
-        layout.addLayout(copy_buttons)
+        install_layout.addLayout(copy_buttons)
+        layout.addWidget(install_panel)
 
-        save_btn = QPushButton("Save Connection Settings")
-        save_btn.clicked.connect(self.save)
-        layout.addWidget(save_btn)
-
-        self.status = QLabel()
-        self.status.setWordWrap(True)
+        self.status = make_status_label()
         layout.addWidget(self.status)
         layout.addStretch(1)
         self.refresh_addresses()
@@ -317,7 +640,17 @@ class CurrentRMSTab(QWidget):
     def __init__(self, state):
         super().__init__()
         self.state = state
-        layout = QVBoxLayout(self)
+        layout = make_scroll_page(self)
+        add_page_heading(
+            layout,
+            "Current RMS",
+            "API connection, job view IDs, excluded items, and quarantine leaderboard settings.",
+        )
+
+        rms_panel, rms_layout = make_panel(
+            "API Details & Dashboard Views",
+            "Secrets stay in the manager data folder only; they are not written into the GitHub repo.",
+        )
         form = QFormLayout()
 
         rms = self.state.get_settings(include_secret=True).get("current_rms", {})
@@ -391,10 +724,10 @@ class CurrentRMSTab(QWidget):
         form.addRow("Active quarantines only", self.quarantine_active_only_input)
         form.addRow("Ignored quarantine department IDs", self.quarantine_excluded_departments_input)
         form.addRow("Quarantine department names", self.quarantine_departments_input)
-        layout.addLayout(form)
+        rms_layout.addLayout(form)
 
         buttons = QHBoxLayout()
-        save_btn = QPushButton("Save API Details Locally")
+        save_btn = mark_primary(QPushButton("Save API Details Locally"))
         test_btn = QPushButton("Test Current RMS Connection")
         refresh_btn = QPushButton("Refresh Dashboard Now")
         save_btn.clicked.connect(self.save)
@@ -403,14 +736,17 @@ class CurrentRMSTab(QWidget):
         buttons.addWidget(save_btn)
         buttons.addWidget(test_btn)
         buttons.addWidget(refresh_btn)
-        layout.addLayout(buttons)
+        buttons.addStretch(1)
+        rms_layout.addLayout(buttons)
 
         note = QLabel(
             "API details and view IDs are stored only in manager_data/settings.json on the manager. "
             "That folder is ignored by Git and must not be committed."
         )
         note.setWordWrap(True)
-        layout.addWidget(note)
+        note.setObjectName("SectionSubtitle")
+        rms_layout.addWidget(note)
+        layout.addWidget(rms_panel)
         layout.addStretch(1)
 
     def settings_payload(self):
@@ -460,10 +796,19 @@ class AlertsTab(QWidget):
     def __init__(self, state):
         super().__init__()
         self.state = state
-        layout = QVBoxLayout(self)
+        layout = make_scroll_page(self)
+        add_page_heading(
+            layout,
+            "Alerts",
+            "Configure notification events, sounds, popup behaviour, and targeted test alerts for selected Pis.",
+        )
         settings = self.state.get_settings(include_secret=True).get("alerts", {})
         event_types = settings.get("event_types", {})
 
+        rules_panel, rules_layout = make_panel(
+            "Live Alert Rules",
+            "Each alert type can independently show a popup, play a sound, or be tested against the selected Pi screens.",
+        )
         form = QFormLayout()
         self.poll_seconds_input = QSpinBox()
         self.poll_seconds_input.setRange(5, 3600)
@@ -486,9 +831,11 @@ class AlertsTab(QWidget):
         form.addRow("Quiet hours start (24h)", self.quiet_start_input)
         form.addRow("Quiet hours end (24h)", self.quiet_end_input)
         form.addRow("Notification history limit", self.history_limit_input)
-        layout.addLayout(form)
+        rules_layout.addLayout(form)
 
         grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(8)
         grid.addWidget(QLabel("Alert Type"), 0, 0)
         grid.addWidget(QLabel("Enabled"), 0, 1)
         grid.addWidget(QLabel("Popup"), 0, 2)
@@ -506,7 +853,7 @@ class AlertsTab(QWidget):
             sound = QCheckBox()
             sound.setChecked(bool(config.get("play_sound", True)))
             sound_name = QLineEdit(str(config.get("sound", "")))
-            test_button = QPushButton("Test")
+            test_button = mark_quiet(QPushButton("Test"))
             test_button.clicked.connect(
                 lambda _checked=False, key=event_key, text=label: self.send_category_test_notification(key, text)
             )
@@ -526,32 +873,31 @@ class AlertsTab(QWidget):
                 "test": test_button,
             }
 
-        layout.addLayout(grid)
+        rules_layout.addLayout(grid)
 
         note = QLabel(
             "Alerts are sent to all currently registered Pis. "
-            "Sound files are served from this PC's sounds folder and refreshed on each Pi before playback."
+            "Sound files are served from the manager's sounds folder and refreshed on each Pi before playback."
         )
         note.setWordWrap(True)
-        layout.addWidget(note)
+        note.setObjectName("SectionSubtitle")
+        rules_layout.addWidget(note)
 
         buttons = QHBoxLayout()
-        save_btn = QPushButton("Save Alert Settings")
+        save_btn = mark_primary(QPushButton("Save Alert Settings"))
         refresh_btn = QPushButton("Apply and Refresh Now")
         save_btn.clicked.connect(self.save)
         refresh_btn.clicked.connect(self.apply_and_refresh)
         buttons.addWidget(save_btn)
         buttons.addWidget(refresh_btn)
         buttons.addStretch(1)
-        layout.addLayout(buttons)
+        rules_layout.addLayout(buttons)
+        layout.addWidget(rules_panel)
 
-        test_box = QWidget()
-        test_layout = QVBoxLayout(test_box)
-        test_layout.setContentsMargins(0, 12, 0, 0)
-
-        test_heading = QLabel("Test Notification")
-        test_heading.setStyleSheet("font-size: 18px; font-weight: 700;")
-        test_layout.addWidget(test_heading)
+        test_box, test_layout = make_panel(
+            "Test Notifications",
+            "Send a custom popup or category sound to only the checked Pi screens below.",
+        )
 
         test_form = QFormLayout()
         self.test_title_input = QLineEdit("Test Notification")
@@ -579,7 +925,7 @@ class AlertsTab(QWidget):
         test_layout.addLayout(sound_buttons)
 
         target_heading = QLabel("Send Test To")
-        target_heading.setStyleSheet("font-weight: 700;")
+        target_heading.setObjectName("SectionSubtitle")
         test_layout.addWidget(target_heading)
 
         self.test_device_table = QTableWidget(0, 4)
@@ -587,13 +933,14 @@ class AlertsTab(QWidget):
         self.test_device_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.test_device_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.test_device_table.setMinimumHeight(150)
+        tune_table(self.test_device_table)
         test_layout.addWidget(self.test_device_table)
 
         test_buttons = QHBoxLayout()
         select_all_btn = QPushButton("Select All")
         select_none_btn = QPushButton("Select None")
         refresh_targets_btn = QPushButton("Refresh Pi Targets")
-        send_test_btn = QPushButton("Send Test Notification To Selected Pis")
+        send_test_btn = mark_primary(QPushButton("Send Test Notification To Selected Pis"))
         select_all_btn.clicked.connect(lambda: self.set_all_test_targets(True))
         select_none_btn.clicked.connect(lambda: self.set_all_test_targets(False))
         refresh_targets_btn.clicked.connect(self.refresh_test_devices)
@@ -635,7 +982,7 @@ class AlertsTab(QWidget):
 
     def save(self):
         self.state.save_settings({"alerts": self.settings_payload()})
-        QMessageBox.information(self, "Saved", "Alert settings saved locally on this PC.")
+        QMessageBox.information(self, "Saved", "Alert settings saved on the manager.")
 
     def apply_and_refresh(self):
         self.state.save_settings({"alerts": self.settings_payload()})
@@ -1205,10 +1552,15 @@ class PiScreensTab(QWidget):
         super().__init__()
         self.state = state
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 18)
+        layout.setSpacing(14)
+        add_page_heading(
+            layout,
+            "Pi Screens",
+            "Monitor every registered dashboard Pi and send screen, update, restart, reboot, rename, and display-size commands.",
+        )
 
-        self.update_status = QLabel("Checking GitHub update status...")
-        self.update_status.setWordWrap(True)
-        self.update_status.setStyleSheet("font-weight: 700;")
+        self.update_status = make_status_label("Checking GitHub update status...")
         layout.addWidget(self.update_status)
 
         self.table = QTableWidget(0, len(self.COLUMNS))
@@ -1216,8 +1568,14 @@ class PiScreensTab(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.MultiSelection)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setMinimumHeight(300)
+        tune_table(self.table)
         layout.addWidget(self.table)
 
+        controls_panel, controls_layout = make_panel(
+            "Selected Pi Controls",
+            "Select one or more rows above, then use these buttons to change screens or queue actions.",
+        )
         screen_buttons = QHBoxLayout()
         for label, screen in (
             ("Show Today", "today"),
@@ -1229,17 +1587,18 @@ class PiScreensTab(QWidget):
             btn = QPushButton(label)
             btn.clicked.connect(lambda _checked=False, target=screen: self.send_screen(target))
             screen_buttons.addWidget(btn)
-        layout.addLayout(screen_buttons)
+        screen_buttons.addStretch(1)
+        controls_layout.addLayout(screen_buttons)
 
         command_buttons = QHBoxLayout()
         rename_btn = QPushButton("Rename Pi")
         display_size_btn = QPushButton("Set Display Size")
         restart_btn = QPushButton("Restart Display App")
         update_btn = QPushButton("Update Pi From GitHub")
-        update_all_btn = QPushButton("Update All Pis + Manager")
+        update_all_btn = mark_primary(QPushButton("Update All Pis + Manager"))
         check_updates_btn = QPushButton("Check GitHub Updates")
-        reboot_btn = QPushButton("Reboot Pi")
-        remove_btn = QPushButton("Remove Selected")
+        reboot_btn = mark_danger(QPushButton("Reboot Pi"))
+        remove_btn = mark_danger(QPushButton("Remove Selected"))
         refresh_btn = QPushButton("Refresh List")
         rename_btn.clicked.connect(self.rename_selected_pi)
         display_size_btn.clicked.connect(self.set_display_size_selected)
@@ -1255,14 +1614,19 @@ class PiScreensTab(QWidget):
         command_buttons.addWidget(restart_btn)
         command_buttons.addWidget(update_btn)
         command_buttons.addWidget(update_all_btn)
-        command_buttons.addWidget(reboot_btn)
-        command_buttons.addWidget(remove_btn)
         command_buttons.addStretch(1)
-        command_buttons.addWidget(check_updates_btn)
-        command_buttons.addWidget(refresh_btn)
-        layout.addLayout(command_buttons)
+        controls_layout.addLayout(command_buttons)
 
-        self.status = QLabel("Waiting for Pi screens to register...")
+        service_buttons = QHBoxLayout()
+        service_buttons.addWidget(check_updates_btn)
+        service_buttons.addWidget(refresh_btn)
+        service_buttons.addStretch(1)
+        service_buttons.addWidget(reboot_btn)
+        service_buttons.addWidget(remove_btn)
+        controls_layout.addLayout(service_buttons)
+        layout.addWidget(controls_panel)
+
+        self.status = make_status_label("Waiting for Pi screens to register...")
         layout.addWidget(self.status)
 
         self.timer = QTimer(self)
@@ -1495,14 +1859,22 @@ class ActivityConsoleTab(QWidget):
         super().__init__()
         self.state = state
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 18)
+        layout.setSpacing(14)
+        add_page_heading(
+            layout,
+            "Console",
+            "Live manager activity, diagnostics, and behind-the-scenes event history.",
+        )
 
+        controls_panel, controls_layout = make_toolbar_panel()
         controls = QHBoxLayout()
         self.category_filter = QComboBox()
         self.category_filter.addItems(["All", "Current RMS", "Pis", "Audio", "Notifications", "Updates", "Commands", "Settings", "Manager"])
         self.level_filter = QComboBox()
         self.level_filter.addItems(["All", "info", "warning", "error"])
         refresh_btn = QPushButton("Refresh")
-        clear_btn = QPushButton("Clear")
+        clear_btn = mark_danger(QPushButton("Clear"))
         copy_btn = QPushButton("Copy Diagnostics")
         refresh_btn.clicked.connect(self.refresh)
         clear_btn.clicked.connect(self.clear_log)
@@ -1518,16 +1890,18 @@ class ActivityConsoleTab(QWidget):
         controls.addWidget(copy_btn)
         controls.addStretch(1)
         controls.addWidget(clear_btn)
-        layout.addLayout(controls)
+        controls_layout.addLayout(controls)
+        layout.addWidget(controls_panel)
 
         self.table = QTableWidget(0, len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels(self.COLUMNS)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.MultiSelection)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        tune_table(self.table)
         layout.addWidget(self.table)
 
-        self.status = QLabel()
+        self.status = make_status_label()
         layout.addWidget(self.status)
 
         self.timer = QTimer(self)
@@ -1588,9 +1962,11 @@ class ManagerWindow(QMainWindow):
         self.state = state
         self.confirmed_close = False
         self.setWindowTitle("Warehouse Dashboard Manager")
-        self.resize(1120, 760)
+        self.resize(1280, 820)
+        self.setStyleSheet(APP_STYLESHEET)
 
         tabs = QTabWidget()
+        tabs.setDocumentMode(True)
         tabs.addTab(ConnectionTab(state), "Connection")
         tabs.addTab(CurrentRMSTab(state), "Current RMS")
         tabs.addTab(AlertsTab(state), "Alerts")
