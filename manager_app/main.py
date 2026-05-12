@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QInputDialog,
@@ -793,6 +794,47 @@ class AlertsTab(QWidget):
             QMessageBox.warning(self, "Test Sound", message)
 
 
+class ManagerInfoCard(QFrame):
+    TONE_COLORS = {
+        "good": "#2e7d32",
+        "warn": "#f9a825",
+        "bad": "#b71c1c",
+        "info": "#1565c0",
+        "muted": "#607d8b",
+    }
+
+    def __init__(self, title):
+        super().__init__()
+        self.setObjectName("ManagerInfoCard")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(5)
+
+        self.title_label = QLabel(title.upper())
+        self.title_label.setStyleSheet("color:#607d8b; font-size:12px; font-weight:800; letter-spacing:1px;")
+        self.value_label = QLabel("Loading")
+        self.value_label.setStyleSheet("font-size:22px; font-weight:800;")
+        self.value_label.setWordWrap(True)
+        self.detail_label = QLabel("")
+        self.detail_label.setStyleSheet("color:#455a64; font-size:13px;")
+        self.detail_label.setWordWrap(True)
+
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.value_label)
+        layout.addWidget(self.detail_label, 1)
+        self.setMinimumHeight(118)
+        self.set_content("Loading", "", "muted")
+
+    def set_content(self, value, detail="", tone="muted"):
+        color = self.TONE_COLORS.get(tone, self.TONE_COLORS["muted"])
+        self.setStyleSheet(
+            f"QFrame#ManagerInfoCard {{ background:#f8fafb; border:1px solid #d7dee2; "
+            f"border-left:7px solid {color}; border-radius:10px; }}"
+        )
+        self.value_label.setText(str(value or "Unknown"))
+        self.detail_label.setText(str(detail or ""))
+
+
 class ManagerPiTab(QWidget):
     command_finished = Signal(str)
 
@@ -800,6 +842,7 @@ class ManagerPiTab(QWidget):
         super().__init__()
         self.state = state
         layout = QVBoxLayout(self)
+        layout.setSpacing(12)
 
         heading = QLabel("Manager Pi Control")
         heading.setStyleSheet("font-size: 20px; font-weight: 700;")
@@ -812,27 +855,34 @@ class ManagerPiTab(QWidget):
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
-        self.summary = QLabel("Loading Manager Pi status...")
-        self.summary.setWordWrap(True)
-        self.summary.setStyleSheet("font-weight: 700;")
-        layout.addWidget(self.summary)
+        status_grid = QGridLayout()
+        status_grid.setSpacing(10)
+        self.connection_card = ManagerInfoCard("Connection")
+        self.software_card = ManagerInfoCard("Software")
+        self.services_card = ManagerInfoCard("Services")
+        self.security_card = ManagerInfoCard("Security")
+        self.manager_update_card = ManagerInfoCard("Last Manager Update")
+        self.version_card = ManagerInfoCard("Version")
+        status_grid.addWidget(self.connection_card, 0, 0)
+        status_grid.addWidget(self.software_card, 0, 1)
+        status_grid.addWidget(self.services_card, 0, 2)
+        status_grid.addWidget(self.security_card, 1, 0)
+        status_grid.addWidget(self.manager_update_card, 1, 1)
+        status_grid.addWidget(self.version_card, 1, 2)
+        layout.addLayout(status_grid)
 
-        self.service_status = QLabel("")
-        self.service_status.setWordWrap(True)
-        layout.addWidget(self.service_status)
-
-        self.security_status = QLabel("")
-        self.security_status.setWordWrap(True)
-        layout.addWidget(self.security_status)
-
-        self.manager_update_status = QLabel("")
-        self.manager_update_status.setWordWrap(True)
-        layout.addWidget(self.manager_update_status)
-
-        buttons = QHBoxLayout()
+        actions_frame, actions_layout = self.make_section("Actions", "Update, restart, or reboot the Manager Pi.")
+        primary_buttons = QHBoxLayout()
         check_btn = QPushButton("Check For Updates")
         update_all_btn = QPushButton("Update Manager + All Pis")
         update_btn = QPushButton("Update Manager Pi")
+        primary_buttons.addWidget(check_btn)
+        primary_buttons.addWidget(update_all_btn)
+        primary_buttons.addWidget(update_btn)
+        primary_buttons.addStretch(1)
+        actions_layout.addLayout(primary_buttons)
+
+        service_buttons = QHBoxLayout()
         restart_backend_btn = QPushButton("Restart Backend")
         restart_display_btn = QPushButton("Restart Status Display")
         reboot_btn = QPushButton("Reboot Manager Pi")
@@ -844,29 +894,31 @@ class ManagerPiTab(QWidget):
         restart_display_btn.clicked.connect(lambda: self.run_command("restart_display", confirm=True))
         reboot_btn.clicked.connect(lambda: self.run_command("reboot", confirm=True))
 
-        buttons.addWidget(check_btn)
-        buttons.addWidget(update_all_btn)
-        buttons.addWidget(update_btn)
-        buttons.addWidget(restart_backend_btn)
-        buttons.addWidget(restart_display_btn)
-        buttons.addWidget(reboot_btn)
-        buttons.addStretch(1)
-        layout.addLayout(buttons)
+        service_buttons.addWidget(restart_backend_btn)
+        service_buttons.addWidget(restart_display_btn)
+        service_buttons.addWidget(reboot_btn)
+        service_buttons.addStretch(1)
+        actions_layout.addLayout(service_buttons)
 
         self.command_status = QLabel("Ready.")
         self.command_status.setWordWrap(True)
-        layout.addWidget(self.command_status)
+        self.command_status.setStyleSheet("font-weight:700;")
+        actions_layout.addWidget(self.command_status)
+        layout.addWidget(actions_frame)
 
+        log_frame, log_layout = self.make_section("Manager Update Log", "Latest output from the Manager Pi updater.")
         self.manager_update_log = QTextEdit()
         self.manager_update_log.setReadOnly(True)
-        self.manager_update_log.setMinimumHeight(120)
+        self.manager_update_log.setMinimumHeight(135)
         self.manager_update_log.setPlaceholderText("Manager Pi update log will appear here after an update starts.")
-        layout.addWidget(self.manager_update_log)
+        log_layout.addWidget(self.manager_update_log)
+        layout.addWidget(log_frame, 1)
 
+        password_frame, password_layout = self.make_section(
+            "Change Manager Pi Password",
+            "Used by the PC app when connecting to the Manager Pi backend.",
+        )
         password_box = QGridLayout()
-        password_heading = QLabel("Change Manager Pi Password")
-        password_heading.setStyleSheet("font-size: 16px; font-weight: 700;")
-        layout.addWidget(password_heading)
 
         self.current_password_input = QLineEdit()
         self.current_password_input.setEchoMode(QLineEdit.Password)
@@ -887,8 +939,8 @@ class ManagerPiTab(QWidget):
         password_box.addWidget(QLabel("Confirm"), 2, 0)
         password_box.addWidget(self.confirm_password_input, 2, 1)
         password_box.addWidget(change_password_btn, 3, 1)
-        layout.addLayout(password_box)
-        layout.addStretch(1)
+        password_layout.addLayout(password_box)
+        layout.addWidget(password_frame)
 
         self.command_finished.connect(self.on_command_finished)
 
@@ -897,12 +949,36 @@ class ManagerPiTab(QWidget):
         self.timer.start(5000)
         self.refresh()
 
+    def make_section(self, title, subtitle=""):
+        frame = QFrame()
+        frame.setObjectName("ManagerSection")
+        frame.setStyleSheet(
+            "QFrame#ManagerSection { background:#ffffff; border:1px solid #d7dee2; border-radius:10px; }"
+        )
+        section_layout = QVBoxLayout(frame)
+        section_layout.setContentsMargins(14, 12, 14, 12)
+        section_layout.setSpacing(8)
+
+        title_label = QLabel(title)
+        title_label.setStyleSheet("font-size:16px; font-weight:800;")
+        section_layout.addWidget(title_label)
+        if subtitle:
+            subtitle_label = QLabel(subtitle)
+            subtitle_label.setWordWrap(True)
+            subtitle_label.setStyleSheet("color:#607d8b;")
+            section_layout.addWidget(subtitle_label)
+        return frame, section_layout
+
     def refresh(self):
         try:
             status = self.state.get_manager_status()
         except Exception as error:
-            self.summary.setText(f"Could not read Manager Pi status: {error}")
-            self.service_status.setText("")
+            self.connection_card.set_content("Offline", f"Could not read Manager Pi status: {error}", "bad")
+            self.software_card.set_content("Unknown", "No update status available.", "muted")
+            self.services_card.set_content("Unknown", "No service status available.", "muted")
+            self.security_card.set_content("Unknown", "No security status available.", "muted")
+            self.manager_update_card.set_content("Unknown", "No update status available.", "muted")
+            self.version_card.set_content("Unknown", "No version status available.", "muted")
             return
 
         update_status = status.get("update_status", {}) or {}
@@ -918,22 +994,45 @@ class ManagerPiTab(QWidget):
             update_text = f"Up to date: GitHub v{latest}, Manager Pi v{local}."
 
         role_text = "Connected to Manager Pi backend." if status.get("is_manager_pi") else "Manager Pi controls unavailable here."
-        self.summary.setText(f"{role_text}\n{update_text}\nLast checked: {checked_at}.")
-        self.service_status.setText(
-            "Services: "
-            f"backend={status.get('backend_service', 'unknown')}, "
-            f"display={status.get('display_service', 'unknown')}, "
-            f"update={status.get('update_service', 'unknown')}"
+        self.connection_card.set_content(
+            "Connected" if status.get("is_manager_pi") else "Unavailable",
+            role_text,
+            "good" if status.get("is_manager_pi") else "warn",
         )
+        self.software_card.set_content(
+            "Check Failed" if error else "Update Available" if update_status.get("manager_update_available") else "Current",
+            f"{update_text}\nLast checked: {checked_at}.",
+            "bad" if error else "warn" if update_status.get("manager_update_available") else "good",
+        )
+
+        backend_service = str(status.get("backend_service", "unknown"))
+        display_service = str(status.get("display_service", "unknown"))
+        update_service = str(status.get("update_service", "unknown"))
+        service_problem = backend_service.lower() in {"failed", "inactive"} or display_service.lower() in {
+            "failed",
+            "inactive",
+        }
+        self.services_card.set_content(
+            "Check" if service_problem else "Healthy",
+            f"Backend: {backend_service}\nDisplay: {display_service}\nUpdater: {update_service} (manual service)",
+            "bad" if service_problem else "good",
+        )
+
         security = status.get("security", {}) or {}
         if security.get("legacy_code_active"):
-            security_text = "Security: old legacy code is active. Change it to a private password below."
+            security_value = "Change Password"
+            security_detail = "Old legacy code is active. Change it to a private password below."
+            security_tone = "warn"
         elif security.get("password_set"):
             updated = str(security.get("updated_at") or "").strip()
-            security_text = f"Security: password protected{f' since {updated}' if updated else ''}."
+            security_value = "Protected"
+            security_detail = f"Password protected{f' since {updated}' if updated else ''}."
+            security_tone = "good"
         else:
-            security_text = "Security: initial password has not been confirmed yet."
-        self.security_status.setText(security_text)
+            security_value = "Setup Needed"
+            security_detail = "Initial password has not been confirmed yet."
+            security_tone = "warn"
+        self.security_card.set_content(security_value, security_detail, security_tone)
 
         manager_update = status.get("manager_update_status", {}) or {}
         if manager_update:
@@ -942,11 +1041,19 @@ class ManagerPiTab(QWidget):
             title = str(manager_update.get("title", "")).strip()
             detail = str(manager_update.get("detail", "")).strip()
             updated_at = str(manager_update.get("updated_at", "")).strip()
-            self.manager_update_status.setText(
-                f"Last Manager Pi update: {progress}% {state} - {title}. {detail} {updated_at}".strip()
+            self.manager_update_card.set_content(
+                f"{progress}% {state}".strip(),
+                f"{title}\n{detail}\n{updated_at}".strip(),
+                "bad" if state.lower() == "failed" else "warn" if state.lower() in {"running", "updating"} else "good",
             )
         else:
-            self.manager_update_status.setText("Last Manager Pi update: no update log yet.")
+            self.manager_update_card.set_content("No Update Run", "No Manager Pi update log yet.", "muted")
+
+        self.version_card.set_content(
+            f"v{local}",
+            f"GitHub latest: v{latest}",
+            "warn" if update_status.get("manager_update_available") else "good",
+        )
 
         log_text = str(status.get("manager_update_log") or "").strip()
         if log_text and self.manager_update_log.toPlainText() != log_text:
