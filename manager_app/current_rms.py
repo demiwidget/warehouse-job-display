@@ -1066,7 +1066,7 @@ class DashboardBuilder:
         if not isinstance(field_names, list):
             field_names = []
         values = [str(item).strip() for item in field_names if str(item).strip()]
-        return values or ["prep_department", "prep department", "Prep Department"]
+        return values or ["prep_department"]
 
     def _custom_field_values(self, container, field_name):
         values = []

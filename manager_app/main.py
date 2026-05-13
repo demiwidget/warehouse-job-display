@@ -948,15 +948,15 @@ class AlertsTab(QWidget):
         self.department_field_names_input = QLineEdit(
             ", ".join(str(item) for item in routing.get("field_names", []) or [])
         )
-        self.department_field_names_input.setPlaceholderText("prep_department, prep department, Prep Department")
+        self.department_field_names_input.setPlaceholderText("prep_department")
         self.department_routes_input = QTextEdit()
         self.department_routes_input.setMinimumHeight(125)
         self.department_routes_input.setPlaceholderText(
             "One route per line, for example:\n"
-            "Rigging = rigging\n"
-            "Power = power\n"
-            "Technology = technology\n"
-            "TV Lights = tv lights"
+            "1000083 = power\n"
+            "1000012 = rigging\n"
+            "1000010 = technology\n"
+            "1000011 = tv lights"
         )
         self.department_routes_input.setPlainText(self.format_department_routes(routing.get("routes", {})))
 
@@ -967,8 +967,9 @@ class AlertsTab(QWidget):
         routing_layout.addLayout(routing_form)
 
         routing_note = QLabel(
-            "Left side is the Current RMS prep department value. Right side is one or more Pi name, ID, or screen "
-            "match terms. Separate multiple targets with commas."
+            "Left side is the Current RMS prep_department ID. Right side is one or more Pi name, ID, or screen "
+            "match terms. IDs: 1000083 Power, 1000012 Rigging, 1000010 Technology, 1000011 TV Lights. "
+            "Separate multiple targets with commas."
         )
         routing_note.setWordWrap(True)
         routing_note.setObjectName("SectionSubtitle")

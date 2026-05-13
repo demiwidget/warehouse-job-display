@@ -70,25 +70,20 @@ DEFAULT_SETTINGS = {
             "enabled": True,
             "field_names": [
                 "prep_department",
-                "prep department",
-                "Prep Department",
             ],
             "send_unknown_to_all": True,
             "routes": {
-                "Rigging": [
-                    "rigging",
-                ],
-                "Power": [
+                "1000083": [
                     "power",
                 ],
-                "Technology": [
+                "1000012": [
+                    "rigging",
+                ],
+                "1000010": [
                     "technology",
                 ],
-                "TV Lights": [
+                "1000011": [
                     "tv lights",
-                ],
-                "3rd Party": [
-                    "3rd party",
                 ],
             },
         },
@@ -144,6 +139,7 @@ LEGACY_QUARANTINE_DEPARTMENT_NAMES = {
     "1000055": {"Department 1", "Department 1000055"},
     "1000067": {"Technology", "Department 1000067"},
 }
+DEFAULT_PREP_DEPARTMENT_ROUTES = DEFAULT_SETTINGS["alerts"]["department_routing"]["routes"]
 
 
 def _merge_defaults(defaults, values):
@@ -207,6 +203,8 @@ def _migrate_settings(settings):
         if clean_targets:
             clean_routes[department_name] = clean_targets
     routing["routes"] = clean_routes
+    for department_id, default_targets in DEFAULT_PREP_DEPARTMENT_ROUTES.items():
+        clean_routes.setdefault(department_id, list(default_targets))
     routing["enabled"] = bool(routing.get("enabled", True))
     routing["send_unknown_to_all"] = bool(routing.get("send_unknown_to_all", True))
     alerts["department_routing"] = routing
