@@ -48,6 +48,8 @@ EVENT_META = {
 PREPARED_STATUS_CODES = {15, 20, 30, 40}
 NOT_PREPARED_STATUS_CODES = {5}
 CANCELLED_STATUS_CODES = {50}
+ALL_DEPARTMENT_TARGET = "__all__"
+NO_DEPARTMENT_TARGET = "__none__"
 
 
 def parse_datetime(value):
@@ -764,6 +766,7 @@ class DashboardBuilder:
                     snapshot[str(opportunity_id)] = self._item_snapshot(
                         self._opportunity_items(client, item_cache, opportunity_id),
                         excluded_item_ids,
+                        settings,
                     )
             return []
 
@@ -777,13 +780,16 @@ class DashboardBuilder:
             current_items = self._item_snapshot(
                 self._opportunity_items(client, item_cache, opportunity_id),
                 excluded_item_ids,
+                settings,
             )
             changes = self._compare_items(snapshot.get(key, {}), current_items)
             if changes:
+                target_departments = self._alert_departments_for_changes(changes, settings)
                 alert = self._emit_alert(
                     event_type,
                     self._job_change_popup(event_type, self._opportunity_name(job), changes),
                     settings,
+                    target_departments=target_departments,
                 )
                 if alert:
                     alerts.append(alert)
@@ -814,7 +820,31 @@ class DashboardBuilder:
             displayable.append(change)
         return displayable
 
-    def _emit_alert(self, event_type, popup, settings):
+    def _alert_departments_for_changes(self, changes, settings):
+        routing = settings.get("alerts", {}).get("department_routing", {}) or {}
+        if not as_bool(routing.get("enabled", True)):
+            return []
+
+        departments = set()
+        missing_department = False
+        for change in changes:
+            item_departments = [
+                str(value).strip()
+                for value in change.get("item", {}).get("prep_departments", []) or []
+                if str(value).strip()
+            ]
+            if item_departments:
+                departments.update(item_departments)
+            else:
+                missing_department = True
+
+        if missing_department and as_bool(routing.get("send_unknown_to_all", True)):
+            return [ALL_DEPARTMENT_TARGET]
+        if not departments and missing_department:
+            return [NO_DEPARTMENT_TARGET]
+        return sorted(departments)
+
+    def _emit_alert(self, event_type, popup, settings, target_departments=None):
         if not popup:
             return None
 
@@ -834,7 +864,7 @@ class DashboardBuilder:
             settings,
         )
 
-        return {
+        alert = {
             "type": event_type,
             "title": popup.get("title", ""),
             "html": popup.get("html", ""),
@@ -842,6 +872,9 @@ class DashboardBuilder:
             "play_sound": play_sound,
             "sound": str(event_config.get("sound", "")).strip(),
         }
+        if target_departments:
+            alert["target_departments"] = list(target_departments)
+        return alert
 
     def _append_history(self, title, source, html_content, settings, details=None):
         history_entry = {
@@ -982,7 +1015,7 @@ class DashboardBuilder:
         )
         return {"title": "", "html": html}
 
-    def _item_snapshot(self, items, excluded_ids=None):
+    def _item_snapshot(self, items, excluded_ids=None, settings=None):
         excluded_ids = excluded_ids or set()
         snapshot = {}
         for item in items:
@@ -998,8 +1031,100 @@ class DashboardBuilder:
                 "name": first_value(item, ("item", "name"), "name", "description", default="Item"),
                 "quantity": first_value(item, "quantity", "quantity_total", "booked_quantity", default=0),
                 "status": first_value(item, "status", "status_id", default=0),
+                "prep_departments": self._item_prep_departments(item, settings),
             }
         return snapshot
+
+    def _item_prep_departments(self, item, settings=None):
+        candidates = []
+        field_names = self._routing_field_names(settings or {})
+        for container in (
+            item,
+            item.get("item") if isinstance(item, dict) else {},
+            item.get("resource_item") if isinstance(item, dict) else {},
+        ):
+            if not isinstance(container, dict):
+                continue
+            for field_name in field_names:
+                candidates.extend(self._custom_field_values(container, field_name))
+
+        seen = set()
+        departments = []
+        for value in candidates:
+            text = str(value).strip()
+            key = text.lower()
+            if text and key not in seen:
+                departments.append(text)
+                seen.add(key)
+        return departments
+
+    def _routing_field_names(self, settings):
+        routing = settings.get("alerts", {}).get("department_routing", {}) or {}
+        field_names = routing.get("field_names", [])
+        if isinstance(field_names, str):
+            field_names = [item.strip() for item in field_names.split(",") if item.strip()]
+        if not isinstance(field_names, list):
+            field_names = []
+        values = [str(item).strip() for item in field_names if str(item).strip()]
+        return values or ["prep_department", "prep department", "Prep Department"]
+
+    def _custom_field_values(self, container, field_name):
+        values = []
+        field_key = self._normalise_route_key(field_name)
+        for source_key in ("custom_fields", "custom_field_values", "custom_fields_data"):
+            source = container.get(source_key)
+            if isinstance(source, dict):
+                for key, value in source.items():
+                    if self._normalise_route_key(key) == field_key:
+                        values.extend(self._flatten_custom_value(value))
+            elif isinstance(source, list):
+                for entry in source:
+                    if not isinstance(entry, dict):
+                        continue
+                    names = [
+                        entry.get("name"),
+                        entry.get("label"),
+                        entry.get("key"),
+                        entry.get("slug"),
+                        entry.get("identifier"),
+                    ]
+                    if any(self._normalise_route_key(name) == field_key for name in names if name):
+                        values.extend(
+                            self._flatten_custom_value(
+                                first_value(
+                                    entry,
+                                    "value",
+                                    "display_value",
+                                    "values",
+                                    "selected_value",
+                                    "selected_values",
+                                    default="",
+                                )
+                            )
+                        )
+
+        for key, value in container.items():
+            if self._normalise_route_key(key) == field_key:
+                values.extend(self._flatten_custom_value(value))
+        return values
+
+    def _flatten_custom_value(self, value):
+        if value in (None, ""):
+            return []
+        if isinstance(value, list):
+            values = []
+            for item in value:
+                values.extend(self._flatten_custom_value(item))
+            return values
+        if isinstance(value, dict):
+            for key in ("name", "label", "value", "display_value", "text", "id"):
+                if value.get(key) not in (None, ""):
+                    return self._flatten_custom_value(value.get(key))
+            return []
+        return [str(value).strip()]
+
+    def _normalise_route_key(self, value):
+        return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
 
     def _opportunity_items(self, client, item_cache, opportunity_id):
         key = str(opportunity_id)

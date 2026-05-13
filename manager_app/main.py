@@ -796,6 +796,41 @@ class CurrentRMSTab(QWidget):
 
 
 class AlertsTab(QWidget):
+    @staticmethod
+    def format_department_routes(routes):
+        lines = []
+        for department, targets in sorted((routes or {}).items(), key=lambda item: str(item[0]).lower()):
+            if isinstance(targets, str):
+                target_text = targets
+            else:
+                target_text = ", ".join(str(item) for item in (targets or []) if str(item).strip())
+            if str(department).strip() and target_text.strip():
+                lines.append(f"{department} = {target_text}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def parse_department_routes(text):
+        routes = {}
+        for raw_line in str(text or "").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                department, targets = line.split("=", 1)
+            elif ":" in line:
+                department, targets = line.split(":", 1)
+            else:
+                continue
+            department = department.strip()
+            target_values = [item.strip() for item in targets.split(",") if item.strip()]
+            if department and target_values:
+                routes[department] = target_values
+        return routes
+
+    @staticmethod
+    def parse_csv(text):
+        return [item.strip() for item in str(text or "").split(",") if item.strip()]
+
     def __init__(self, state):
         super().__init__()
         self.state = state
@@ -807,6 +842,7 @@ class AlertsTab(QWidget):
         )
         settings = self.state.get_settings(include_secret=True).get("alerts", {})
         event_types = settings.get("event_types", {})
+        routing = settings.get("department_routing", {}) or {}
 
         rules_panel, rules_layout = make_panel(
             "Live Alert Rules",
@@ -897,6 +933,48 @@ class AlertsTab(QWidget):
         rules_layout.addLayout(buttons)
         layout.addWidget(rules_panel)
 
+        routing_panel, routing_layout = make_panel(
+            "Job Change Department Routing",
+            (
+                "Route job-change alerts to department screens using the product prep department custom field. "
+                "If a changed item has no department, it can still go to every screen."
+            ),
+        )
+        routing_form = QFormLayout()
+        self.department_routing_enabled = QCheckBox("Enable prep department routing for job-change alerts")
+        self.department_routing_enabled.setChecked(bool(routing.get("enabled", True)))
+        self.department_unknown_all = QCheckBox("Send no-department changes to all screens")
+        self.department_unknown_all.setChecked(bool(routing.get("send_unknown_to_all", True)))
+        self.department_field_names_input = QLineEdit(
+            ", ".join(str(item) for item in routing.get("field_names", []) or [])
+        )
+        self.department_field_names_input.setPlaceholderText("prep_department, prep department, Prep Department")
+        self.department_routes_input = QTextEdit()
+        self.department_routes_input.setMinimumHeight(125)
+        self.department_routes_input.setPlaceholderText(
+            "One route per line, for example:\n"
+            "Rigging = rigging\n"
+            "Power = power\n"
+            "Technology = technology\n"
+            "TV Lights = tv lights"
+        )
+        self.department_routes_input.setPlainText(self.format_department_routes(routing.get("routes", {})))
+
+        routing_form.addRow("", self.department_routing_enabled)
+        routing_form.addRow("Custom field names", self.department_field_names_input)
+        routing_form.addRow("Department routes", self.department_routes_input)
+        routing_form.addRow("", self.department_unknown_all)
+        routing_layout.addLayout(routing_form)
+
+        routing_note = QLabel(
+            "Left side is the Current RMS prep department value. Right side is one or more Pi name, ID, or screen "
+            "match terms. Separate multiple targets with commas."
+        )
+        routing_note.setWordWrap(True)
+        routing_note.setObjectName("SectionSubtitle")
+        routing_layout.addWidget(routing_note)
+        layout.addWidget(routing_panel)
+
         test_box, test_layout = make_panel(
             "Test Notifications",
             "Send a custom popup or category sound to only the checked Pi screens below.",
@@ -980,6 +1058,12 @@ class AlertsTab(QWidget):
             "quiet_hours_start": self.quiet_start_input.value(),
             "quiet_hours_end": self.quiet_end_input.value(),
             "history_limit": self.history_limit_input.value(),
+            "department_routing": {
+                "enabled": self.department_routing_enabled.isChecked(),
+                "field_names": self.parse_csv(self.department_field_names_input.text()),
+                "send_unknown_to_all": self.department_unknown_all.isChecked(),
+                "routes": self.parse_department_routes(self.department_routes_input.toPlainText()),
+            },
             "event_types": event_types,
         }
 

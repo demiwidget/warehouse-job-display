@@ -12,7 +12,7 @@ import traceback
 
 from app_version import CURRENT_VERSION
 from manager_app.activity_log import ActivityLog
-from manager_app.current_rms import DashboardBuilder
+from manager_app.current_rms import ALL_DEPARTMENT_TARGET, NO_DEPARTMENT_TARGET, DashboardBuilder
 from manager_app.security import security_status, set_admin_password
 from manager_app.settings_store import PROJECT_ROOT, SettingsStore
 
@@ -684,6 +684,59 @@ class ManagerState:
                 for screen in SCREEN_NAMES
             }
 
+    def _normalise_route_value(self, value):
+        return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+    def _alert_target_device_ids(self, alert, devices, settings):
+        device_ids = [str(device_id) for device_id in devices.keys() if str(device_id).strip()]
+        departments = [
+            str(item).strip()
+            for item in (alert.get("target_departments") or [])
+            if str(item).strip()
+        ]
+        if not departments or ALL_DEPARTMENT_TARGET in departments:
+            return device_ids
+        if NO_DEPARTMENT_TARGET in departments:
+            return []
+
+        routing = settings.get("alerts", {}).get("department_routing", {}) or {}
+        routes = routing.get("routes", {}) if isinstance(routing.get("routes", {}), dict) else {}
+        target_terms = set()
+        for department in departments:
+            department_key = self._normalise_route_value(department)
+            for route_department, route_targets in routes.items():
+                if self._normalise_route_value(route_department) != department_key:
+                    continue
+                if isinstance(route_targets, str):
+                    route_targets = [item.strip() for item in route_targets.split(",") if item.strip()]
+                if isinstance(route_targets, list):
+                    target_terms.update(
+                        self._normalise_route_value(item)
+                        for item in route_targets
+                        if self._normalise_route_value(item)
+                    )
+
+        if not target_terms:
+            return device_ids
+
+        matched_ids = []
+        for device_id, device in devices.items():
+            device_values = [
+                device_id,
+                device.get("id", ""),
+                device.get("name", ""),
+                device.get("screen", ""),
+            ]
+            device_terms = [self._normalise_route_value(value) for value in device_values if str(value).strip()]
+            if any(
+                route_term == device_term or route_term in device_term or device_term in route_term
+                for route_term in target_terms
+                for device_term in device_terms
+            ):
+                matched_ids.append(str(device_id))
+
+        return matched_ids or device_ids
+
     def refresh_dashboard(self):
         with self.lock:
             settings = self.store.load_settings()
@@ -726,15 +779,24 @@ class ManagerState:
             )
             return
 
+        queued_count = 0
+        target_ids = set()
         with self.lock:
-            for device_id in self.devices:
-                queue = self.alerts.setdefault(str(device_id), [])
-                queue.extend(dict(alert) for alert in deliverable)
-            target_count = len(self.devices)
+            for alert in deliverable:
+                device_ids = self._alert_target_device_ids(alert, self.devices, settings)
+                for device_id in device_ids:
+                    queue = self.alerts.setdefault(str(device_id), [])
+                    queue.append(dict(alert))
+                    target_ids.add(str(device_id))
+                    queued_count += 1
+        delivery_label = "delivery" if queued_count == 1 else "deliveries"
         self.log_activity(
             "Notifications",
-            f"Queued {len(deliverable)} notification(s) for {target_count} Pi screen(s).",
-            details={"notifications": [alert.get("title") or alert.get("type") for alert in deliverable]},
+            f"Queued {queued_count} notification {delivery_label} for {len(target_ids)} Pi screen(s).",
+            details={
+                "notifications": [alert.get("title") or alert.get("type") for alert in deliverable],
+                "target_ids": sorted(target_ids),
+            },
         )
 
     def send_test_notification(self, title, message, sound_name="", play_sound=True, device_ids=None):

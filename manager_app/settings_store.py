@@ -66,6 +66,32 @@ DEFAULT_SETTINGS = {
         "quiet_hours_start": 21,
         "quiet_hours_end": 7,
         "history_limit": 500,
+        "department_routing": {
+            "enabled": True,
+            "field_names": [
+                "prep_department",
+                "prep department",
+                "Prep Department",
+            ],
+            "send_unknown_to_all": True,
+            "routes": {
+                "Rigging": [
+                    "rigging",
+                ],
+                "Power": [
+                    "power",
+                ],
+                "Technology": [
+                    "technology",
+                ],
+                "TV Lights": [
+                    "tv lights",
+                ],
+                "3rd Party": [
+                    "3rd party",
+                ],
+            },
+        },
         "event_types": {
             "new_job_today": {
                 "enabled": True,
@@ -153,6 +179,37 @@ def _migrate_settings(settings):
         if not current_name or current_name == old_placeholder or current_name in legacy_names:
             mappings[department_id] = default_name
     quarantine_settings["department_mappings"] = mappings
+
+    alerts = settings.get("alerts", {})
+    routing = alerts.get("department_routing", {})
+    if not isinstance(routing, dict):
+        routing = {}
+    field_names = routing.get("field_names", [])
+    if isinstance(field_names, str):
+        field_names = [item.strip() for item in field_names.split(",") if item.strip()]
+    if not isinstance(field_names, list):
+        field_names = []
+    routing["field_names"] = [str(item).strip() for item in field_names if str(item).strip()]
+
+    routes = routing.get("routes", {})
+    if not isinstance(routes, dict):
+        routes = {}
+    clean_routes = {}
+    for department, targets in routes.items():
+        department_name = str(department).strip()
+        if not department_name:
+            continue
+        if isinstance(targets, str):
+            targets = [item.strip() for item in targets.split(",") if item.strip()]
+        if not isinstance(targets, list):
+            targets = []
+        clean_targets = [str(item).strip() for item in targets if str(item).strip()]
+        if clean_targets:
+            clean_routes[department_name] = clean_targets
+    routing["routes"] = clean_routes
+    routing["enabled"] = bool(routing.get("enabled", True))
+    routing["send_unknown_to_all"] = bool(routing.get("send_unknown_to_all", True))
+    alerts["department_routing"] = routing
     return settings
 
 
