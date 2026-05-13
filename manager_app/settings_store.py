@@ -140,6 +140,13 @@ LEGACY_QUARANTINE_DEPARTMENT_NAMES = {
     "1000067": {"Technology", "Department 1000067"},
 }
 DEFAULT_PREP_DEPARTMENT_ROUTES = DEFAULT_SETTINGS["alerts"]["department_routing"]["routes"]
+LEGACY_PREP_ROUTE_KEYS = {
+    "power": "1000083",
+    "rigging": "1000012",
+    "technology": "1000010",
+    "tv lights": "1000011",
+    "tvlights": "1000011",
+}
 
 
 def _merge_defaults(defaults, values):
@@ -150,6 +157,10 @@ def _merge_defaults(defaults, values):
         else:
             merged[key] = value
     return merged
+
+
+def _route_key_lookup(value):
+    return "".join(character for character in str(value or "").strip().lower() if character.isalnum())
 
 
 def _migrate_settings(settings):
@@ -195,13 +206,17 @@ def _migrate_settings(settings):
         department_name = str(department).strip()
         if not department_name:
             continue
+        department_name = LEGACY_PREP_ROUTE_KEYS.get(_route_key_lookup(department_name), department_name)
         if isinstance(targets, str):
             targets = [item.strip() for item in targets.split(",") if item.strip()]
         if not isinstance(targets, list):
             targets = []
         clean_targets = [str(item).strip() for item in targets if str(item).strip()]
         if clean_targets:
-            clean_routes[department_name] = clean_targets
+            clean_routes.setdefault(department_name, [])
+            for target in clean_targets:
+                if target not in clean_routes[department_name]:
+                    clean_routes[department_name].append(target)
     routing["routes"] = clean_routes
     for department_id, default_targets in DEFAULT_PREP_DEPARTMENT_ROUTES.items():
         clean_routes.setdefault(department_id, list(default_targets))

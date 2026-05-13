@@ -969,7 +969,7 @@ class AlertsTab(QWidget):
         routing_note = QLabel(
             "Left side is the Current RMS prep_department ID. Right side is one or more Pi name, ID, or screen "
             "match terms. IDs: 1000083 Power, 1000012 Rigging, 1000010 Technology, 1000011 TV Lights. "
-            "Separate multiple targets with commas."
+            "Separate multiple targets with commas. If a route is set but no Pi matches it, that alert is not sent."
         )
         routing_note.setWordWrap(True)
         routing_note.setObjectName("SectionSubtitle")

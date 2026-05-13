@@ -735,7 +735,7 @@ class ManagerState:
             ):
                 matched_ids.append(str(device_id))
 
-        return matched_ids or device_ids
+        return matched_ids
 
     def refresh_dashboard(self):
         with self.lock:
