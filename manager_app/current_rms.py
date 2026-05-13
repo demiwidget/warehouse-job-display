@@ -198,6 +198,15 @@ class CurrentRMSClient:
         response.raise_for_status()
         return response.json().get("opportunity_items", [])
 
+    def fetch_product(self, product_id):
+        response = requests.get(
+            f"{self.api_base}/products/{product_id}",
+            headers=self.headers(),
+            timeout=15,
+        )
+        response.raise_for_status()
+        return response.json().get("product", {})
+
     def fetch_quarantines(self, per_page=None, max_pages=None):
         if not self.configured:
             return {"quarantines": [], "meta": {"total_row_count": 0}}
@@ -306,6 +315,7 @@ class DashboardBuilder:
         try:
             views = self._fetch_views(client, settings)
             item_cache = {}
+            product_cache = {}
             self._prefetch_refresh_items(client, item_cache, views)
             quarantine_view = self._fetch_quarantine_view(client, settings)
             payloads = {
@@ -330,6 +340,7 @@ class DashboardBuilder:
                     views.get("today_out", {}),
                     client,
                     item_cache,
+                    product_cache,
                     settings,
                 )
             )
@@ -340,6 +351,7 @@ class DashboardBuilder:
                     views.get("tomorrow_out", {}),
                     client,
                     item_cache,
+                    product_cache,
                     settings,
                 )
             )
@@ -350,6 +362,7 @@ class DashboardBuilder:
                     views.get("prep", {}),
                     client,
                     item_cache,
+                    product_cache,
                     settings,
                 )
             )
@@ -748,7 +761,7 @@ class DashboardBuilder:
                 alerts.append(self._emit_alert("job_returned", self._job_returned_popup(job), settings))
         return alerts
 
-    def _job_change_alerts(self, bucket, event_type, view_payload, client, item_cache, settings):
+    def _job_change_alerts(self, bucket, event_type, view_payload, client, item_cache, product_cache, settings):
         jobs = (view_payload or {}).get("opportunities", [])
         excluded_item_ids = self._excluded_item_ids(settings)
         snapshot = self._item_snapshots.setdefault(bucket, {})
@@ -784,6 +797,7 @@ class DashboardBuilder:
             )
             changes = self._compare_items(snapshot.get(key, {}), current_items)
             if changes:
+                self._enrich_change_departments(changes, client, product_cache, settings)
                 target_departments = self._alert_departments_for_changes(changes, settings)
                 alert = self._emit_alert(
                     event_type,
@@ -838,11 +852,35 @@ class DashboardBuilder:
             else:
                 missing_department = True
 
+        if departments:
+            return sorted(departments)
         if missing_department and as_bool(routing.get("send_unknown_to_all", True)):
             return [ALL_DEPARTMENT_TARGET]
         if not departments and missing_department:
             return [NO_DEPARTMENT_TARGET]
-        return sorted(departments)
+        return [NO_DEPARTMENT_TARGET]
+
+    def _enrich_change_departments(self, changes, client, product_cache, settings):
+        product_ids = []
+        for change in changes:
+            item = change.get("item", {})
+            if item.get("prep_departments"):
+                continue
+            product_id = first_value(item, "item_id", "resource_item_id", "source_id", default="")
+            if str(product_id).strip():
+                product_ids.append(product_id)
+
+        self._prefetch_products(client, product_cache, product_ids)
+
+        for change in changes:
+            item = change.get("item", {})
+            if item.get("prep_departments"):
+                continue
+            product_id = str(first_value(item, "item_id", "resource_item_id", "source_id", default="")).strip()
+            product = product_cache.get(product_id, {})
+            departments = self._item_prep_departments(product, settings)
+            if departments:
+                item["prep_departments"] = departments
 
     def _emit_alert(self, event_type, popup, settings, target_departments=None):
         if not popup:
@@ -1159,6 +1197,31 @@ class DashboardBuilder:
                     item_cache[key] = future.result()
                 except Exception:
                     item_cache[key] = []
+
+    def _prefetch_products(self, client, product_cache, product_ids):
+        missing_ids = []
+        seen = set()
+        for product_id in product_ids:
+            key = str(product_id).strip() if product_id not in (None, "") else ""
+            if not key or key in seen or key in product_cache:
+                continue
+            missing_ids.append(key)
+            seen.add(key)
+
+        if not missing_ids:
+            return
+
+        with ThreadPoolExecutor(max_workers=min(client.max_workers, len(missing_ids))) as executor:
+            futures = {
+                executor.submit(client.fetch_product, product_id): product_id
+                for product_id in missing_ids
+            }
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    product_cache[key] = future.result()
+                except Exception:
+                    product_cache[key] = {}
 
     def _outstanding_totals(self, items):
         booked_out_qty = 0

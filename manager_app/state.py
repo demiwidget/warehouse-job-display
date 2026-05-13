@@ -689,12 +689,15 @@ class ManagerState:
 
     def _alert_target_device_ids(self, alert, devices, settings):
         device_ids = [str(device_id) for device_id in devices.keys() if str(device_id).strip()]
+        has_department_filter = "target_departments" in alert
         departments = [
             str(item).strip()
             for item in (alert.get("target_departments") or [])
             if str(item).strip()
         ]
-        if not departments or ALL_DEPARTMENT_TARGET in departments:
+        if not departments:
+            return [] if has_department_filter else device_ids
+        if ALL_DEPARTMENT_TARGET in departments:
             return device_ids
         if NO_DEPARTMENT_TARGET in departments:
             return []
@@ -717,7 +720,7 @@ class ManagerState:
                     )
 
         if not target_terms:
-            return device_ids
+            return []
 
         matched_ids = []
         for device_id, device in devices.items():
@@ -781,9 +784,18 @@ class ManagerState:
 
         queued_count = 0
         target_ids = set()
+        delivery_details = []
         with self.lock:
             for alert in deliverable:
                 device_ids = self._alert_target_device_ids(alert, self.devices, settings)
+                delivery_details.append(
+                    {
+                        "type": alert.get("type"),
+                        "title": alert.get("title") or alert.get("type") or "Notification",
+                        "target_departments": alert.get("target_departments", []),
+                        "target_ids": sorted(device_ids),
+                    }
+                )
                 for device_id in device_ids:
                     queue = self.alerts.setdefault(str(device_id), [])
                     queue.append(dict(alert))
@@ -794,7 +806,7 @@ class ManagerState:
             "Notifications",
             f"Queued {queued_count} notification {delivery_label} for {len(target_ids)} Pi screen(s).",
             details={
-                "notifications": [alert.get("title") or alert.get("type") for alert in deliverable],
+                "notifications": delivery_details,
                 "target_ids": sorted(target_ids),
             },
         )

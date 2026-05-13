@@ -267,7 +267,10 @@ class SettingsStore:
             data = json.loads(self.settings_file.read_text(encoding="utf-8"))
         except Exception:
             data = {}
-        return _migrate_settings(_merge_defaults(DEFAULT_SETTINGS, data))
+        safe_settings = _migrate_settings(_merge_defaults(DEFAULT_SETTINGS, data))
+        if safe_settings != data:
+            _atomic_write_text(self.settings_file, json.dumps(safe_settings, indent=2))
+        return safe_settings
 
     def save_settings(self, settings):
         safe_settings = _migrate_settings(_merge_defaults(DEFAULT_SETTINGS, settings))
