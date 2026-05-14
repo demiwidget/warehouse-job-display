@@ -780,6 +780,7 @@ class DashboardBuilder:
                         self._opportunity_items(client, item_cache, opportunity_id),
                         excluded_item_ids,
                         settings,
+                        include_accessories=False,
                     )
             return []
 
@@ -794,19 +795,20 @@ class DashboardBuilder:
                 self._opportunity_items(client, item_cache, opportunity_id),
                 excluded_item_ids,
                 settings,
+                include_accessories=False,
             )
             changes = self._compare_items(snapshot.get(key, {}), current_items)
             if changes:
                 self._enrich_change_departments(changes, client, product_cache, settings)
-                target_departments = self._alert_departments_for_changes(changes, settings)
-                alert = self._emit_alert(
-                    event_type,
-                    self._job_change_popup(event_type, self._opportunity_name(job), changes),
-                    settings,
-                    target_departments=target_departments,
-                )
-                if alert:
-                    alerts.append(alert)
+                for target_departments, routed_changes in self._department_change_groups(changes, settings):
+                    alert = self._emit_alert(
+                        event_type,
+                        self._job_change_popup(event_type, self._opportunity_name(job), routed_changes),
+                        settings,
+                        target_departments=target_departments,
+                    )
+                    if alert:
+                        alerts.append(alert)
             next_snapshot[key] = current_items
 
         self._item_snapshots[bucket] = next_snapshot
@@ -834,31 +836,30 @@ class DashboardBuilder:
             displayable.append(change)
         return displayable
 
-    def _alert_departments_for_changes(self, changes, settings):
+    def _department_change_groups(self, changes, settings):
         routing = settings.get("alerts", {}).get("department_routing", {}) or {}
         if not as_bool(routing.get("enabled", True)):
-            return []
+            return [([], changes)]
 
-        departments = set()
-        missing_department = False
+        grouped = {}
+        unknown_changes = []
         for change in changes:
-            item_departments = [
+            departments = [
                 str(value).strip()
                 for value in change.get("item", {}).get("prep_departments", []) or []
                 if str(value).strip()
             ]
-            if item_departments:
-                departments.update(item_departments)
-            else:
-                missing_department = True
+            if not departments:
+                unknown_changes.append(change)
+                continue
+            for department in departments:
+                grouped.setdefault(department, []).append(change)
 
-        if departments:
-            return sorted(departments)
-        if missing_department and as_bool(routing.get("send_unknown_to_all", True)):
-            return [ALL_DEPARTMENT_TARGET]
-        if not departments and missing_department:
-            return [NO_DEPARTMENT_TARGET]
-        return [NO_DEPARTMENT_TARGET]
+        routed_groups = [([department], grouped[department]) for department in sorted(grouped)]
+        if unknown_changes:
+            target = ALL_DEPARTMENT_TARGET if as_bool(routing.get("send_unknown_to_all", True)) else NO_DEPARTMENT_TARGET
+            routed_groups.append(([target], unknown_changes))
+        return routed_groups or [([NO_DEPARTMENT_TARGET], changes)]
 
     def _enrich_change_departments(self, changes, client, product_cache, settings):
         product_ids = []
@@ -1053,10 +1054,12 @@ class DashboardBuilder:
         )
         return {"title": "", "html": html}
 
-    def _item_snapshot(self, items, excluded_ids=None, settings=None):
+    def _item_snapshot(self, items, excluded_ids=None, settings=None, include_accessories=True):
         excluded_ids = excluded_ids or set()
         snapshot = {}
         for item in items:
+            if not include_accessories and self._item_is_accessory_line(item):
+                continue
             if self._item_is_excluded(item, excluded_ids):
                 continue
             item_id = item.get("id")
@@ -1072,6 +1075,11 @@ class DashboardBuilder:
                 "prep_departments": self._item_prep_departments(item, settings),
             }
         return snapshot
+
+    def _item_is_accessory_line(self, item):
+        item_type = safe_int(first_value(item, "opportunity_item_type", default=-1), -1)
+        item_type_name = str(first_value(item, "opportunity_item_type_name", default="")).strip().lower()
+        return item_type == 2 or item_type_name == "accessory"
 
     def _item_prep_departments(self, item, settings=None):
         candidates = []
