@@ -1,5 +1,6 @@
 import json
 import os
+import signal
 import shutil
 import subprocess
 import sys
@@ -11,12 +12,14 @@ from threading import Thread
 import requests
 
 from app_version import sync_config_version
-from pi_audio import audio_health_report, sync_audio_config
+from pi_audio import audio_health_report, audio_runtime_environment, sync_audio_config
 from pi_identity import normalize_display_scale, registration_id, registration_payload
 from pi_status import post_status
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = BASE_DIR / "viewer_config.json"
+SOUND_LOOP_PID_FILE = Path("/tmp/warehouse-dashboard-sound-loop.pid")
+DEFAULT_LOOP_SOUND = "job-changes.wav"
 
 
 def write_json_atomic(path, payload):
@@ -97,6 +100,160 @@ def post_audio_status(cfg, apply_preferences=False, source="agent"):
         audio_status=report,
     )
     return report
+
+
+def safe_sound_name(sound_name):
+    raw_name = str(sound_name or "").strip() or DEFAULT_LOOP_SOUND
+    if "/" in raw_name or "\\" in raw_name:
+        return ""
+    safe_name = Path(raw_name).name
+    if safe_name != raw_name or Path(safe_name).suffix.lower() != ".wav":
+        return ""
+    return safe_name
+
+
+def sound_player_command(sound_path):
+    for binary, command in (
+        ("pw-play", ["pw-play", str(sound_path)]),
+        ("paplay", ["paplay", str(sound_path)]),
+        ("aplay", ["aplay", "-q", str(sound_path)]),
+    ):
+        if shutil.which(binary):
+            return binary, command
+    return "", []
+
+
+def sound_loop_main(sound_path, interval_seconds=2.0):
+    sound_path = Path(sound_path)
+    while SOUND_LOOP_PID_FILE.exists():
+        _player, command = sound_player_command(sound_path)
+        if not command:
+            time.sleep(interval_seconds)
+            continue
+        try:
+            subprocess.run(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=30,
+                check=False,
+                env=audio_runtime_environment(),
+            )
+        except Exception:
+            pass
+        time.sleep(interval_seconds)
+
+
+def stop_sound_loop(cfg=None, report=True):
+    stopped = False
+    try:
+        pid = int(SOUND_LOOP_PID_FILE.read_text(encoding="utf-8").strip())
+    except Exception:
+        pid = None
+
+    try:
+        SOUND_LOOP_PID_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    if pid:
+        try:
+            os.killpg(pid, signal.SIGTERM)
+            stopped = True
+        except Exception:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                stopped = True
+            except Exception:
+                pass
+
+    if cfg and report:
+        message = "Stopped repeating sound check." if stopped else "Repeating sound check was not running."
+        post_status(cfg, "online", message, source="audio", timeout=3, event_only=True, level="info")
+    return stopped
+
+
+def start_sound_loop(cfg, sound_name=None):
+    safe_name = safe_sound_name(sound_name)
+    if not safe_name:
+        post_status(
+            cfg,
+            "online",
+            f"Could not start repeating sound check: invalid sound file {sound_name}.",
+            source="audio",
+            timeout=3,
+            event_only=True,
+            level="warning",
+        )
+        return False
+
+    sound_path = BASE_DIR / "sounds" / safe_name
+    if not sound_path.exists():
+        post_status(
+            cfg,
+            "online",
+            f"Could not start repeating sound check: {safe_name} is missing on this Pi.",
+            source="audio",
+            timeout=3,
+            event_only=True,
+            level="warning",
+        )
+        return False
+
+    stop_sound_loop(report=False)
+    report = post_audio_status(cfg, apply_preferences=True, source="audio")
+    if not report.get("ok"):
+        return False
+
+    _player, command = sound_player_command(sound_path)
+    if not command:
+        post_status(
+            cfg,
+            "online",
+            "Could not start repeating sound check: no WAV player found.",
+            source="audio",
+            timeout=3,
+            event_only=True,
+            level="warning",
+        )
+        return False
+
+    try:
+        SOUND_LOOP_PID_FILE.write_text("starting", encoding="utf-8")
+        process = subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve()), "--sound-loop", str(sound_path), "2"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            cwd=str(BASE_DIR),
+            start_new_session=True,
+        )
+        SOUND_LOOP_PID_FILE.write_text(str(process.pid), encoding="utf-8")
+    except Exception as error:
+        post_status(
+            cfg,
+            "online",
+            f"Could not start repeating sound check: {error}",
+            source="audio",
+            timeout=3,
+            event_only=True,
+            level="warning",
+        )
+        try:
+            SOUND_LOOP_PID_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return False
+
+    post_status(
+        cfg,
+        "online",
+        f"Started repeating sound check using {safe_name}. Use Stop Repeating Sound when finished.",
+        source="audio",
+        timeout=3,
+        event_only=True,
+        level="info",
+    )
+    return True
 
 
 def run_systemctl(*args):
@@ -328,6 +485,10 @@ def handle_command(cfg, cmd):
         start_update_process(cfg)
     elif action == "sound_check":
         post_audio_status(cfg, apply_preferences=True, source="audio")
+    elif action == "sound_loop_start":
+        start_sound_loop(cfg, cmd.get("sound_name", DEFAULT_LOOP_SOUND))
+    elif action == "sound_loop_stop":
+        stop_sound_loop(cfg)
     elif action == "rename":
         new_name = str(cmd.get("device_name", "")).strip()
         if new_name:
@@ -367,4 +528,11 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) >= 3 and sys.argv[1] == "--sound-loop":
+        try:
+            interval = float(sys.argv[3]) if len(sys.argv) >= 4 else 2.0
+        except Exception:
+            interval = 2.0
+        sound_loop_main(sys.argv[2], interval)
+        raise SystemExit(0)
     main()

@@ -1842,6 +1842,8 @@ class PiScreensTab(QWidget):
         restart_btn = QPushButton("Restart Display App")
         update_btn = QPushButton("Update Pi From GitHub")
         sound_check_btn = QPushButton("Run Sound Check")
+        sound_loop_start_btn = QPushButton("Start Repeating Sound")
+        sound_loop_stop_btn = QPushButton("Stop Repeating Sound")
         update_all_btn = mark_primary(QPushButton("Update All Pis + Manager"))
         check_updates_btn = QPushButton("Check GitHub Updates")
         reboot_btn = mark_danger(QPushButton("Reboot Pi"))
@@ -1852,6 +1854,8 @@ class PiScreensTab(QWidget):
         restart_btn.clicked.connect(lambda: self.send_action("restart"))
         update_btn.clicked.connect(lambda: self.send_action("update"))
         sound_check_btn.clicked.connect(lambda: self.send_action("sound_check"))
+        sound_loop_start_btn.clicked.connect(self.start_repeating_sound)
+        sound_loop_stop_btn.clicked.connect(lambda: self.send_action("sound_loop_stop"))
         update_all_btn.clicked.connect(self.update_all)
         check_updates_btn.clicked.connect(self.check_updates_now)
         reboot_btn.clicked.connect(lambda: self.send_action("reboot"))
@@ -1865,6 +1869,15 @@ class PiScreensTab(QWidget):
         command_buttons.addWidget(update_all_btn)
         command_buttons.addStretch(1)
         controls_layout.addLayout(command_buttons)
+
+        sound_test_layout = QHBoxLayout()
+        self.sound_loop_input = QLineEdit("job-changes.wav")
+        self.sound_loop_input.setPlaceholderText("Sound file, e.g. job-changes.wav")
+        sound_test_layout.addWidget(QLabel("Repeating sound"))
+        sound_test_layout.addWidget(self.sound_loop_input, 1)
+        sound_test_layout.addWidget(sound_loop_start_btn)
+        sound_test_layout.addWidget(sound_loop_stop_btn)
+        controls_layout.addLayout(sound_test_layout)
 
         service_buttons = QHBoxLayout()
         service_buttons.addWidget(check_updates_btn)
@@ -2070,6 +2083,10 @@ class PiScreensTab(QWidget):
         self.state.queue_command(device_ids, "set_display_scale", display_scale=int(scale))
         self.status.setText(f"Queued {scale}% display size for {len(device_ids)} Pi screen(s).")
 
+    def start_repeating_sound(self):
+        sound_name = self.sound_loop_input.text().strip() or "job-changes.wav"
+        self.send_action("sound_loop_start", sound_name=sound_name)
+
     def remove_selected_pis(self):
         devices = self.selected_devices()
         if not devices:
@@ -2093,13 +2110,13 @@ class PiScreensTab(QWidget):
         self.status.setText(f"Removed {removed_count} Pi screen(s) from the manager list.")
         self.refresh()
 
-    def send_action(self, action, screen=None):
+    def send_action(self, action, screen=None, **extra):
         device_ids = self.selected_device_ids()
         if not device_ids:
             QMessageBox.warning(self, "No Pi Selected", "Select one or more Pi screens first.")
             return
 
-        self.state.queue_command(device_ids, action, screen=screen)
+        self.state.queue_command(device_ids, action, screen=screen, **extra)
         self.status.setText(f"Queued {action} for {len(device_ids)} Pi screen(s).")
 
 
