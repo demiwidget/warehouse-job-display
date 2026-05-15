@@ -228,6 +228,22 @@ def start_sound_loop(cfg, sound_name=None):
             start_new_session=True,
         )
         SOUND_LOOP_PID_FILE.write_text(str(process.pid), encoding="utf-8")
+        time.sleep(0.5)
+        if process.poll() is not None:
+            try:
+                SOUND_LOOP_PID_FILE.unlink(missing_ok=True)
+            except Exception:
+                pass
+            post_status(
+                cfg,
+                "online",
+                f"Repeating sound check stopped immediately using {safe_name}.",
+                source="audio",
+                timeout=3,
+                event_only=True,
+                level="warning",
+            )
+            return False
     except Exception as error:
         post_status(
             cfg,
