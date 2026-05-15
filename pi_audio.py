@@ -86,7 +86,10 @@ def choose_sink(sinks: List[Dict[str, object]], preference: str) -> Optional[Dic
 
     pref = str(preference or DEFAULT_AUDIO_OUTPUT).strip().lower()
     if pref == "auto":
-        pref = DEFAULT_AUDIO_OUTPUT
+        for sink in sinks:
+            if bool(sink.get("default")):
+                return sink
+        return sinks[0]
 
     for sink in sinks:
         if _sink_matches_preference(str(sink.get("name", "")), pref):

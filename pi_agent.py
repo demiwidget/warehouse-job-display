@@ -12,7 +12,7 @@ from threading import Thread
 import requests
 
 from app_version import sync_config_version
-from pi_audio import audio_health_report, audio_runtime_environment, sync_audio_config
+from pi_audio import audio_health_report, audio_runtime_environment, normalize_audio_volume, sync_audio_config
 from pi_identity import normalize_display_scale, registration_id, registration_payload
 from pi_status import post_status
 
@@ -505,6 +505,14 @@ def handle_command(cfg, cmd):
         start_sound_loop(cfg, cmd.get("sound_name", DEFAULT_LOOP_SOUND))
     elif action == "sound_loop_stop":
         stop_sound_loop(cfg)
+    elif action == "set_audio":
+        output = str(cmd.get("audio_output", cfg.get("audio_output", "hdmi"))).strip().lower()
+        if output not in {"auto", "hdmi", "analog"}:
+            output = "hdmi"
+        cfg["audio_output"] = output
+        cfg["audio_volume"] = normalize_audio_volume(cmd.get("audio_volume", cfg.get("audio_volume", 100)))
+        save_config(cfg)
+        post_audio_status(cfg, apply_preferences=True, source="audio")
     elif action == "rename":
         new_name = str(cmd.get("device_name", "")).strip()
         if new_name:

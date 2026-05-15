@@ -1842,6 +1842,7 @@ class PiScreensTab(QWidget):
         restart_btn = QPushButton("Restart Display App")
         update_btn = QPushButton("Update Pi From GitHub")
         sound_check_btn = QPushButton("Run Sound Check")
+        set_audio_btn = QPushButton("Set Audio Output")
         sound_loop_start_btn = QPushButton("Start Repeating Sound")
         sound_loop_stop_btn = QPushButton("Stop Repeating Sound")
         update_all_btn = mark_primary(QPushButton("Update All Pis + Manager"))
@@ -1854,6 +1855,7 @@ class PiScreensTab(QWidget):
         restart_btn.clicked.connect(lambda: self.send_action("restart"))
         update_btn.clicked.connect(lambda: self.send_action("update"))
         sound_check_btn.clicked.connect(lambda: self.send_action("sound_check"))
+        set_audio_btn.clicked.connect(self.set_audio_selected)
         sound_loop_start_btn.clicked.connect(self.start_repeating_sound)
         sound_loop_stop_btn.clicked.connect(lambda: self.send_action("sound_loop_stop"))
         update_all_btn.clicked.connect(self.update_all)
@@ -1866,6 +1868,7 @@ class PiScreensTab(QWidget):
         command_buttons.addWidget(restart_btn)
         command_buttons.addWidget(update_btn)
         command_buttons.addWidget(sound_check_btn)
+        command_buttons.addWidget(set_audio_btn)
         command_buttons.addWidget(update_all_btn)
         command_buttons.addStretch(1)
         controls_layout.addLayout(command_buttons)
@@ -2086,6 +2089,34 @@ class PiScreensTab(QWidget):
     def start_repeating_sound(self):
         sound_name = self.sound_loop_input.text().strip() or "job-changes.wav"
         self.send_action("sound_loop_start", sound_name=sound_name)
+
+    def set_audio_selected(self):
+        if not self.selected_device_ids():
+            QMessageBox.warning(self, "No Pi Selected", "Select one or more Pi screens first.")
+            return
+
+        output, ok = QInputDialog.getItem(
+            self,
+            "Set Audio Output",
+            "Choose audio output mode:",
+            ["auto", "hdmi", "analog"],
+            0,
+            False,
+        )
+        if not ok:
+            return
+        volume, ok = QInputDialog.getInt(
+            self,
+            "Set Audio Volume",
+            "Volume percent:",
+            100,
+            0,
+            100,
+            5,
+        )
+        if not ok:
+            return
+        self.send_action("set_audio", audio_output=output, audio_volume=volume)
 
     def remove_selected_pis(self):
         devices = self.selected_devices()
