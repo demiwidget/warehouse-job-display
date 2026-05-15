@@ -51,7 +51,7 @@ MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 DISABLE_LEGACY_KIOSK="${WAREHOUSE_DISABLE_LEGACY_KIOSK:-1}"
 DISABLE_LEGACY_STACK="${WAREHOUSE_DISABLE_LEGACY_STACK:-1}"
 SKIP_SERVICE_RESTART="${WAREHOUSE_SKIP_SERVICE_RESTART:-0}"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.78')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.0.79')"
 
 if [[ ! -f "$APP_DIR/pi_viewer.py" || ! -f "$APP_DIR/pi_agent.py" ]]; then
     fail "Cannot find pi_viewer.py and pi_agent.py. Run this from the repository scripts directory."
@@ -544,6 +544,13 @@ Type=simple
 User=$APP_USER
 WorkingDirectory=$APP_DIR
 EnvironmentFile=/etc/default/warehouse-dashboard
+Environment=DISPLAY=:0
+Environment=HOME=$APP_HOME
+Environment=XAUTHORITY=$APP_HOME/.Xauthority
+Environment=XDG_RUNTIME_DIR=/run/user/$APP_UID
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$APP_UID/bus
+Environment=PULSE_SERVER=unix:/run/user/$APP_UID/pulse/native
+Environment=WAYLAND_DISPLAY=wayland-0
 ExecStart=$VENV_DIR/bin/python "$APP_DIR/pi_agent.py"
 Restart=always
 RestartSec=5

@@ -1,3 +1,4 @@
+import os
 import re
 import shutil
 import subprocess
@@ -98,6 +99,46 @@ def choose_sink(sinks: List[Dict[str, object]], preference: str) -> Optional[Dic
     return sinks[0]
 
 
+def audio_runtime_environment() -> Dict[str, str]:
+    env = os.environ.copy()
+    try:
+        uid = os.getuid()
+    except Exception:
+        uid = None
+
+    if uid is not None:
+        runtime_dir = Path(f"/run/user/{uid}")
+        if runtime_dir.exists():
+            env.setdefault("XDG_RUNTIME_DIR", str(runtime_dir))
+            bus_path = runtime_dir / "bus"
+            if bus_path.exists():
+                env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={bus_path}")
+            pulse_path = runtime_dir / "pulse" / "native"
+            if pulse_path.exists():
+                env.setdefault("PULSE_SERVER", f"unix:{pulse_path}")
+            if (runtime_dir / "wayland-0").exists():
+                env.setdefault("WAYLAND_DISPLAY", "wayland-0")
+
+    env.setdefault("DISPLAY", ":0")
+    return env
+
+
+def _compact_process_error(text: str) -> str:
+    lines = [
+        re.sub(r"\s+", " ", line).strip()
+        for line in str(text or "").splitlines()
+        if line.strip()
+    ]
+    if not lines:
+        return ""
+
+    for line in reversed(lines):
+        lowered = line.lower()
+        if "could not connect" in lowered or "failed" in lowered or "unable" in lowered:
+            return line[:240]
+    return " ".join(lines)[-240:]
+
+
 def _run_wpctl(args: List[str]) -> bool:
     wpctl = shutil.which("wpctl")
     if not wpctl:
@@ -110,6 +151,7 @@ def _run_wpctl(args: List[str]) -> bool:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=10,
+            env=audio_runtime_environment(),
         )
         return True
     except Exception:
@@ -124,6 +166,7 @@ def _run_capture(command: List[str], timeout=10):
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=audio_runtime_environment(),
         )
     except Exception:
         return None
@@ -184,11 +227,12 @@ def audio_health_report(cfg: Dict, sounds_dir=None, apply_preferences=False) -> 
 
     result = _run_capture([wpctl, "status"], timeout=10)
     if not result or result.returncode != 0:
+        detail = _compact_process_error(result.stderr if result else "") or "wpctl status failed."
         report.update(
             {
                 "state": "wpctl_failed",
                 "summary": "Could not read audio status",
-                "detail": str(result.stderr if result else "").strip() or "wpctl status failed.",
+                "detail": detail,
             }
         )
         return report
@@ -286,16 +330,9 @@ def apply_audio_preferences(cfg: Dict) -> Tuple[bool, str]:
     if not wpctl:
         return False, "wpctl not available"
 
-    try:
-        result = subprocess.run(
-            [wpctl, "status"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except Exception:
-        return False, "unable to read audio sinks"
+    result = _run_capture([wpctl, "status"], timeout=10)
+    if not result or result.returncode != 0:
+        return False, _compact_process_error(result.stderr if result else "") or "unable to read audio sinks"
 
     sinks = _extract_sinks(result.stdout)
     sink = choose_sink(sinks, str(cfg.get("audio_output", DEFAULT_AUDIO_OUTPUT)))
