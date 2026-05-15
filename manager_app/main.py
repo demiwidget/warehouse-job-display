@@ -1773,7 +1773,7 @@ class ManagerPiTab(QWidget):
 class PiScreensTab(QWidget):
     command_finished = Signal(str)
 
-    COLUMNS = ["ID", "Name", "IP", "Screen", "Scale", "Version", "Update", "State", "Activity", "Last Seen"]
+    COLUMNS = ["ID", "Name", "IP", "Screen", "Scale", "Version", "Update", "State", "Audio", "Activity", "Last Seen"]
     STATUS_COLORS = {
         "Online": "#2e7d32",
         "Display Restarting": "#f9a825",
@@ -1785,6 +1785,12 @@ class PiScreensTab(QWidget):
         "Update Failed": "#b71c1c",
         "Offline": "#616161",
         "Unknown": "#455a64",
+    }
+    AUDIO_COLORS = {
+        "Audio OK": "#2e7d32",
+        "Audio Issue": "#b71c1c",
+        "Check stale": "#f9a825",
+        "Not checked": "#455a64",
     }
 
     def __init__(self, state):
@@ -1835,6 +1841,7 @@ class PiScreensTab(QWidget):
         display_size_btn = QPushButton("Set Display Size")
         restart_btn = QPushButton("Restart Display App")
         update_btn = QPushButton("Update Pi From GitHub")
+        sound_check_btn = QPushButton("Run Sound Check")
         update_all_btn = mark_primary(QPushButton("Update All Pis + Manager"))
         check_updates_btn = QPushButton("Check GitHub Updates")
         reboot_btn = mark_danger(QPushButton("Reboot Pi"))
@@ -1844,6 +1851,7 @@ class PiScreensTab(QWidget):
         display_size_btn.clicked.connect(self.set_display_size_selected)
         restart_btn.clicked.connect(lambda: self.send_action("restart"))
         update_btn.clicked.connect(lambda: self.send_action("update"))
+        sound_check_btn.clicked.connect(lambda: self.send_action("sound_check"))
         update_all_btn.clicked.connect(self.update_all)
         check_updates_btn.clicked.connect(self.check_updates_now)
         reboot_btn.clicked.connect(lambda: self.send_action("reboot"))
@@ -1853,6 +1861,7 @@ class PiScreensTab(QWidget):
         command_buttons.addWidget(display_size_btn)
         command_buttons.addWidget(restart_btn)
         command_buttons.addWidget(update_btn)
+        command_buttons.addWidget(sound_check_btn)
         command_buttons.addWidget(update_all_btn)
         command_buttons.addStretch(1)
         controls_layout.addLayout(command_buttons)
@@ -1920,6 +1929,7 @@ class PiScreensTab(QWidget):
                 device.get("version", ""),
                 device.get("update", ""),
                 device.get("state", ""),
+                device.get("audio", ""),
                 device.get("activity", ""),
                 device.get("last_seen", ""),
             ]
@@ -1939,6 +1949,12 @@ class PiScreensTab(QWidget):
                     if color:
                         item.setBackground(QColor(color))
                         item.setForeground(QColor("#ffffff"))
+                elif self.COLUMNS[column] == "Audio":
+                    color = self.AUDIO_COLORS.get(str(value), "")
+                    if color:
+                        item.setBackground(QColor(color))
+                        item.setForeground(QColor("#111111" if str(value) == "Check stale" else "#ffffff"))
+                    item.setToolTip(str(device.get("audio_detail", "")))
                 elif self.COLUMNS[column] == "Update" and str(value).startswith("Available"):
                     item.setBackground(QColor("#f9a825"))
                     item.setForeground(QColor("#111111"))

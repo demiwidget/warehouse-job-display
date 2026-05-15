@@ -34,6 +34,7 @@ STATUS_LABELS = {
 }
 TRANSITIONAL_STATES = {"display_restarting", "rebooting", "renaming", "switching_screen", "viewer_starting", "updating"}
 UPDATE_ALL_MANAGER_DELAY_SECONDS = 30
+MAX_AUDIO_STATUS_AGE_SECONDS = 600
 
 
 def parse_iso(ts):
@@ -427,6 +428,10 @@ class ManagerState:
                 "last_seen": now,
             }
         )
+        audio_status = payload.get("audio_status")
+        if isinstance(audio_status, dict):
+            existing["audio_status"] = audio_status
+            existing["audio_checked_at"] = now
 
     def _apply_status_update(self, existing, payload, now):
         state = str(payload.get("state", "")).strip()
@@ -507,7 +512,7 @@ class ManagerState:
                 category,
                 f"{result.get('name') or device_id}: {message or 'Event received.'}",
                 level=level,
-                details={"device_id": device_id, "source": source},
+                details={"device_id": device_id, "source": source, "audio_status": payload.get("audio_status")},
             )
             return result
 
@@ -565,6 +570,25 @@ class ManagerState:
                     status_message = f"No heartbeat for {stale_seconds}s." if stale_seconds is not None else "No heartbeat received."
                 elif not status_message:
                     status_message = "Heartbeat active."
+
+                audio_status = item.get("audio_status", {}) if isinstance(item.get("audio_status", {}), dict) else {}
+                audio_checked_dt = parse_iso(item.get("audio_checked_at"))
+                audio_age_seconds = None
+                if audio_checked_dt:
+                    audio_age_seconds = max(0, int((now - audio_checked_dt).total_seconds()))
+                if not audio_status:
+                    item["audio"] = "Not checked"
+                    item["audio_detail"] = "No sound check has been reported yet."
+                elif audio_age_seconds is not None and audio_age_seconds > MAX_AUDIO_STATUS_AGE_SECONDS:
+                    item["audio"] = "Check stale"
+                    item["audio_detail"] = str(audio_status.get("summary") or "Last audio check is stale.")
+                elif audio_status.get("ok"):
+                    item["audio"] = "Audio OK"
+                    item["audio_detail"] = str(audio_status.get("detail") or audio_status.get("summary") or "Audio OK.")
+                else:
+                    item["audio"] = "Audio Issue"
+                    item["audio_detail"] = str(audio_status.get("summary") or audio_status.get("detail") or "Audio check failed.")
+                item["audio_checked_at"] = item.get("audio_checked_at", "")
 
                 if status_updated_dt:
                     status_message = f"{status_message} ({status_updated_dt.strftime('%d/%m/%Y %H:%M:%S')})"

@@ -47,7 +47,7 @@ except Exception:
     fcntl = None
 
 from app_version import CURRENT_VERSION, sync_config_version
-from pi_audio import apply_audio_preferences, sync_audio_config
+from pi_audio import apply_audio_preferences, audio_health_report, sync_audio_config
 from pi_identity import normalize_display_scale, registration_id, registration_payload
 from pi_status import post_status
 
@@ -597,6 +597,7 @@ class ViewerWindow(QMainWindow):
         self.refresh_all()
         QTimer.singleShot(800, self.ensure_audio_preferences)
         QTimer.singleShot(5000, self.ensure_audio_preferences)
+        QTimer.singleShot(7000, self.report_audio_health)
         QTimer.singleShot(1200, self.report_online_status)
 
     def build_ui(self):
@@ -867,6 +868,27 @@ class ViewerWindow(QMainWindow):
             ),
             daemon=True,
         ).start()
+
+    def report_audio_health(self):
+        Thread(target=self._report_audio_health_worker, daemon=True).start()
+
+    def _report_audio_health_worker(self):
+        report = audio_health_report(self.config, sounds_dir=BASE_DIR / "sounds", apply_preferences=True)
+        level = "info" if report.get("ok") else "warning"
+        message = str(report.get("summary") or "Audio check complete.")
+        detail = str(report.get("detail") or "").strip()
+        if detail:
+            message = f"{message}: {detail}"
+        post_status(
+            self.config,
+            "online",
+            message,
+            source="audio",
+            timeout=4,
+            event_only=True,
+            level=level,
+            audio_status=report,
+        )
 
     def safe_sound_name(self, sound_name):
         raw_name = str(sound_name or "").strip()

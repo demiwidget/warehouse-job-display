@@ -11,7 +11,7 @@ from threading import Thread
 import requests
 
 from app_version import sync_config_version
-from pi_audio import sync_audio_config
+from pi_audio import audio_health_report, sync_audio_config
 from pi_identity import normalize_display_scale, registration_id, registration_payload
 from pi_status import post_status
 
@@ -73,6 +73,30 @@ def register(cfg):
         )
     except Exception:
         pass
+
+
+def audio_status_payload(cfg, apply_preferences=False):
+    return audio_health_report(cfg, sounds_dir=BASE_DIR / "sounds", apply_preferences=apply_preferences)
+
+
+def post_audio_status(cfg, apply_preferences=False, source="agent"):
+    report = audio_status_payload(cfg, apply_preferences=apply_preferences)
+    level = "info" if report.get("ok") else "warning"
+    message = str(report.get("summary") or "Audio check complete.")
+    detail = str(report.get("detail") or "").strip()
+    if detail:
+        message = f"{message}: {detail}"
+    post_status(
+        cfg,
+        "online",
+        message,
+        source=source,
+        timeout=5,
+        event_only=True,
+        level=level,
+        audio_status=report,
+    )
+    return report
 
 
 def run_systemctl(*args):
@@ -302,6 +326,8 @@ def handle_command(cfg, cmd):
         restart_viewer(cfg, "Restarting display app.")
     elif action == "update":
         start_update_process(cfg)
+    elif action == "sound_check":
+        post_audio_status(cfg, apply_preferences=True, source="audio")
     elif action == "rename":
         new_name = str(cmd.get("device_name", "")).strip()
         if new_name:
@@ -323,10 +349,15 @@ def handle_command(cfg, cmd):
 
 
 def main():
+    last_audio_check_at = 0
     while True:
         try:
             cfg = load_config()
+            now = time.monotonic()
             register(cfg)
+            if now - last_audio_check_at > 300:
+                post_audio_status(cfg, apply_preferences=True, source="audio")
+                last_audio_check_at = now
             cmd = requests.get(url(cfg, f"/poll/{registration_id(cfg)}"), timeout=10).json()
             if cmd:
                 handle_command(cfg, cmd)
