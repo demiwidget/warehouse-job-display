@@ -48,6 +48,15 @@ ALERT_LABELS = [
     ("job_changed_next_7_days", "Job Changed Next 7 Days"),
 ]
 
+UNKNOWN_DEPARTMENT_ROUTE = "__unknown__"
+PREP_DEPARTMENT_ROUTES = [
+    ("1000083", "Power"),
+    ("1000012", "Rigging"),
+    ("1000010", "Technology"),
+    ("1000011", "TV Lights"),
+    (UNKNOWN_DEPARTMENT_ROUTE, "No Prep Department"),
+]
+
 SOUNDS_DIR = PROJECT_ROOT / "sounds"
 MANAGER_EXIT_FLAG = DATA_DIR / "allow_manager_exit.flag"
 PI_BOOTSTRAP_URL = (
@@ -831,6 +840,101 @@ class AlertsTab(QWidget):
     def parse_csv(text):
         return [item.strip() for item in str(text or "").split(",") if item.strip()]
 
+    @staticmethod
+    def normalise_route_value(value):
+        return "".join(character for character in str(value or "").strip().lower() if character.isalnum())
+
+    @staticmethod
+    def device_label(device):
+        name = str(device.get("name") or device.get("id") or "Pi").strip()
+        ip = str(device.get("ip") or "").strip()
+        return f"{name}\n{ip}" if ip else name
+
+    @classmethod
+    def route_targets_match_device(cls, targets, device):
+        if isinstance(targets, str):
+            targets = [item.strip() for item in targets.split(",") if item.strip()]
+        if not isinstance(targets, list):
+            targets = []
+        target_terms = {cls.normalise_route_value(item) for item in targets if cls.normalise_route_value(item)}
+        if not target_terms:
+            return False
+
+        exact_terms = [
+            cls.normalise_route_value(value)
+            for value in (device.get("id", ""),)
+            if str(value).strip()
+        ]
+        fuzzy_terms = [
+            cls.normalise_route_value(value)
+            for value in (device.get("name", ""), device.get("screen", ""))
+            if str(value).strip()
+        ]
+        if any(target == term for target in target_terms for term in exact_terms):
+            return True
+        return any(
+            target == term or target in term or term in target
+            for target in target_terms
+            for term in fuzzy_terms
+        )
+
+    def make_route_table(self, rows, route_map, default_checked=False):
+        devices = list(getattr(self, "routing_devices", []) or [])
+        table = QTableWidget(len(rows), len(devices) + 1)
+        table.setHorizontalHeaderLabels(["Alert / Route", *[self.device_label(device) for device in devices]])
+        table.setSelectionBehavior(QTableWidget.SelectRows)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setMinimumHeight(max(150, 42 + (len(rows) * 34)))
+        tune_table(table)
+
+        for row_index, (route_key, label) in enumerate(rows):
+            label_item = QTableWidgetItem(str(label))
+            label_item.setData(Qt.UserRole, route_key)
+            label_item.setFlags(label_item.flags() & ~Qt.ItemIsEditable)
+            table.setItem(row_index, 0, label_item)
+
+            route_defined = isinstance(route_map, dict) and route_key in route_map
+            route_targets = route_map.get(route_key, []) if route_defined else []
+            for column, device in enumerate(devices, start=1):
+                checked = (
+                    self.route_targets_match_device(route_targets, device)
+                    if route_defined
+                    else bool(default_checked(route_key, device) if callable(default_checked) else default_checked)
+                )
+                item = QTableWidgetItem("")
+                item.setFlags((item.flags() | Qt.ItemIsUserCheckable) & ~Qt.ItemIsEditable)
+                item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+                item.setData(Qt.UserRole, str(device.get("id", "")).strip())
+                table.setItem(row_index, column, item)
+
+        table.resizeColumnsToContents()
+        return table
+
+    def route_table_payload(self, table):
+        if table.columnCount() <= 1:
+            return None
+        routes = {}
+        for row in range(table.rowCount()):
+            label_item = table.item(row, 0)
+            route_key = str(label_item.data(Qt.UserRole) if label_item else "").strip()
+            if not route_key:
+                continue
+            selected = []
+            for column in range(1, table.columnCount()):
+                item = table.item(row, column)
+                device_id = str(item.data(Qt.UserRole) if item else "").strip()
+                if device_id and item.checkState() == Qt.Checked:
+                    selected.append(device_id)
+            routes[route_key] = selected
+        return routes
+
+    def set_route_table_all(self, table, checked):
+        for row in range(table.rowCount()):
+            for column in range(1, table.columnCount()):
+                item = table.item(row, column)
+                if item:
+                    item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+
     def __init__(self, state):
         super().__init__()
         self.state = state
@@ -842,7 +946,12 @@ class AlertsTab(QWidget):
         )
         settings = self.state.get_settings(include_secret=True).get("alerts", {})
         event_types = settings.get("event_types", {})
+        event_routes = settings.get("event_routes", {}) if isinstance(settings.get("event_routes", {}), dict) else {}
         routing = settings.get("department_routing", {}) or {}
+        self.routing_devices = self.state.list_devices()
+        self.original_event_routes = dict(event_routes)
+        self.original_department_routes = dict(routing.get("routes", {}) if isinstance(routing.get("routes", {}), dict) else {})
+        self.original_unknown_all = bool(routing.get("send_unknown_to_all", True))
 
         rules_panel, rules_layout = make_panel(
             "Live Alert Rules",
@@ -915,7 +1024,7 @@ class AlertsTab(QWidget):
         rules_layout.addLayout(grid)
 
         note = QLabel(
-            "Alerts are sent to all currently registered Pis. "
+            "Use the routing sections below to choose exactly which registered Pis receive each live alert. "
             "Sound files are served from the manager's sounds folder and refreshed on each Pi before playback."
         )
         note.setWordWrap(True)
@@ -933,43 +1042,78 @@ class AlertsTab(QWidget):
         rules_layout.addLayout(buttons)
         layout.addWidget(rules_panel)
 
+        delivery_panel, delivery_layout = make_panel(
+            "Alert Delivery",
+            "Tick the Pi screens that should receive each alert type. Tick multiple screens to send the same alert to more than one place.",
+        )
+        if not self.routing_devices:
+            no_devices = QLabel("No Pi screens are registered yet. Once screens appear, reopen this tab to build the routing grid.")
+            no_devices.setWordWrap(True)
+            no_devices.setObjectName("SectionSubtitle")
+            delivery_layout.addWidget(no_devices)
+        self.event_route_table = self.make_route_table(
+            ALERT_LABELS,
+            event_routes,
+            default_checked=True,
+        )
+        delivery_layout.addWidget(self.event_route_table)
+        delivery_buttons = QHBoxLayout()
+        delivery_all_btn = QPushButton("Tick All")
+        delivery_none_btn = QPushButton("Clear All")
+        delivery_all_btn.clicked.connect(lambda: self.set_route_table_all(self.event_route_table, True))
+        delivery_none_btn.clicked.connect(lambda: self.set_route_table_all(self.event_route_table, False))
+        delivery_buttons.addWidget(delivery_all_btn)
+        delivery_buttons.addWidget(delivery_none_btn)
+        delivery_buttons.addStretch(1)
+        delivery_layout.addLayout(delivery_buttons)
+        delivery_note = QLabel(
+            "This is the first routing filter. Department job-change routes below can narrow those alerts further."
+        )
+        delivery_note.setWordWrap(True)
+        delivery_note.setObjectName("SectionSubtitle")
+        delivery_layout.addWidget(delivery_note)
+        layout.addWidget(delivery_panel)
+
         routing_panel, routing_layout = make_panel(
             "Job Change Department Routing",
             (
-                "Route job-change alerts to department screens using the product prep department custom field. "
-                "If a changed item has no department, it can still go to every screen."
+                "Tick which Pi screens receive job-change alerts for each Current RMS prep department. "
+                "This replaces the old manual route list."
             ),
         )
         routing_form = QFormLayout()
         self.department_routing_enabled = QCheckBox("Enable prep department routing for job-change alerts")
         self.department_routing_enabled.setChecked(bool(routing.get("enabled", True)))
-        self.department_unknown_all = QCheckBox("Send no-department changes to all screens")
-        self.department_unknown_all.setChecked(bool(routing.get("send_unknown_to_all", True)))
         self.department_field_names_input = QLineEdit(
             ", ".join(str(item) for item in routing.get("field_names", []) or [])
         )
         self.department_field_names_input.setPlaceholderText("prep_department")
-        self.department_routes_input = QTextEdit()
-        self.department_routes_input.setMinimumHeight(125)
-        self.department_routes_input.setPlaceholderText(
-            "One route per line, for example:\n"
-            "1000083 = power\n"
-            "1000012 = rigging\n"
-            "1000010 = technology\n"
-            "1000011 = tv lights"
-        )
-        self.department_routes_input.setPlainText(self.format_department_routes(routing.get("routes", {})))
 
         routing_form.addRow("", self.department_routing_enabled)
         routing_form.addRow("Custom field names", self.department_field_names_input)
-        routing_form.addRow("Department routes", self.department_routes_input)
-        routing_form.addRow("", self.department_unknown_all)
         routing_layout.addLayout(routing_form)
 
+        department_routes = self.original_department_routes
+        unknown_default = self.original_unknown_all
+        self.department_route_table = self.make_route_table(
+            PREP_DEPARTMENT_ROUTES,
+            department_routes,
+            default_checked=lambda route_key, _device: route_key == UNKNOWN_DEPARTMENT_ROUTE and unknown_default,
+        )
+        routing_layout.addWidget(self.department_route_table)
+        department_buttons = QHBoxLayout()
+        department_all_btn = QPushButton("Tick All")
+        department_none_btn = QPushButton("Clear All")
+        department_all_btn.clicked.connect(lambda: self.set_route_table_all(self.department_route_table, True))
+        department_none_btn.clicked.connect(lambda: self.set_route_table_all(self.department_route_table, False))
+        department_buttons.addWidget(department_all_btn)
+        department_buttons.addWidget(department_none_btn)
+        department_buttons.addStretch(1)
+        routing_layout.addLayout(department_buttons)
+
         routing_note = QLabel(
-            "Left side is the Current RMS prep_department ID. Right side is one or more Pi name, ID, or screen "
-            "match terms. IDs: 1000083 Power, 1000012 Rigging, 1000010 Technology, 1000011 TV Lights. "
-            "Separate multiple targets with commas. If a route is set but no Pi matches it, that alert is not sent."
+            "Department IDs are fixed from Current RMS: 1000083 Power, 1000012 Rigging, 1000010 Technology, "
+            "1000011 TV Lights. No Prep Department catches changed products where the custom field is blank."
         )
         routing_note.setWordWrap(True)
         routing_note.setObjectName("SectionSubtitle")
@@ -1052,6 +1196,12 @@ class AlertsTab(QWidget):
                 "play_sound": inputs["play_sound"].isChecked(),
                 "sound": inputs["sound"].text().strip(),
             }
+        event_routes = self.route_table_payload(self.event_route_table)
+        if event_routes is None:
+            event_routes = self.original_event_routes
+        department_routes = self.route_table_payload(self.department_route_table)
+        if department_routes is None:
+            department_routes = self.original_department_routes
 
         return {
             "poll_seconds": self.poll_seconds_input.value(),
@@ -1059,11 +1209,12 @@ class AlertsTab(QWidget):
             "quiet_hours_start": self.quiet_start_input.value(),
             "quiet_hours_end": self.quiet_end_input.value(),
             "history_limit": self.history_limit_input.value(),
+            "event_routes": event_routes,
             "department_routing": {
                 "enabled": self.department_routing_enabled.isChecked(),
                 "field_names": self.parse_csv(self.department_field_names_input.text()),
-                "send_unknown_to_all": self.department_unknown_all.isChecked(),
-                "routes": self.parse_department_routes(self.department_routes_input.toPlainText()),
+                "send_unknown_to_all": False if self.routing_devices else self.original_unknown_all,
+                "routes": department_routes,
             },
             "event_types": event_types,
         }

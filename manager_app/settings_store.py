@@ -66,6 +66,7 @@ DEFAULT_SETTINGS = {
         "quiet_hours_start": 21,
         "quiet_hours_end": 7,
         "history_limit": 500,
+        "event_routes": {},
         "department_routing": {
             "enabled": True,
             "field_names": [
@@ -212,17 +213,34 @@ def _migrate_settings(settings):
         if not isinstance(targets, list):
             targets = []
         clean_targets = [str(item).strip() for item in targets if str(item).strip()]
-        if clean_targets:
-            clean_routes.setdefault(department_name, [])
-            for target in clean_targets:
-                if target not in clean_routes[department_name]:
-                    clean_routes[department_name].append(target)
+        clean_routes.setdefault(department_name, [])
+        for target in clean_targets:
+            if target not in clean_routes[department_name]:
+                clean_routes[department_name].append(target)
     routing["routes"] = clean_routes
     for department_id, default_targets in DEFAULT_PREP_DEPARTMENT_ROUTES.items():
         clean_routes.setdefault(department_id, list(default_targets))
     routing["enabled"] = bool(routing.get("enabled", True))
     routing["send_unknown_to_all"] = bool(routing.get("send_unknown_to_all", True))
     alerts["department_routing"] = routing
+
+    event_routes = alerts.get("event_routes", {})
+    if not isinstance(event_routes, dict):
+        event_routes = {}
+    clean_event_routes = {}
+    for event_key, targets in event_routes.items():
+        event_name = str(event_key).strip()
+        if not event_name:
+            continue
+        if isinstance(targets, str):
+            targets = [item.strip() for item in targets.split(",") if item.strip()]
+        if not isinstance(targets, list):
+            targets = []
+        clean_event_routes[event_name] = []
+        for target in [str(item).strip() for item in targets if str(item).strip()]:
+            if target not in clean_event_routes[event_name]:
+                clean_event_routes[event_name].append(target)
+    alerts["event_routes"] = clean_event_routes
     return settings
 
 

@@ -50,6 +50,7 @@ NOT_PREPARED_STATUS_CODES = {5}
 CANCELLED_STATUS_CODES = {50}
 ALL_DEPARTMENT_TARGET = "__all__"
 NO_DEPARTMENT_TARGET = "__none__"
+UNKNOWN_DEPARTMENT_TARGET = "__unknown__"
 
 
 def parse_datetime(value):
@@ -857,7 +858,13 @@ class DashboardBuilder:
 
         routed_groups = [([department], grouped[department]) for department in sorted(grouped)]
         if unknown_changes:
-            target = ALL_DEPARTMENT_TARGET if as_bool(routing.get("send_unknown_to_all", True)) else NO_DEPARTMENT_TARGET
+            routes = routing.get("routes", {}) if isinstance(routing.get("routes", {}), dict) else {}
+            if routes.get(UNKNOWN_DEPARTMENT_TARGET):
+                target = UNKNOWN_DEPARTMENT_TARGET
+            elif as_bool(routing.get("send_unknown_to_all", True)):
+                target = ALL_DEPARTMENT_TARGET
+            else:
+                target = NO_DEPARTMENT_TARGET
             routed_groups.append(([target], unknown_changes))
         return routed_groups or [([NO_DEPARTMENT_TARGET], changes)]
 

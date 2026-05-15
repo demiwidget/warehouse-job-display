@@ -687,8 +687,58 @@ class ManagerState:
     def _normalise_route_value(self, value):
         return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
 
-    def _alert_target_device_ids(self, alert, devices, settings):
+    def _route_targets_to_device_ids(self, route_targets, devices):
+        if isinstance(route_targets, str):
+            route_targets = [item.strip() for item in route_targets.split(",") if item.strip()]
+        if not isinstance(route_targets, list):
+            route_targets = []
+
+        target_terms = {
+            self._normalise_route_value(item)
+            for item in route_targets
+            if self._normalise_route_value(item)
+        }
+        if not target_terms:
+            return []
+
+        matched_ids = []
+        for device_id, device in devices.items():
+            exact_values = [
+                device_id,
+                device.get("id", ""),
+            ]
+            fuzzy_values = [
+                device.get("name", ""),
+                device.get("screen", ""),
+            ]
+            exact_terms = [self._normalise_route_value(value) for value in exact_values if str(value).strip()]
+            fuzzy_terms = [self._normalise_route_value(value) for value in fuzzy_values if str(value).strip()]
+            if any(route_term == device_term for route_term in target_terms for device_term in exact_terms):
+                matched_ids.append(str(device_id))
+                continue
+            if any(
+                route_term == device_term or route_term in device_term or device_term in route_term
+                for route_term in target_terms
+                for device_term in fuzzy_terms
+            ):
+                matched_ids.append(str(device_id))
+
+        return matched_ids
+
+    def _event_target_device_ids(self, alert, devices, settings):
         device_ids = [str(device_id) for device_id in devices.keys() if str(device_id).strip()]
+        event_routes = settings.get("alerts", {}).get("event_routes", {})
+        if not isinstance(event_routes, dict):
+            return device_ids
+
+        event_type = str(alert.get("type", "")).strip()
+        if event_type not in event_routes:
+            return device_ids
+
+        return self._route_targets_to_device_ids(event_routes.get(event_type, []), devices)
+
+    def _alert_target_device_ids(self, alert, devices, settings):
+        device_ids = self._event_target_device_ids(alert, devices, settings)
         has_department_filter = "target_departments" in alert
         departments = [
             str(item).strip()
@@ -704,41 +754,19 @@ class ManagerState:
 
         routing = settings.get("alerts", {}).get("department_routing", {}) or {}
         routes = routing.get("routes", {}) if isinstance(routing.get("routes", {}), dict) else {}
-        target_terms = set()
+        department_targets = []
         for department in departments:
             department_key = self._normalise_route_value(department)
-            for route_department, route_targets in routes.items():
+            for route_department, configured_targets in routes.items():
                 if self._normalise_route_value(route_department) != department_key:
                     continue
-                if isinstance(route_targets, str):
-                    route_targets = [item.strip() for item in route_targets.split(",") if item.strip()]
-                if isinstance(route_targets, list):
-                    target_terms.update(
-                        self._normalise_route_value(item)
-                        for item in route_targets
-                        if self._normalise_route_value(item)
-                    )
+                if isinstance(configured_targets, str):
+                    configured_targets = [item.strip() for item in configured_targets.split(",") if item.strip()]
+                if isinstance(configured_targets, list):
+                    department_targets.extend(configured_targets)
 
-        if not target_terms:
-            return []
-
-        matched_ids = []
-        for device_id, device in devices.items():
-            device_values = [
-                device_id,
-                device.get("id", ""),
-                device.get("name", ""),
-                device.get("screen", ""),
-            ]
-            device_terms = [self._normalise_route_value(value) for value in device_values if str(value).strip()]
-            if any(
-                route_term == device_term or route_term in device_term or device_term in route_term
-                for route_term in target_terms
-                for device_term in device_terms
-            ):
-                matched_ids.append(str(device_id))
-
-        return matched_ids
+        department_ids = self._route_targets_to_device_ids(department_targets, devices)
+        return [device_id for device_id in device_ids if device_id in set(department_ids)]
 
     def refresh_dashboard(self):
         with self.lock:
