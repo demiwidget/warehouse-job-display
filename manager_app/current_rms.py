@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from threading import Lock
 import html
 import math
 import re
@@ -51,6 +52,7 @@ CANCELLED_STATUS_CODES = {50}
 ALL_DEPARTMENT_TARGET = "__all__"
 NO_DEPARTMENT_TARGET = "__none__"
 UNKNOWN_DEPARTMENT_TARGET = "__unknown__"
+DEFAULT_OPPORTUNITY_INCLUDES = ("owner", "member")
 
 
 def parse_datetime(value):
@@ -131,6 +133,13 @@ class CurrentRMSClient:
         self.per_page = max(1, safe_int(rms.get("per_page"), 48))
         self.max_pages = max(1, safe_int(rms.get("max_pages"), 2))
         self.max_workers = max(1, min(24, safe_int(rms.get("api_workers"), 12)))
+        self.hydrate_opportunities = as_bool(rms.get("hydrate_opportunities", True))
+        includes = rms.get("opportunity_includes") or list(DEFAULT_OPPORTUNITY_INCLUDES)
+        if isinstance(includes, str):
+            includes = [includes]
+        self.opportunity_includes = [str(value).strip() for value in includes or [] if str(value).strip()]
+        self._opportunity_detail_cache = {}
+        self._opportunity_detail_lock = Lock()
 
     @property
     def configured(self):
@@ -188,7 +197,96 @@ class CurrentRMSClient:
                 break
 
         meta["total_row_count"] = safe_int(meta.get("total_row_count"), len(opportunities))
+        opportunities, hydrate_errors = self._hydrate_opportunities_if_needed(opportunities)
+        if hydrate_errors:
+            meta["opportunity_detail_errors"] = hydrate_errors
         return {"opportunities": opportunities, "meta": meta}
+
+    def fetch_opportunity(self, opportunity_id):
+        params = []
+        for include in self.opportunity_includes:
+            params.append(("include[]", include))
+
+        response = requests.get(
+            f"{self.api_base}/opportunities/{opportunity_id}",
+            headers=self.headers(),
+            params=params or None,
+            timeout=15,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return payload.get("opportunity", payload if isinstance(payload, dict) else {})
+
+    def _hydrate_opportunities_if_needed(self, opportunities):
+        if not self.hydrate_opportunities or not opportunities:
+            return opportunities, 0
+
+        missing_detail = [
+            opportunity
+            for opportunity in opportunities
+            if self._opportunity_summary_needs_detail(opportunity)
+        ]
+        if not missing_detail:
+            return opportunities, 0
+
+        detail_by_id = {}
+        errors = 0
+        with ThreadPoolExecutor(max_workers=min(self.max_workers, len(missing_detail))) as executor:
+            futures = {
+                executor.submit(self._cached_opportunity_detail, opportunity.get("id")): str(opportunity.get("id"))
+                for opportunity in missing_detail
+                if opportunity.get("id")
+            }
+            for future in as_completed(futures):
+                opportunity_id = futures[future]
+                try:
+                    detail = future.result()
+                    if isinstance(detail, dict) and detail:
+                        detail_by_id[opportunity_id] = detail
+                except Exception:
+                    errors += 1
+
+        hydrated = []
+        for opportunity in opportunities:
+            detail = detail_by_id.get(str(opportunity.get("id")))
+            if detail:
+                merged = dict(opportunity)
+                merged.update(detail)
+                hydrated.append(merged)
+            else:
+                hydrated.append(opportunity)
+        return hydrated, errors
+
+    def _cached_opportunity_detail(self, opportunity_id):
+        key = str(opportunity_id or "").strip()
+        if not key:
+            return {}
+
+        with self._opportunity_detail_lock:
+            cached = self._opportunity_detail_cache.get(key)
+        if cached is not None:
+            return cached
+
+        detail = self.fetch_opportunity(key)
+        with self._opportunity_detail_lock:
+            self._opportunity_detail_cache[key] = detail
+        return detail
+
+    def _opportunity_summary_needs_detail(self, opportunity):
+        if not isinstance(opportunity, dict):
+            return False
+
+        if not isinstance(opportunity.get("custom_fields"), dict):
+            return True
+        if "customer_collecting" not in opportunity or "customer_returning" not in opportunity:
+            return True
+        if "deliver_starts_at" not in opportunity or "deliver_ends_at" not in opportunity:
+            return True
+        if not first_value(opportunity, ("owner", "name"), ("owned_by", "name"), "owner_name", default=""):
+            return True
+        if not first_value(opportunity, ("member", "name"), ("customer", "name"), "customer_name", default=""):
+            return True
+        return False
 
     def fetch_opportunity_items(self, opportunity_id):
         response = requests.get(
