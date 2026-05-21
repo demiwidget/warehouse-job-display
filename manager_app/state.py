@@ -13,6 +13,7 @@ import traceback
 from app_version import CURRENT_VERSION
 from manager_app.activity_log import ActivityLog
 from manager_app.current_rms import ALL_DEPARTMENT_TARGET, NO_DEPARTMENT_TARGET, DashboardBuilder
+from manager_app.email_alerts import alert_email_enabled, send_alert_email, send_test_email
 from manager_app.security import security_status, set_admin_password
 from manager_app.settings_store import PROJECT_ROOT, SettingsStore
 
@@ -405,6 +406,16 @@ class ManagerState:
         )
         return success, message
 
+    def test_email_alerts(self, alerts_settings=None):
+        with self.lock:
+            settings = self.store.load_settings()
+            if alerts_settings:
+                settings.setdefault("alerts", {}).update(alerts_settings)
+        self.log_activity("Email", "Sending SMTP test email.")
+        success, message = send_test_email(settings)
+        self.log_activity("Email", message, level="info" if success else "error")
+        return success, message
+
     def _remove_legacy_device(self, legacy_id, device_id):
         if legacy_id and legacy_id != device_id:
             removed_device = self.devices.pop(legacy_id, None)
@@ -792,6 +803,22 @@ class ManagerState:
         department_ids = self._route_targets_to_device_ids(department_targets, devices)
         return [device_id for device_id in device_ids if device_id in set(department_ids)]
 
+    def _send_alert_emails(self, alerts, settings):
+        sent_count = 0
+        failed_count = 0
+        for alert in alerts or []:
+            if not alert or not alert_email_enabled(settings, alert):
+                continue
+            success, message = send_alert_email(settings, alert)
+            title = alert.get("title") or alert.get("type") or "Warehouse Alert"
+            if success:
+                sent_count += 1
+                self.log_activity("Email", f"Sent email for alert: {title}.", details={"message": message})
+            else:
+                failed_count += 1
+                self.log_activity("Email", f"Email failed for alert {title}: {message}", level="error")
+        return sent_count, failed_count
+
     def refresh_dashboard(self):
         with self.lock:
             settings = self.store.load_settings()
@@ -821,6 +848,8 @@ class ManagerState:
             )
         if not new_alerts:
             return
+
+        self._send_alert_emails(new_alerts, settings)
 
         deliverable = [
             alert

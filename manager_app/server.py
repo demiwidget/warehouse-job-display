@@ -196,6 +196,12 @@ def create_app(state):
         )
         return jsonify({"success": success, "message": message})
 
+    @app.post("/api/email/test")
+    def test_email():
+        payload = request.get_json(silent=True) or {}
+        success, message = state.test_email_alerts(payload.get("alerts"))
+        return jsonify({"success": success, "message": message})
+
     @app.post("/api/sounds/upload")
     def upload_sound():
         upload = request.files.get("file")

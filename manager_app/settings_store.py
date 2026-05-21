@@ -72,6 +72,27 @@ DEFAULT_SETTINGS = {
         "quiet_hours_end": 7,
         "history_limit": 500,
         "event_routes": {},
+        "email": {
+            "enabled": False,
+            "smtp_host": "",
+            "smtp_port": 587,
+            "smtp_security": "starttls",
+            "username": "",
+            "password": "",
+            "from_address": "",
+            "from_name": "Warehouse Dashboard",
+            "recipients": [],
+            "subject_template": "Warehouse alert: {alert_title}",
+            "body_template": (
+                "{alert_title}\n\n"
+                "{alert_details}\n\n"
+                "Job: {job_name}\n"
+                "Job Number: {job_number}\n"
+                "Client: {client}\n"
+                "Owner: {owner}\n"
+                "Returned At: {returned_at}\n"
+            ),
+        },
         "department_routing": {
             "enabled": True,
             "field_names": [
@@ -98,42 +119,49 @@ DEFAULT_SETTINGS = {
                 "enabled": True,
                 "show_popup": True,
                 "play_sound": True,
+                "send_email": False,
                 "sound": "job-today.wav",
             },
             "new_job_tomorrow": {
                 "enabled": True,
                 "show_popup": True,
                 "play_sound": True,
+                "send_email": False,
                 "sound": "job-tomorrow.wav",
             },
             "new_job_next_7_days": {
                 "enabled": True,
                 "show_popup": True,
                 "play_sound": True,
+                "send_email": False,
                 "sound": "next-7-days.wav",
             },
             "job_returned": {
                 "enabled": True,
                 "show_popup": True,
                 "play_sound": True,
+                "send_email": True,
                 "sound": "job-returned.wav",
             },
             "job_changed_today": {
                 "enabled": True,
                 "show_popup": True,
                 "play_sound": True,
+                "send_email": False,
                 "sound": "job-changes.wav",
             },
             "job_changed_tomorrow": {
                 "enabled": True,
                 "show_popup": True,
                 "play_sound": True,
+                "send_email": False,
                 "sound": "job-changes.wav",
             },
             "job_changed_next_7_days": {
                 "enabled": True,
                 "show_popup": True,
                 "play_sound": True,
+                "send_email": False,
                 "sound": "job-changes.wav",
             },
         },

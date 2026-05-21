@@ -1016,6 +1016,8 @@ class DashboardBuilder:
             "play_sound": play_sound,
             "sound": str(event_config.get("sound", "")).strip(),
         }
+        if isinstance(popup.get("email_context"), dict):
+            alert["email_context"] = dict(popup.get("email_context"))
         if target_departments:
             alert["target_departments"] = list(target_departments)
         return alert
@@ -1096,17 +1098,25 @@ class DashboardBuilder:
 
     def _job_returned_popup(self, opportunity):
         local_time = datetime.now().strftime("%d %b %Y %H:%M")
+        context = {
+            "job_name": self._opportunity_name(opportunity),
+            "job_number": self._opportunity_number(opportunity),
+            "client": self._opportunity_customer(opportunity) or "Unknown",
+            "owner": self._opportunity_owner(opportunity) or "Unassigned",
+            "returned_at": local_time,
+        }
         html = (
             "<div style=\"font-size: 2.0em; text-align: center; padding: 1em;\">"
             "<b>A job has been returned:</b><br>"
-            f"Job: {self._opportunity_name(opportunity)}<br>"
-            f"Job Number: {self._opportunity_number(opportunity)}<br>"
+            f"Job: {context['job_name']}<br>"
+            f"Job Number: {context['job_number']}<br>"
             f"Returned at: {local_time}"
             "</div>"
         )
         return {
             "title": EVENT_META["job_returned"]["title"],
             "html": html,
+            "email_context": context,
         }
 
     def _job_change_popup(self, event_type, job_name, changes):

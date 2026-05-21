@@ -154,6 +154,10 @@ class RemoteManagerState:
         )
         return bool(result.get("success")), str(result.get("message", ""))
 
+    def test_email_alerts(self, alerts_settings=None):
+        result = self._post("/api/email/test", {"alerts": alerts_settings or {}})
+        return bool(result.get("success")), str(result.get("message", ""))
+
     def list_activity(self, category="All", level="All", limit=500):
         return self._get("/api/activity", category=category, level=level, limit=limit)
 

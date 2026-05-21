@@ -841,6 +841,15 @@ class AlertsTab(QWidget):
         return [item.strip() for item in str(text or "").split(",") if item.strip()]
 
     @staticmethod
+    def parse_recipients(text):
+        values = []
+        for chunk in str(text or "").replace(";", "\n").replace(",", "\n").splitlines():
+            item = chunk.strip()
+            if item:
+                values.append(item)
+        return values
+
+    @staticmethod
     def normalise_route_value(value):
         return "".join(character for character in str(value or "").strip().lower() if character.isalnum())
 
@@ -948,6 +957,7 @@ class AlertsTab(QWidget):
         event_types = settings.get("event_types", {})
         event_routes = settings.get("event_routes", {}) if isinstance(settings.get("event_routes", {}), dict) else {}
         routing = settings.get("department_routing", {}) or {}
+        email = settings.get("email", {}) or {}
         self.routing_devices = self.state.list_devices()
         self.original_event_routes = dict(event_routes)
         self.original_department_routes = dict(routing.get("routes", {}) if isinstance(routing.get("routes", {}), dict) else {})
@@ -988,8 +998,9 @@ class AlertsTab(QWidget):
         grid.addWidget(QLabel("Enabled"), 0, 1)
         grid.addWidget(QLabel("Popup"), 0, 2)
         grid.addWidget(QLabel("Sound"), 0, 3)
-        grid.addWidget(QLabel("Sound File"), 0, 4)
-        grid.addWidget(QLabel("Test"), 0, 5)
+        grid.addWidget(QLabel("Email"), 0, 4)
+        grid.addWidget(QLabel("Sound File"), 0, 5)
+        grid.addWidget(QLabel("Test"), 0, 6)
 
         self.event_inputs = {}
         for row, (event_key, label) in enumerate(ALERT_LABELS, start=1):
@@ -1000,6 +1011,8 @@ class AlertsTab(QWidget):
             popup.setChecked(bool(config.get("show_popup", True)))
             sound = QCheckBox()
             sound.setChecked(bool(config.get("play_sound", True)))
+            send_email = QCheckBox()
+            send_email.setChecked(bool(config.get("send_email", False)))
             sound_name = QLineEdit(str(config.get("sound", "")))
             test_button = mark_quiet(QPushButton("Test"))
             test_button.clicked.connect(
@@ -1010,13 +1023,15 @@ class AlertsTab(QWidget):
             grid.addWidget(enabled, row, 1, alignment=Qt.AlignCenter)
             grid.addWidget(popup, row, 2, alignment=Qt.AlignCenter)
             grid.addWidget(sound, row, 3, alignment=Qt.AlignCenter)
-            grid.addWidget(sound_name, row, 4)
-            grid.addWidget(test_button, row, 5)
+            grid.addWidget(send_email, row, 4, alignment=Qt.AlignCenter)
+            grid.addWidget(sound_name, row, 5)
+            grid.addWidget(test_button, row, 6)
 
             self.event_inputs[event_key] = {
                 "enabled": enabled,
                 "show_popup": popup,
                 "play_sound": sound,
+                "send_email": send_email,
                 "sound": sound_name,
                 "test": test_button,
             }
@@ -1041,6 +1056,82 @@ class AlertsTab(QWidget):
         buttons.addStretch(1)
         rules_layout.addLayout(buttons)
         layout.addWidget(rules_panel)
+
+        email_panel, email_layout = make_panel(
+            "SMTP Email Alerts",
+            "Email credentials are stored only on this manager. Tick Email beside any alert type above to send it by SMTP.",
+        )
+        email_form = QFormLayout()
+        self.email_enabled = QCheckBox("Enable SMTP email alerts")
+        self.email_enabled.setChecked(bool(email.get("enabled", False)))
+        self.smtp_host_input = QLineEdit(str(email.get("smtp_host", "")))
+        self.smtp_host_input.setPlaceholderText("smtp.office365.com")
+        self.smtp_port_input = QSpinBox()
+        self.smtp_port_input.setRange(1, 65535)
+        try:
+            smtp_port = int(email.get("smtp_port", 587) or 587)
+        except Exception:
+            smtp_port = 587
+        self.smtp_port_input.setValue(smtp_port)
+        self.smtp_security_input = QComboBox()
+        self.smtp_security_input.addItems(["starttls", "ssl", "none"])
+        security_value = str(email.get("smtp_security", "starttls") or "starttls").lower()
+        if security_value in {"ssl/tls", "tls"}:
+            security_value = "ssl"
+        index = self.smtp_security_input.findText(security_value)
+        self.smtp_security_input.setCurrentIndex(index if index >= 0 else 0)
+        self.smtp_username_input = QLineEdit(str(email.get("username", "")))
+        self.smtp_password_input = QLineEdit(str(email.get("password", "")))
+        self.smtp_password_input.setEchoMode(QLineEdit.Password)
+        self.smtp_from_address_input = QLineEdit(str(email.get("from_address", "")))
+        self.smtp_from_name_input = QLineEdit(str(email.get("from_name", "Warehouse Dashboard")))
+        self.email_recipients_input = QTextEdit()
+        recipients = email.get("recipients", [])
+        if isinstance(recipients, str):
+            recipients_text = recipients
+        else:
+            recipients_text = "\n".join(str(item) for item in recipients or [])
+        self.email_recipients_input.setPlainText(recipients_text)
+        self.email_recipients_input.setPlaceholderText("one@email.com\nanother@email.com")
+        self.email_recipients_input.setMinimumHeight(72)
+        self.email_subject_template_input = QLineEdit(str(email.get("subject_template", "Warehouse alert: {alert_title}")))
+        self.email_body_template_input = QTextEdit()
+        self.email_body_template_input.setPlainText(
+            str(
+                email.get(
+                    "body_template",
+                    "{alert_title}\n\n{alert_details}\n\nJob: {job_name}\nJob Number: {job_number}\nClient: {client}\nOwner: {owner}\nReturned At: {returned_at}\n",
+                )
+            )
+        )
+        self.email_body_template_input.setMinimumHeight(110)
+
+        email_form.addRow("", self.email_enabled)
+        email_form.addRow("SMTP host", self.smtp_host_input)
+        email_form.addRow("SMTP port", self.smtp_port_input)
+        email_form.addRow("Security", self.smtp_security_input)
+        email_form.addRow("Username", self.smtp_username_input)
+        email_form.addRow("Password", self.smtp_password_input)
+        email_form.addRow("From address", self.smtp_from_address_input)
+        email_form.addRow("From name", self.smtp_from_name_input)
+        email_form.addRow("Recipients", self.email_recipients_input)
+        email_form.addRow("Subject template", self.email_subject_template_input)
+        email_form.addRow("Body template", self.email_body_template_input)
+        email_layout.addLayout(email_form)
+
+        email_help = QLabel(
+            "Template fields: {alert_title}, {alert_details}, {job_name}, {job_number}, {client}, {owner}, {returned_at}."
+        )
+        email_help.setWordWrap(True)
+        email_help.setObjectName("SectionSubtitle")
+        email_layout.addWidget(email_help)
+        email_buttons = QHBoxLayout()
+        test_email_btn = mark_primary(QPushButton("Save and Send Test Email"))
+        test_email_btn.clicked.connect(self.test_email)
+        email_buttons.addWidget(test_email_btn)
+        email_buttons.addStretch(1)
+        email_layout.addLayout(email_buttons)
+        layout.addWidget(email_panel)
 
         delivery_panel, delivery_layout = make_panel(
             "Alert Delivery",
@@ -1194,6 +1285,7 @@ class AlertsTab(QWidget):
                 "enabled": inputs["enabled"].isChecked(),
                 "show_popup": inputs["show_popup"].isChecked(),
                 "play_sound": inputs["play_sound"].isChecked(),
+                "send_email": inputs["send_email"].isChecked(),
                 "sound": inputs["sound"].text().strip(),
             }
         event_routes = self.route_table_payload(self.event_route_table)
@@ -1210,6 +1302,19 @@ class AlertsTab(QWidget):
             "quiet_hours_end": self.quiet_end_input.value(),
             "history_limit": self.history_limit_input.value(),
             "event_routes": event_routes,
+            "email": {
+                "enabled": self.email_enabled.isChecked(),
+                "smtp_host": self.smtp_host_input.text().strip(),
+                "smtp_port": self.smtp_port_input.value(),
+                "smtp_security": self.smtp_security_input.currentText(),
+                "username": self.smtp_username_input.text().strip(),
+                "password": self.smtp_password_input.text(),
+                "from_address": self.smtp_from_address_input.text().strip(),
+                "from_name": self.smtp_from_name_input.text().strip(),
+                "recipients": self.parse_recipients(self.email_recipients_input.toPlainText()),
+                "subject_template": self.email_subject_template_input.text().strip(),
+                "body_template": self.email_body_template_input.toPlainText(),
+            },
             "department_routing": {
                 "enabled": self.department_routing_enabled.isChecked(),
                 "field_names": self.parse_csv(self.department_field_names_input.text()),
@@ -1227,6 +1332,15 @@ class AlertsTab(QWidget):
         self.state.save_settings({"alerts": self.settings_payload()})
         self.state.refresh_dashboard()
         QMessageBox.information(self, "Applied", "Alert settings were saved and the manager refreshed immediately.")
+
+    def test_email(self):
+        payload = self.settings_payload()
+        self.state.save_settings({"alerts": payload})
+        success, message = self.state.test_email_alerts(payload)
+        if success:
+            QMessageBox.information(self, "SMTP Test Email", message)
+        else:
+            QMessageBox.warning(self, "SMTP Test Email Failed", message)
 
     def current_test_target_checks(self):
         checks = {}
