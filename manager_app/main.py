@@ -11,6 +11,7 @@ from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -1996,6 +1997,42 @@ class PiScreensTab(QWidget):
         sound_test_layout.addWidget(sound_loop_stop_btn)
         controls_layout.addLayout(sound_test_layout)
 
+        maintenance_settings = self.state.get_settings(include_secret=True).get("maintenance", {}) or {}
+        maintenance_layout = QGridLayout()
+        self.maintenance_text_input = QTextEdit()
+        self.maintenance_text_input.setPlainText(
+            str(maintenance_settings.get("text") or "Maintenance in progress\nPlease wait")
+        )
+        self.maintenance_text_input.setMinimumHeight(58)
+        self.maintenance_text_input.setPlaceholderText("Text to show while the screen is blanked.")
+        self.maintenance_background_input = QLineEdit(str(maintenance_settings.get("background") or "#050505"))
+        self.maintenance_foreground_input = QLineEdit(str(maintenance_settings.get("foreground") or "#ffffff"))
+        pick_background_btn = QPushButton("Pick Background")
+        pick_text_btn = QPushButton("Pick Text Colour")
+        show_maintenance_btn = mark_primary(QPushButton("Show Maintenance Screen"))
+        hide_maintenance_btn = QPushButton("Hide Maintenance Screen")
+        pick_background_btn.clicked.connect(
+            lambda: self.pick_colour(self.maintenance_background_input, "Pick Maintenance Background")
+        )
+        pick_text_btn.clicked.connect(
+            lambda: self.pick_colour(self.maintenance_foreground_input, "Pick Maintenance Text Colour")
+        )
+        show_maintenance_btn.clicked.connect(self.show_maintenance_screen)
+        hide_maintenance_btn.clicked.connect(lambda: self.send_action("maintenance_hide"))
+
+        maintenance_layout.addWidget(QLabel("Maintenance text"), 0, 0)
+        maintenance_layout.addWidget(self.maintenance_text_input, 0, 1, 2, 3)
+        maintenance_layout.addWidget(QLabel("Background"), 2, 0)
+        maintenance_layout.addWidget(self.maintenance_background_input, 2, 1)
+        maintenance_layout.addWidget(pick_background_btn, 2, 2)
+        maintenance_layout.addWidget(QLabel("Text colour"), 3, 0)
+        maintenance_layout.addWidget(self.maintenance_foreground_input, 3, 1)
+        maintenance_layout.addWidget(pick_text_btn, 3, 2)
+        maintenance_layout.addWidget(show_maintenance_btn, 4, 1)
+        maintenance_layout.addWidget(hide_maintenance_btn, 4, 2)
+        maintenance_layout.setColumnStretch(3, 1)
+        controls_layout.addLayout(maintenance_layout)
+
         service_buttons = QHBoxLayout()
         service_buttons.addWidget(check_updates_btn)
         service_buttons.addWidget(refresh_btn)
@@ -2231,6 +2268,44 @@ class PiScreensTab(QWidget):
         if not ok:
             return
         self.send_action("set_audio", audio_output=output, audio_volume=volume)
+
+    def pick_colour(self, target_input, title):
+        current = QColor(target_input.text().strip())
+        if not current.isValid():
+            current = QColor("#050505")
+        color = QColorDialog.getColor(current, self, title)
+        if color.isValid():
+            target_input.setText(color.name())
+
+    def maintenance_payload(self):
+        text = self.maintenance_text_input.toPlainText().strip() or "Maintenance in progress\nPlease wait"
+        background = self.maintenance_background_input.text().strip() or "#050505"
+        foreground = self.maintenance_foreground_input.text().strip() or "#ffffff"
+        if not QColor(background).isValid():
+            raise ValueError("Maintenance background colour is not valid. Use a colour like #050505.")
+        if not QColor(foreground).isValid():
+            raise ValueError("Maintenance text colour is not valid. Use a colour like #ffffff.")
+        return {
+            "text": text,
+            "background": QColor(background).name(),
+            "foreground": QColor(foreground).name(),
+        }
+
+    def show_maintenance_screen(self):
+        device_ids = self.selected_device_ids()
+        if not device_ids:
+            QMessageBox.warning(self, "No Pi Selected", "Select one or more Pi screens first.")
+            return
+
+        try:
+            payload = self.maintenance_payload()
+        except ValueError as error:
+            QMessageBox.warning(self, "Maintenance Screen", str(error))
+            return
+
+        self.state.save_settings({"maintenance": payload})
+        self.state.queue_command(device_ids, "maintenance_show", **payload)
+        self.status.setText(f"Queued maintenance screen for {len(device_ids)} Pi screen(s).")
 
     def remove_selected_pis(self):
         devices = self.selected_devices()

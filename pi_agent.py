@@ -513,6 +513,21 @@ def handle_command(cfg, cmd):
         cfg["audio_volume"] = normalize_audio_volume(cmd.get("audio_volume", cfg.get("audio_volume", 100)))
         save_config(cfg)
         post_audio_status(cfg, apply_preferences=True, source="audio")
+    elif action == "maintenance_show":
+        cfg["maintenance"] = {
+            "enabled": True,
+            "text": str(cmd.get("text", "Maintenance in progress\nPlease wait")),
+            "background": str(cmd.get("background", "#050505")),
+            "foreground": str(cmd.get("foreground", "#ffffff")),
+        }
+        save_config(cfg)
+        post_status(cfg, "online", "Maintenance splash screen shown.", source="agent", timeout=3, event_only=True)
+    elif action == "maintenance_hide":
+        maintenance = cfg.get("maintenance", {}) if isinstance(cfg.get("maintenance", {}), dict) else {}
+        maintenance["enabled"] = False
+        cfg["maintenance"] = maintenance
+        save_config(cfg)
+        post_status(cfg, "online", "Maintenance splash screen hidden.", source="agent", timeout=3, event_only=True)
     elif action == "rename":
         new_name = str(cmd.get("device_name", "")).strip()
         if new_name:

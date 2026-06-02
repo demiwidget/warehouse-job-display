@@ -14,6 +14,11 @@ DEFAULT_SETTINGS = {
         "host": "0.0.0.0",
         "port": 8765,
     },
+    "maintenance": {
+        "text": "Maintenance in progress\nPlease wait",
+        "background": "#050505",
+        "foreground": "#ffffff",
+    },
     "current_rms": {
         "api_base": "https://api.current-rms.com/api/v1",
         "api_key": "",

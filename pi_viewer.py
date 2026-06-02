@@ -66,6 +66,12 @@ DEFAULT_CONFIG = {
     "display_scale": 100,
     "audio_output": "hdmi",
     "audio_volume": 100,
+    "maintenance": {
+        "enabled": False,
+        "text": "Maintenance in progress\nPlease wait",
+        "background": "#050505",
+        "foreground": "#ffffff",
+    },
 }
 
 RANK_COLORS = (
@@ -104,6 +110,17 @@ def safe_int(value, default=0):
         return int(float(value))
     except Exception:
         return default
+
+
+def as_bool(value):
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def valid_color(value, default):
+    color = QColor(str(value or "").strip())
+    return color.name() if color.isValid() else default
 
 
 def write_json_atomic(path, payload):
@@ -558,9 +575,11 @@ class ViewerWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.config = load_config()
+        self.config_mtime = self.config_file_mtime()
         self.current_screen = self.config.get("screen", "today")
         self.display_scale = normalize_display_scale(self.config.get("display_scale", 100))
         self.ui_scale = self.display_scale / 100.0
+        self.maintenance_enabled = False
         self.pending_alerts = []
         self.remote_alert_queue_remaining = 0
         self.active_alert_dialog = None
@@ -575,7 +594,9 @@ class ViewerWindow(QMainWindow):
         self.setWindowTitle(self.config.get("device_name", "Warehouse Viewer"))
         self.resize(1600, 900)
         self.build_ui()
+        self.build_maintenance_overlay()
         self.apply_theme()
+        self.apply_maintenance_config(self.config.get("maintenance", {}))
         self.showFullScreen()
         self.refresh_result_ready.connect(self.handle_refresh_result)
         self.alert_result_ready.connect(self.handle_alert_result)
@@ -591,6 +612,10 @@ class ViewerWindow(QMainWindow):
         self.alert_timer = QTimer(self)
         self.alert_timer.timeout.connect(self.poll_alerts)
         self.alert_timer.start(2500)
+
+        self.config_timer = QTimer(self)
+        self.config_timer.timeout.connect(self.refresh_runtime_config)
+        self.config_timer.start(1500)
 
         self.set_current_tab()
         self.register()
@@ -691,6 +716,90 @@ class ViewerWindow(QMainWindow):
         fullscreen_action.triggered.connect(self.toggle_fullscreen)
         view_menu.addAction(refresh_action)
         view_menu.addAction(fullscreen_action)
+
+    def build_maintenance_overlay(self):
+        self.maintenance_overlay = QWidget(self)
+        self.maintenance_overlay.setAttribute(Qt.WA_StyledBackground, True)
+        self.maintenance_overlay.hide()
+        overlay_layout = QVBoxLayout(self.maintenance_overlay)
+        overlay_layout.setContentsMargins(
+            scaled(70, self.ui_scale),
+            scaled(70, self.ui_scale),
+            scaled(70, self.ui_scale),
+            scaled(70, self.ui_scale),
+        )
+        overlay_layout.addStretch(1)
+        self.maintenance_label = QLabel("")
+        self.maintenance_label.setAlignment(Qt.AlignCenter)
+        self.maintenance_label.setWordWrap(True)
+        self.maintenance_label.setTextFormat(Qt.PlainText)
+        overlay_layout.addWidget(self.maintenance_label)
+        overlay_layout.addStretch(1)
+        self.position_maintenance_overlay()
+
+    def position_maintenance_overlay(self):
+        if hasattr(self, "maintenance_overlay"):
+            self.maintenance_overlay.setGeometry(self.rect())
+            if self.maintenance_enabled:
+                self.maintenance_overlay.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.position_maintenance_overlay()
+
+    def config_file_mtime(self):
+        try:
+            return CONFIG_PATH.stat().st_mtime
+        except Exception:
+            return 0
+
+    def refresh_runtime_config(self):
+        current_mtime = self.config_file_mtime()
+        if current_mtime == self.config_mtime:
+            return
+        try:
+            updated_config = load_config()
+        except Exception:
+            return
+        self.config = updated_config
+        self.config_mtime = self.config_file_mtime()
+        self.apply_maintenance_config(self.config.get("maintenance", {}))
+
+    def apply_maintenance_config(self, maintenance):
+        maintenance = maintenance if isinstance(maintenance, dict) else {}
+        enabled = as_bool(maintenance.get("enabled", False))
+        text = str(maintenance.get("text") or "Maintenance in progress\nPlease wait")
+        background = valid_color(maintenance.get("background"), "#050505")
+        foreground = valid_color(maintenance.get("foreground"), "#ffffff")
+        self.maintenance_enabled = enabled
+        self.maintenance_label.setText(text)
+        self.maintenance_overlay.setStyleSheet(f"background-color: {background};")
+        self.maintenance_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {foreground};
+                font-size: {scaled(62, self.ui_scale)}px;
+                font-weight: 900;
+                letter-spacing: {scaled(1, self.ui_scale)}px;
+            }}
+            """
+        )
+        if enabled:
+            if self.active_alert_dialog:
+                self.active_alert_dialog.close()
+                self.active_alert_dialog = None
+            self.menuBar().hide()
+            if self.statusBar():
+                self.statusBar().hide()
+            self.position_maintenance_overlay()
+            self.maintenance_overlay.show()
+            self.maintenance_overlay.raise_()
+        else:
+            self.maintenance_overlay.hide()
+            self.menuBar().show()
+            if self.statusBar():
+                self.statusBar().show()
+            QTimer.singleShot(0, self.show_next_alert)
 
     def apply_theme(self):
         scale = self.ui_scale
@@ -824,6 +933,9 @@ class ViewerWindow(QMainWindow):
         self.show_next_alert()
 
     def show_next_alert(self):
+        if self.maintenance_enabled:
+            self.update_notification_queue_badge()
+            return
         if self.active_alert_dialog or not self.pending_alerts:
             return
 
