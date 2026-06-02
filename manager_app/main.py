@@ -1540,6 +1540,7 @@ class ManagerInfoCard(QFrame):
 
 class ManagerPiTab(QWidget):
     command_finished = Signal(str)
+    refresh_result_ready = Signal(object)
 
     def __init__(self, state):
         super().__init__()
@@ -1586,6 +1587,8 @@ class ManagerPiTab(QWidget):
             """
         )
         self.state = state
+        self.refresh_in_progress = False
+        self.active = True
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         self.scroll_area = QScrollArea()
@@ -1709,6 +1712,7 @@ class ManagerPiTab(QWidget):
         layout.addWidget(password_frame)
 
         self.command_finished.connect(self.on_command_finished)
+        self.refresh_result_ready.connect(self.handle_refresh_result)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
@@ -1735,10 +1739,32 @@ class ManagerPiTab(QWidget):
             section_layout.addWidget(subtitle_label)
         return frame, section_layout
 
+    def set_active(self, active):
+        self.active = bool(active)
+        if self.active:
+            self.timer.start(5000)
+            self.refresh()
+        else:
+            self.timer.stop()
+
     def refresh(self):
+        if self.refresh_in_progress:
+            return
+        self.refresh_in_progress = True
+        Thread(target=self._refresh_worker, daemon=True).start()
+
+    def _refresh_worker(self):
         try:
             status = self.state.get_manager_status()
         except Exception as error:
+            self.refresh_result_ready.emit({"ok": False, "error": str(error)})
+            return
+        self.refresh_result_ready.emit({"ok": True, "status": status})
+
+    def handle_refresh_result(self, result):
+        self.refresh_in_progress = False
+        if not result.get("ok"):
+            error = result.get("error", "Unknown error")
             self.connection_card.set_content("Offline", f"Could not read Manager Pi status: {error}", "bad")
             self.software_card.set_content("Unknown", "No update status available.", "muted")
             self.services_card.set_content("Unknown", "No service status available.", "muted")
@@ -1746,7 +1772,9 @@ class ManagerPiTab(QWidget):
             self.manager_update_card.set_content("Unknown", "No update status available.", "muted")
             self.version_card.set_content("Unknown", "No version status available.", "muted")
             return
+        self.apply_manager_status(result.get("status", {}) or {})
 
+    def apply_manager_status(self, status):
         update_status = status.get("update_status", {}) or {}
         latest = str(update_status.get("latest_version") or "unknown")
         local = str(update_status.get("local_version") or status.get("version") or "unknown")
@@ -1887,6 +1915,7 @@ class ManagerPiTab(QWidget):
 
 class PiScreensTab(QWidget):
     command_finished = Signal(str)
+    refresh_result_ready = Signal(object)
 
     COLUMNS = ["ID", "Name", "IP", "Screen", "Scale", "Version", "Update", "State", "Audio", "Activity", "Last Seen"]
     STATUS_COLORS = {
@@ -1912,6 +1941,9 @@ class PiScreensTab(QWidget):
         super().__init__()
         self.setObjectName("WarehousePage")
         self.state = state
+        self.refresh_in_progress = False
+        self.active = True
+        self.last_refresh_signature = ""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 14)
         layout.setSpacing(10)
@@ -2049,6 +2081,7 @@ class PiScreensTab(QWidget):
         self.timer.timeout.connect(self.refresh)
         self.timer.start(3000)
         self.command_finished.connect(self.on_command_finished)
+        self.refresh_result_ready.connect(self.handle_refresh_result)
         self.refresh()
         self.check_updates_now()
 
@@ -2079,9 +2112,42 @@ class PiScreensTab(QWidget):
             )
         return devices
 
+    def set_active(self, active):
+        self.active = bool(active)
+        if self.active:
+            self.timer.start(3000)
+            self.refresh()
+        else:
+            self.timer.stop()
+
     def refresh(self):
-        devices = self.state.list_devices()
-        update_status = self.state.get_update_status()
+        if self.refresh_in_progress:
+            return
+        self.refresh_in_progress = True
+        Thread(target=self._refresh_worker, daemon=True).start()
+
+    def _refresh_worker(self):
+        try:
+            devices = self.state.list_devices()
+            update_status = self.state.get_update_status()
+        except Exception as error:
+            self.refresh_result_ready.emit({"ok": False, "error": str(error)})
+            return
+        self.refresh_result_ready.emit({"ok": True, "devices": devices, "update_status": update_status})
+
+    def handle_refresh_result(self, result):
+        self.refresh_in_progress = False
+        if not result.get("ok"):
+            self.status.setText(f"Could not refresh Pi list: {result.get('error', 'unknown error')}")
+            return
+        self.apply_devices(result.get("devices", []) or [], result.get("update_status", {}) or {})
+
+    def apply_devices(self, devices, update_status):
+        signature = repr(devices) + repr(update_status)
+        if signature == self.last_refresh_signature:
+            self.update_status.setText(self.format_update_status(update_status))
+            return
+        self.last_refresh_signature = signature
         self.table.setRowCount(len(devices))
         online_count = 0
         offline_count = 0
@@ -2341,6 +2407,8 @@ class PiScreensTab(QWidget):
 
 
 class ActivityConsoleTab(QWidget):
+    refresh_result_ready = Signal(object)
+
     COLUMNS = ["Time", "Level", "Category", "Message"]
     LEVEL_COLORS = {
         "error": "#b71c1c",
@@ -2352,6 +2420,9 @@ class ActivityConsoleTab(QWidget):
         super().__init__()
         self.setObjectName("WarehousePage")
         self.state = state
+        self.refresh_in_progress = False
+        self.active = True
+        self.last_refresh_signature = ""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 14)
         layout.setSpacing(10)
@@ -2401,14 +2472,49 @@ class ActivityConsoleTab(QWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
         self.timer.start(2000)
+        self.refresh_result_ready.connect(self.handle_refresh_result)
         self.refresh()
 
+    def set_active(self, active):
+        self.active = bool(active)
+        if self.active:
+            self.timer.start(2000)
+            self.refresh()
+        else:
+            self.timer.stop()
+
     def refresh(self):
-        entries = self.state.list_activity(
-            category=self.category_filter.currentText(),
-            level=self.level_filter.currentText(),
-            limit=500,
-        )
+        if self.refresh_in_progress:
+            return
+        self.refresh_in_progress = True
+        category = self.category_filter.currentText()
+        level = self.level_filter.currentText()
+        Thread(target=self._refresh_worker, args=(category, level), daemon=True).start()
+
+    def _refresh_worker(self, category, level):
+        try:
+            entries = self.state.list_activity(
+                category=category,
+                level=level,
+                limit=500,
+            )
+        except Exception as error:
+            self.refresh_result_ready.emit({"ok": False, "error": str(error)})
+            return
+        self.refresh_result_ready.emit({"ok": True, "entries": entries})
+
+    def handle_refresh_result(self, result):
+        self.refresh_in_progress = False
+        if not result.get("ok"):
+            self.status.setText(f"Could not refresh console: {result.get('error', 'unknown error')}")
+            return
+        self.apply_entries(result.get("entries", []) or [])
+
+    def apply_entries(self, entries):
+        signature = repr(entries)
+        if signature == self.last_refresh_signature:
+            return
+        self.last_refresh_signature = signature
         self.table.setRowCount(len(entries))
         for row, entry in enumerate(entries):
             values = [
@@ -2468,6 +2574,15 @@ class ManagerWindow(QMainWindow):
         tabs.addTab(PiScreensTab(state), "Pi Screens")
         tabs.addTab(ActivityConsoleTab(state), "Console")
         self.setCentralWidget(tabs)
+        self.tabs = tabs
+        tabs.currentChanged.connect(self.on_tab_changed)
+        QTimer.singleShot(0, lambda: self.on_tab_changed(tabs.currentIndex()))
+
+    def on_tab_changed(self, index):
+        for tab_index in range(self.tabs.count()):
+            widget = self.tabs.widget(tab_index)
+            if hasattr(widget, "set_active"):
+                widget.set_active(tab_index == index)
 
     def closeEvent(self, event):
         if getattr(self.state, "is_remote", False):
