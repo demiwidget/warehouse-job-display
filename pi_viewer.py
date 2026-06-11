@@ -348,10 +348,11 @@ class OutstandingItemsDialog(QDialog):
 
 
 class AlertDialog(QDialog):
-    def __init__(self, title, html, parent=None):
+    def __init__(self, title, html, parent=None, show_clear_all=False, clear_all_callback=None):
         super().__init__(parent)
         self.ui_scale = float(getattr(parent, "ui_scale", 1.0) or 1.0)
         self.acknowledged = False
+        self.clear_all_callback = clear_all_callback
         self.setWindowTitle(title or "Notification")
         self.resize(scaled(1200, self.ui_scale), scaled(760, self.ui_scale))
         self.setModal(True)
@@ -369,13 +370,26 @@ class AlertDialog(QDialog):
         close_btn = QPushButton("Confirm Notification")
         close_btn.setDefault(True)
         close_btn.clicked.connect(self.confirm_notification)
+        button_row = QHBoxLayout()
+        if show_clear_all:
+            clear_all_btn = QPushButton("Clear All Notifications")
+            clear_all_btn.clicked.connect(self.clear_all_notifications)
+            button_row.addWidget(clear_all_btn)
+        button_row.addStretch(1)
+        button_row.addWidget(close_btn)
 
         layout.addWidget(heading)
         layout.addWidget(body, 1)
-        layout.addWidget(close_btn)
+        layout.addLayout(button_row)
 
     def confirm_notification(self):
         self.acknowledged = True
+        self.accept()
+
+    def clear_all_notifications(self):
+        self.acknowledged = True
+        if callable(self.clear_all_callback):
+            self.clear_all_callback()
         self.accept()
 
     def reject(self):
@@ -673,6 +687,11 @@ class ViewerWindow(QMainWindow):
         self.alert_queue_badge.setObjectName("alertQueueBadge")
         self.alert_queue_badge.hide()
         alert_bar.addWidget(self.alert_queue_badge)
+        self.clear_alerts_button = QPushButton("Clear All Notifications")
+        self.clear_alerts_button.setObjectName("clearAlertsButton")
+        self.clear_alerts_button.clicked.connect(self.clear_all_notifications)
+        self.clear_alerts_button.hide()
+        alert_bar.addWidget(self.clear_alerts_button)
         root.addLayout(alert_bar)
 
         self.tabs = QTabWidget()
@@ -838,6 +857,15 @@ class ViewerWindow(QMainWindow):
                 padding: {scaled(8, scale)}px {scaled(14, scale)}px;
                 border-radius: {scaled(14, scale)}px;
             }}
+            QPushButton#clearAlertsButton {{
+                background-color: #793238;
+                color: white;
+                font-size: {scaled(15, scale)}px;
+                font-weight: 800;
+                padding: {scaled(8, scale)}px {scaled(14, scale)}px;
+                border-radius: {scaled(14, scale)}px;
+                border: 1px solid #a84a52;
+            }}
             QStatusBar {{ background-color: #15181b; font-size: {scaled(13, scale)}px; }}
             QTextBrowser {{ background-color: #171a1d; border: 1px solid #2a2f35; border-radius: {scaled(12, scale)}px; padding: {scaled(16, scale)}px; font-size: {scaled(18, scale)}px; }}
             """
@@ -948,7 +976,14 @@ class ViewerWindow(QMainWindow):
             QTimer.singleShot(0, self.finish_current_alert)
             return
 
-        self.active_alert_dialog = AlertDialog(alert.get("title", "Notification"), alert.get("html", ""), self)
+        total_notifications = len(self.pending_alerts) + max(0, self.remote_alert_queue_remaining) + 1
+        self.active_alert_dialog = AlertDialog(
+            alert.get("title", "Notification"),
+            alert.get("html", ""),
+            self,
+            show_clear_all=total_notifications > 2,
+            clear_all_callback=self.clear_all_notifications,
+        )
         self.active_alert_dialog.finished.connect(self.finish_current_alert)
         self.active_alert_dialog.open()
 
@@ -959,6 +994,8 @@ class ViewerWindow(QMainWindow):
 
     def update_notification_queue_badge(self):
         queued_count = len(self.pending_alerts) + max(0, self.remote_alert_queue_remaining)
+        visible_count = queued_count + (1 if self.active_alert_dialog else 0)
+        self.clear_alerts_button.setVisible(visible_count > 2)
         if queued_count <= 0:
             self.alert_queue_badge.hide()
             self.alert_queue_badge.setText("")
@@ -966,6 +1003,26 @@ class ViewerWindow(QMainWindow):
         label = "notification" if queued_count == 1 else "notifications"
         self.alert_queue_badge.setText(f"{queued_count} queued {label}")
         self.alert_queue_badge.show()
+
+    def clear_all_notifications(self):
+        self.pending_alerts.clear()
+        self.remote_alert_queue_remaining = 0
+        dialog = self.active_alert_dialog
+        self.active_alert_dialog = None
+        if dialog:
+            dialog.acknowledged = True
+            dialog.accept()
+        self.update_notification_queue_badge()
+        Thread(target=self._clear_remote_notifications_worker, daemon=True).start()
+
+    def _clear_remote_notifications_worker(self):
+        try:
+            requests.post(
+                self.server_url(f"/alerts/{registration_id(self.config)}/clear"),
+                timeout=5,
+            )
+        except Exception:
+            pass
 
     def report_audio_event(self, message, level="info"):
         Thread(

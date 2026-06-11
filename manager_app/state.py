@@ -701,6 +701,22 @@ class ManagerState:
         )
         return alert
 
+    def clear_device_alerts(self, device_id):
+        device_id = str(device_id or "").strip()
+        if not device_id:
+            return 0
+        with self.lock:
+            queue = self.alerts.setdefault(device_id, [])
+            cleared = len(queue)
+            queue.clear()
+        if cleared:
+            self.log_activity(
+                "Notifications",
+                f"Cleared {cleared} queued notification(s) for Pi {device_id}.",
+                details={"device_id": device_id, "cleared": cleared},
+            )
+        return cleared
+
     def screen_payload(self, screen):
         with self.lock:
             settings = self.store.load_settings()

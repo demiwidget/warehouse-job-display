@@ -64,6 +64,10 @@ def create_app(state):
     def alerts(device_id):
         return jsonify(state.poll_alert(device_id))
 
+    @app.post("/alerts/<device_id>/clear")
+    def clear_alerts(device_id):
+        return jsonify({"ok": True, "cleared": state.clear_device_alerts(device_id)})
+
     @app.get("/sounds/<path:filename>")
     def sounds(filename):
         safe_name = Path(str(filename or "").strip()).name

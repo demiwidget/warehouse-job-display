@@ -19,6 +19,11 @@ DEFAULT_SETTINGS = {
         "background": "#050505",
         "foreground": "#ffffff",
     },
+    "connection_watchdog": {
+        "enabled": False,
+        "failure_minutes": 10,
+        "cooldown_minutes": 60,
+    },
     "current_rms": {
         "api_base": "https://api.current-rms.com/api/v1",
         "api_key": "",

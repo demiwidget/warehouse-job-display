@@ -19,7 +19,29 @@ from pi_status import post_status
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = BASE_DIR / "viewer_config.json"
 SOUND_LOOP_PID_FILE = Path("/tmp/warehouse-dashboard-sound-loop.pid")
+CONNECTION_WATCHDOG_STATE_FILE = Path.home() / ".warehouse-dashboard-connection-watchdog.json"
 DEFAULT_LOOP_SOUND = "job-changes.wav"
+CONNECTION_WATCHDOG_DEFAULTS = {
+    "enabled": False,
+    "failure_reboot_seconds": 600,
+    "reboot_cooldown_seconds": 3600,
+    "min_uptime_seconds": 600,
+}
+
+
+def safe_int(value, default=0):
+    try:
+        if value in (None, ""):
+            return default
+        return int(float(value))
+    except Exception:
+        return default
+
+
+def as_bool(value):
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def write_json_atomic(path, payload):
@@ -52,6 +74,7 @@ def load_config():
     cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     changed = sync_config_version(cfg)
     changed = sync_audio_config(cfg) or changed
+    changed = sync_connection_watchdog_config(cfg) or changed
     cfg, identity_changed, _payload = registration_payload(cfg)
     if changed or identity_changed:
         save_config(cfg)
@@ -110,6 +133,91 @@ def safe_sound_name(sound_name):
     if safe_name != raw_name or Path(safe_name).suffix.lower() != ".wav":
         return ""
     return safe_name
+
+
+def sync_connection_watchdog_config(cfg):
+    watchdog = cfg.get("connection_watchdog")
+    changed = False
+    if not isinstance(watchdog, dict):
+        cfg["connection_watchdog"] = dict(CONNECTION_WATCHDOG_DEFAULTS)
+        return True
+    for key, value in CONNECTION_WATCHDOG_DEFAULTS.items():
+        if key not in watchdog:
+            watchdog[key] = value
+            changed = True
+    return changed
+
+
+def connection_watchdog_config(cfg):
+    watchdog = cfg.get("connection_watchdog", {}) if isinstance(cfg.get("connection_watchdog", {}), dict) else {}
+    return {
+        "enabled": as_bool(watchdog.get("enabled", CONNECTION_WATCHDOG_DEFAULTS["enabled"])),
+        "failure_reboot_seconds": max(
+            60,
+            safe_int(watchdog.get("failure_reboot_seconds"), CONNECTION_WATCHDOG_DEFAULTS["failure_reboot_seconds"]),
+        ),
+        "reboot_cooldown_seconds": max(
+            300,
+            safe_int(watchdog.get("reboot_cooldown_seconds"), CONNECTION_WATCHDOG_DEFAULTS["reboot_cooldown_seconds"]),
+        ),
+        "min_uptime_seconds": max(
+            60,
+            safe_int(watchdog.get("min_uptime_seconds"), CONNECTION_WATCHDOG_DEFAULTS["min_uptime_seconds"]),
+        ),
+    }
+
+
+def read_watchdog_state():
+    try:
+        data = json.loads(CONNECTION_WATCHDOG_STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        data = {}
+    return data if isinstance(data, dict) else {}
+
+
+def write_watchdog_state(data):
+    try:
+        write_json_atomic(CONNECTION_WATCHDOG_STATE_FILE, data)
+    except Exception:
+        pass
+
+
+def system_uptime_seconds():
+    try:
+        return float(Path("/proc/uptime").read_text(encoding="utf-8").split()[0])
+    except Exception:
+        return time.monotonic()
+
+
+def handle_connection_failure(cfg, failure_started_at):
+    watchdog = connection_watchdog_config(cfg)
+    if not watchdog["enabled"]:
+        return None
+
+    now = time.time()
+    if failure_started_at is None:
+        return now
+
+    failed_for = now - failure_started_at
+    if failed_for < watchdog["failure_reboot_seconds"]:
+        return failure_started_at
+    if system_uptime_seconds() < watchdog["min_uptime_seconds"]:
+        return failure_started_at
+
+    state = read_watchdog_state()
+    last_reboot_at = safe_int(state.get("last_reboot_at"), 0)
+    if last_reboot_at and now - last_reboot_at < watchdog["reboot_cooldown_seconds"]:
+        return failure_started_at
+
+    write_watchdog_state(
+        {
+            "last_reboot_at": int(now),
+            "failed_for_seconds": int(failed_for),
+            "server": str(cfg.get("server", "")),
+        }
+    )
+    reboot_pi(cfg)
+    return now
 
 
 def sound_player_command(sound_path):
@@ -528,6 +636,22 @@ def handle_command(cfg, cmd):
         cfg["maintenance"] = maintenance
         save_config(cfg)
         post_status(cfg, "online", "Maintenance splash screen hidden.", source="agent", timeout=3, event_only=True)
+    elif action == "set_connection_watchdog":
+        enabled = as_bool(cmd.get("enabled", False))
+        failure_seconds = max(60, safe_int(cmd.get("failure_reboot_seconds"), 600))
+        cooldown_seconds = max(300, safe_int(cmd.get("reboot_cooldown_seconds"), 3600))
+        cfg["connection_watchdog"] = {
+            "enabled": enabled,
+            "failure_reboot_seconds": failure_seconds,
+            "reboot_cooldown_seconds": cooldown_seconds,
+            "min_uptime_seconds": CONNECTION_WATCHDOG_DEFAULTS["min_uptime_seconds"],
+        }
+        save_config(cfg)
+        message = (
+            f"Connection watchdog {'enabled' if enabled else 'disabled'} "
+            f"({failure_seconds // 60}m failure, {cooldown_seconds // 60}m cooldown)."
+        )
+        post_status(cfg, "online", message, source="agent", timeout=3, event_only=True)
     elif action == "rename":
         new_name = str(cmd.get("device_name", "")).strip()
         if new_name:
@@ -550,7 +674,9 @@ def handle_command(cfg, cmd):
 
 def main():
     last_audio_check_at = 0
+    connection_failure_started_at = None
     while True:
+        cfg = None
         try:
             cfg = load_config()
             now = time.monotonic()
@@ -561,8 +687,10 @@ def main():
             cmd = requests.get(url(cfg, f"/poll/{registration_id(cfg)}"), timeout=10).json()
             if cmd:
                 handle_command(cfg, cmd)
+            connection_failure_started_at = None
         except Exception:
-            pass
+            if cfg:
+                connection_failure_started_at = handle_connection_failure(cfg, connection_failure_started_at)
         time.sleep(10)
 
 

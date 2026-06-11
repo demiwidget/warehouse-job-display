@@ -2065,6 +2065,29 @@ class PiScreensTab(QWidget):
         maintenance_layout.setColumnStretch(3, 1)
         controls_layout.addLayout(maintenance_layout)
 
+        watchdog_settings = self.state.get_settings(include_secret=True).get("connection_watchdog", {}) or {}
+        watchdog_layout = QGridLayout()
+        self.watchdog_enabled_input = QCheckBox("Reboot selected Pis after sustained Manager Pi connection loss")
+        self.watchdog_enabled_input.setChecked(bool(watchdog_settings.get("enabled", False)))
+        self.watchdog_failure_minutes_input = QSpinBox()
+        self.watchdog_failure_minutes_input.setRange(2, 120)
+        self.watchdog_failure_minutes_input.setValue(int(watchdog_settings.get("failure_minutes", 10) or 10))
+        self.watchdog_cooldown_minutes_input = QSpinBox()
+        self.watchdog_cooldown_minutes_input.setRange(15, 720)
+        self.watchdog_cooldown_minutes_input.setValue(int(watchdog_settings.get("cooldown_minutes", 60) or 60))
+        apply_watchdog_btn = QPushButton("Apply Connection Watchdog")
+        apply_watchdog_btn.clicked.connect(self.apply_connection_watchdog)
+        watchdog_layout.addWidget(self.watchdog_enabled_input, 0, 0, 1, 3)
+        watchdog_layout.addWidget(QLabel("Reboot after lost connection for"), 1, 0)
+        watchdog_layout.addWidget(self.watchdog_failure_minutes_input, 1, 1)
+        watchdog_layout.addWidget(QLabel("minutes"), 1, 2)
+        watchdog_layout.addWidget(QLabel("Minimum time between watchdog reboots"), 2, 0)
+        watchdog_layout.addWidget(self.watchdog_cooldown_minutes_input, 2, 1)
+        watchdog_layout.addWidget(QLabel("minutes"), 2, 2)
+        watchdog_layout.addWidget(apply_watchdog_btn, 3, 1)
+        watchdog_layout.setColumnStretch(3, 1)
+        controls_layout.addLayout(watchdog_layout)
+
         service_buttons = QHBoxLayout()
         service_buttons.addWidget(check_updates_btn)
         service_buttons.addWidget(refresh_btn)
@@ -2372,6 +2395,37 @@ class PiScreensTab(QWidget):
         self.state.save_settings({"maintenance": payload})
         self.state.queue_command(device_ids, "maintenance_show", **payload)
         self.status.setText(f"Queued maintenance screen for {len(device_ids)} Pi screen(s).")
+
+    def connection_watchdog_payload(self):
+        failure_minutes = self.watchdog_failure_minutes_input.value()
+        cooldown_minutes = self.watchdog_cooldown_minutes_input.value()
+        return {
+            "enabled": self.watchdog_enabled_input.isChecked(),
+            "failure_minutes": failure_minutes,
+            "cooldown_minutes": cooldown_minutes,
+            "failure_reboot_seconds": failure_minutes * 60,
+            "reboot_cooldown_seconds": cooldown_minutes * 60,
+        }
+
+    def apply_connection_watchdog(self):
+        device_ids = self.selected_device_ids()
+        if not device_ids:
+            QMessageBox.warning(self, "No Pi Selected", "Select one or more Pi screens first.")
+            return
+
+        payload = self.connection_watchdog_payload()
+        self.state.save_settings(
+            {
+                "connection_watchdog": {
+                    "enabled": payload["enabled"],
+                    "failure_minutes": payload["failure_minutes"],
+                    "cooldown_minutes": payload["cooldown_minutes"],
+                }
+            }
+        )
+        self.state.queue_command(device_ids, "set_connection_watchdog", **payload)
+        state_text = "enabled" if payload["enabled"] else "disabled"
+        self.status.setText(f"Queued connection watchdog {state_text} for {len(device_ids)} Pi screen(s).")
 
     def remove_selected_pis(self):
         devices = self.selected_devices()
