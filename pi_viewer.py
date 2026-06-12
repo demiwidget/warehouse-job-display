@@ -390,6 +390,7 @@ class AlertDialog(QDialog):
         self.acknowledged = True
         if callable(self.clear_all_callback):
             self.clear_all_callback()
+            return
         self.accept()
 
     def reject(self):
@@ -585,6 +586,7 @@ def acquire_viewer_lock():
 class ViewerWindow(QMainWindow):
     refresh_result_ready = Signal(object)
     alert_result_ready = Signal(object)
+    clear_alerts_result_ready = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -597,6 +599,7 @@ class ViewerWindow(QMainWindow):
         self.pending_alerts = []
         self.remote_alert_queue_remaining = 0
         self.active_alert_dialog = None
+        self.clearing_alerts = False
         self.sound_effect = QSoundEffect(self) if QSoundEffect else None
         self.sound_process = None
         self.last_audio_apply_at = 0.0
@@ -614,6 +617,7 @@ class ViewerWindow(QMainWindow):
         self.showFullScreen()
         self.refresh_result_ready.connect(self.handle_refresh_result)
         self.alert_result_ready.connect(self.handle_alert_result)
+        self.clear_alerts_result_ready.connect(self.handle_clear_alerts_result)
 
         self.register_timer = QTimer(self)
         self.register_timer.timeout.connect(self.register)
@@ -919,6 +923,8 @@ class ViewerWindow(QMainWindow):
             self.tabs.setCurrentIndex(mapping[self.current_screen])
 
     def poll_alerts(self):
+        if self.clearing_alerts:
+            return
         if self.alert_poll_in_progress:
             return
         self.alert_poll_in_progress = True
@@ -941,6 +947,11 @@ class ViewerWindow(QMainWindow):
 
     def handle_alert_result(self, result):
         self.alert_poll_in_progress = False
+        if self.clearing_alerts:
+            self.pending_alerts.clear()
+            self.remote_alert_queue_remaining = 0
+            self.update_notification_queue_badge()
+            return
         if not result.get("ok"):
             return
 
@@ -961,6 +972,9 @@ class ViewerWindow(QMainWindow):
         self.show_next_alert()
 
     def show_next_alert(self):
+        if self.clearing_alerts:
+            self.update_notification_queue_badge()
+            return
         if self.maintenance_enabled:
             self.update_notification_queue_badge()
             return
@@ -1005,6 +1019,7 @@ class ViewerWindow(QMainWindow):
         self.alert_queue_badge.show()
 
     def clear_all_notifications(self):
+        self.clearing_alerts = True
         self.pending_alerts.clear()
         self.remote_alert_queue_remaining = 0
         dialog = self.active_alert_dialog
@@ -1016,13 +1031,30 @@ class ViewerWindow(QMainWindow):
         Thread(target=self._clear_remote_notifications_worker, daemon=True).start()
 
     def _clear_remote_notifications_worker(self):
+        result = {"ok": False, "cleared": 0, "error": ""}
         try:
-            requests.post(
+            response = requests.post(
                 self.server_url(f"/alerts/{registration_id(self.config)}/clear"),
                 timeout=5,
             )
-        except Exception:
-            pass
+            response.raise_for_status()
+            payload = response.json() if response.content else {}
+            result = {"ok": True, "cleared": int(payload.get("cleared", 0) or 0), "error": ""}
+        except Exception as error:
+            result = {"ok": False, "cleared": 0, "error": str(error)}
+        self.clear_alerts_result_ready.emit(result)
+
+    def handle_clear_alerts_result(self, result):
+        self.clearing_alerts = False
+        self.pending_alerts.clear()
+        self.remote_alert_queue_remaining = 0
+        self.update_notification_queue_badge()
+        if not result.get("ok"):
+            self.report_audio_event(f"Could not clear remote notification queue: {result.get('error', '')}", level="warning")
+            return
+        cleared = int(result.get("cleared", 0) or 0)
+        if cleared:
+            self.report_audio_event(f"Cleared {cleared} queued notification(s) from this screen.")
 
     def report_audio_event(self, message, level="info"):
         Thread(
