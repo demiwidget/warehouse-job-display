@@ -354,7 +354,7 @@ class AlertDialog(QDialog):
         self.acknowledged = False
         self.clear_all_callback = clear_all_callback
         self.setWindowTitle(title or "Notification")
-        self.resize(scaled(1200, self.ui_scale), scaled(760, self.ui_scale))
+        self.resize_to_screen()
         self.setModal(True)
         flags = self.windowFlags()
         flags |= Qt.WindowStaysOnTopHint
@@ -362,25 +362,73 @@ class AlertDialog(QDialog):
         self.setWindowFlags(flags)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(
+            scaled(24, self.ui_scale),
+            scaled(20, self.ui_scale),
+            scaled(24, self.ui_scale),
+            scaled(20, self.ui_scale),
+        )
+        layout.setSpacing(scaled(14, self.ui_scale))
+
+        header_row = QHBoxLayout()
         heading = QLabel(f"<h1>{title or 'Notification'}</h1>")
+        heading.setWordWrap(True)
+        header_row.addWidget(heading, 1)
+        if show_clear_all:
+            header_row.addWidget(
+                self.make_action_button("Clear All", self.clear_all_notifications, primary=False)
+            )
+        top_confirm_btn = self.make_action_button("Confirm", self.confirm_notification, primary=True)
+        top_confirm_btn.setDefault(True)
+        header_row.addWidget(top_confirm_btn)
+
         body = QTextBrowser()
         body.setHtml(html or "")
         body.setOpenExternalLinks(True)
         enable_click_drag_scroll(body)
-        close_btn = QPushButton("Confirm Notification")
-        close_btn.setDefault(True)
-        close_btn.clicked.connect(self.confirm_notification)
+
+        close_btn = self.make_action_button("Confirm Notification", self.confirm_notification, primary=True)
         button_row = QHBoxLayout()
         if show_clear_all:
-            clear_all_btn = QPushButton("Clear All Notifications")
-            clear_all_btn.clicked.connect(self.clear_all_notifications)
+            clear_all_btn = self.make_action_button(
+                "Clear All Notifications", self.clear_all_notifications, primary=False
+            )
             button_row.addWidget(clear_all_btn)
         button_row.addStretch(1)
         button_row.addWidget(close_btn)
 
-        layout.addWidget(heading)
+        layout.addLayout(header_row)
         layout.addWidget(body, 1)
         layout.addLayout(button_row)
+
+    def resize_to_screen(self):
+        width = scaled(1200, self.ui_scale)
+        height = scaled(760, self.ui_scale)
+        screen = QApplication.primaryScreen()
+        if screen:
+            available = screen.availableGeometry()
+            width = min(width, int(available.width() * 0.94))
+            height = min(height, int(available.height() * 0.88))
+        self.resize(width, height)
+
+    def make_action_button(self, text, slot, primary=False):
+        button = QPushButton(text)
+        button.clicked.connect(slot)
+        button.setMinimumHeight(scaled(56, self.ui_scale))
+        button.setMinimumWidth(scaled(150 if primary else 140, self.ui_scale))
+        if primary:
+            button.setStyleSheet(
+                "QPushButton { background:#57d68d; color:#06100b; border:0; "
+                "border-radius:12px; padding:12px 18px; font-weight:900; font-size:18px; }"
+                "QPushButton:pressed { background:#35b76d; }"
+            )
+        else:
+            button.setStyleSheet(
+                "QPushButton { background:#ffd166; color:#150f00; border:0; "
+                "border-radius:12px; padding:12px 18px; font-weight:900; font-size:18px; }"
+                "QPushButton:pressed { background:#f2b94d; }"
+            )
+        return button
 
     def confirm_notification(self):
         self.acknowledged = True
