@@ -759,12 +759,14 @@ class ViewerWindow(QMainWindow):
         )
         self.prep_table = DashboardTable(scale=self.ui_scale)
         self.outstanding_table = DashboardTable(scale=self.ui_scale)
+        self.unreturned_table = DashboardTable(scale=self.ui_scale)
         self.notifications_table = DashboardTable(scale=self.ui_scale)
 
         self.tabs.addTab(self.today_page, "Today")
         self.tabs.addTab(self.tomorrow_page, "Tomorrow")
         self.tabs.addTab(self.prep_table, "Prep Status")
         self.tabs.addTab(self.outstanding_table, "Outstanding Items")
+        self.tabs.addTab(self.unreturned_table, "Unreturned Jobs")
         self.tabs.addTab(self.notifications_table, "Notification History")
         self.prep_table.cellDoubleClicked.connect(self.open_unprepped_items_dialog)
         self.outstanding_table.cellDoubleClicked.connect(self.open_outstanding_items_dialog)
@@ -966,7 +968,14 @@ class ViewerWindow(QMainWindow):
             pass
 
     def set_current_tab(self):
-        mapping = {"today": 0, "tomorrow": 1, "prep": 2, "outstanding": 3, "notifications": 4}
+        mapping = {
+            "today": 0,
+            "tomorrow": 1,
+            "prep": 2,
+            "outstanding": 3,
+            "unreturned": 4,
+            "notifications": 5,
+        }
         if self.current_screen in mapping:
             self.tabs.setCurrentIndex(mapping[self.current_screen])
 
@@ -1293,6 +1302,7 @@ class ViewerWindow(QMainWindow):
         tomorrow = bundle.get("tomorrow", {"title": "Tomorrow", "summary": {}, "out_rows": [], "in_rows": []})
         prep = bundle.get("prep", {"title": "Prep", "summary": {}, "rows": []})
         outstanding = bundle.get("outstanding", {"title": "Outstanding", "summary": {}, "rows": []})
+        unreturned = bundle.get("unreturned", {"title": "Unreturned Jobs", "summary": {}, "rows": []})
         notifications = bundle.get("notifications", {"title": "Notifications", "summary": {}, "rows": []})
         quarantines = bundle.get("quarantines", {"title": "Quarantines", "summary": {}, "rows": []})
 
@@ -1360,6 +1370,10 @@ class ViewerWindow(QMainWindow):
             outstanding.get("rows", []),
         )
         self.add_outstanding_action_buttons()
+        self.unreturned_table.set_rows(
+            ["Job Name", "Job Number", "Customer Returning", "Time", "Client", "Owner", "Job Returned"],
+            unreturned.get("rows", []),
+        )
         self.notifications_table.set_rows(
             ["Time", "Title", "Source", "Details"],
             notifications.get("rows", []),

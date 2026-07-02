@@ -422,6 +422,7 @@ class DashboardBuilder:
                 "tomorrow": self._tomorrow_payload(views.get("tomorrow_out"), views.get("tomorrow_in")),
                 "prep": self._prep_payload(views.get("prep"), client, item_cache, settings),
                 "outstanding": self._outstanding_payload(views.get("outstanding"), client, item_cache),
+                "unreturned": self._unreturned_payload(views.get("unreturned")),
                 "quarantines": self._quarantine_payload(quarantine_view, settings),
             }
 
@@ -485,6 +486,7 @@ class DashboardBuilder:
             "tomorrow_in": str(view_settings.get("tomorrow_in", "")).strip(),
             "prep": str(view_settings.get("prep", "")).strip(),
             "outstanding": str(view_settings.get("outstanding", "")).strip(),
+            "unreturned": str(view_settings.get("unreturned", "")).strip(),
         }
 
         by_view_id = {"": client.fetch_view("")}
@@ -642,6 +644,16 @@ class DashboardBuilder:
             "rows": rows,
         }
 
+    def _unreturned_payload(self, unreturned_view):
+        rows = [self._return_row(opportunity) for opportunity in (unreturned_view or {}).get("opportunities", [])]
+        return {
+            "title": "Unreturned Jobs",
+            "summary": {
+                "Jobs": safe_int((unreturned_view or {}).get("meta", {}).get("total_row_count"), len(rows)),
+            },
+            "rows": rows,
+        }
+
     def _history_payload(self):
         rows = [
             {
@@ -760,6 +772,7 @@ class DashboardBuilder:
             "tomorrow": self._empty_payload("Tomorrow"),
             "prep": self._empty_payload("Prep Status"),
             "outstanding": self._empty_payload("Outstanding Items"),
+            "unreturned": self._empty_payload("Unreturned Jobs"),
             "quarantines": self._empty_payload("Quarantines"),
             "notifications": {
                 "title": "Notification History",

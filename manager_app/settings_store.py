@@ -45,6 +45,7 @@ DEFAULT_SETTINGS = {
             "tomorrow_in": "1000066",
             "prep": "1000067",
             "outstanding": "1000070",
+            "unreturned": "1000078",
         },
         "quarantines": {
             "enabled": True,

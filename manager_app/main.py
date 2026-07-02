@@ -690,6 +690,7 @@ class CurrentRMSTab(QWidget):
             "tomorrow_in": QLineEdit(str(views.get("tomorrow_in", ""))),
             "prep": QLineEdit(str(views.get("prep", ""))),
             "outstanding": QLineEdit(str(views.get("outstanding", ""))),
+            "unreturned": QLineEdit(str(views.get("unreturned", ""))),
         }
         self.excluded_items_input = QLineEdit(", ".join(str(item) for item in rms.get("excluded_item_ids", [])))
         self.quarantine_enabled_input = QCheckBox()
@@ -729,6 +730,7 @@ class CurrentRMSTab(QWidget):
         form.addRow("Tomorrow in view", self.view_inputs["tomorrow_in"])
         form.addRow("Prep / next 7 days view", self.view_inputs["prep"])
         form.addRow("Outstanding view", self.view_inputs["outstanding"])
+        form.addRow("Unreturned jobs view", self.view_inputs["unreturned"])
         form.addRow("Prep / alert excluded item IDs", self.excluded_items_input)
         form.addRow("Show quarantine leaderboard", self.quarantine_enabled_input)
         form.addRow("Quarantine department field", self.quarantine_field_input)
@@ -1975,6 +1977,7 @@ class PiScreensTab(QWidget):
             ("Show Tomorrow", "tomorrow"),
             ("Show Prep", "prep"),
             ("Show Outstanding", "outstanding"),
+            ("Show Unreturned", "unreturned"),
             ("Show Notification History", "notifications"),
         ):
             btn = QPushButton(label)
