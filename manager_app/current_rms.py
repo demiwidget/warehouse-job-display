@@ -692,6 +692,7 @@ class DashboardBuilder:
         meta = dict((quarantine_view or {}).get("meta", {}) or {})
         seed_configured_departments = not meta.get("disabled") and not meta.get("error")
         rows_by_department = {}
+        detail_rows = []
         if seed_configured_departments:
             rows_by_department = {
                 department_id: {
@@ -716,6 +717,7 @@ class DashboardBuilder:
             department_name = mappings.get(department_id) or (
                 "Unassigned" if department_id == "Unassigned" else f"Department {department_id}"
             )
+            detail_rows.append(self._quarantine_detail_row(quarantine, department_name))
             row = rows_by_department.setdefault(
                 department_id,
                 {
@@ -732,6 +734,14 @@ class DashboardBuilder:
         )
         for index, row in enumerate(rows, start=1):
             row["Rank"] = index
+
+        detail_rows.sort(
+            key=lambda row: (
+                str(row.get("Department", "")).lower(),
+                str(row.get("Item", "")).lower(),
+                str(row.get("Asset", "")).lower(),
+            )
+        )
 
         total = sum(safe_int(row.get("Quarantines"), 0) for row in rows)
         summary = {
@@ -754,6 +764,44 @@ class DashboardBuilder:
             "title": "Quarantines",
             "summary": summary,
             "rows": rows,
+            "detail_rows": detail_rows,
+        }
+
+    def _quarantine_detail_row(self, quarantine, department_name):
+        custom_fields = quarantine.get("custom_fields", {}) if isinstance(quarantine, dict) else {}
+        item_name = first_value(
+            quarantine,
+            "name",
+            "item_name",
+            ("item", "name"),
+            ("product", "name"),
+            ("stock_level", "name"),
+            "description",
+            default="",
+        )
+        if not item_name:
+            item_name = f"Quarantine {first_value(quarantine, 'id', default='')}".strip()
+        asset = first_value(
+            quarantine,
+            "asset_number",
+            "stock_level_asset_number",
+            "stock_level_id",
+            ("asset", "number"),
+            ("stock_level", "asset_number"),
+            ("stock_level", "id"),
+            default="",
+        )
+        reason = first_value(quarantine, "reason", "notes", "comment", "description", default="")
+        created = parse_datetime(first_value(quarantine, "created_at", "created_on", "opened_at", default=""))
+        return {
+            "Department": department_name,
+            "Item": strip_html(item_name),
+            "Asset": strip_html(asset),
+            "Reason": strip_html(reason),
+            "Status": "Active" if quarantine.get("active", True) else "Inactive",
+            "Created": self._format_date(created) if created else "",
+            "ID": first_value(quarantine, "id", default=""),
+            "Tag": first_value(custom_fields, "department_responsible_for_repair", default=""),
         }
 
     def _payloads_with_notice(self, message):

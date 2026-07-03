@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QGridLayout,
     QPushButton,
+    QScrollArea,
     QScroller,
 )
 
@@ -590,6 +591,105 @@ class LeaderboardCard(QWidget):
             self.rows_grid.addWidget(label, index // column_count, index % column_count)
 
 
+class CompactMetricCard(QWidget):
+    def __init__(self, title, accent="#5bc0eb", scale=1.0):
+        super().__init__()
+        self.title_text = title
+        self.accent = accent
+        self.ui_scale = float(scale or 1.0)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(
+            scaled(10, self.ui_scale),
+            scaled(8, self.ui_scale),
+            scaled(10, self.ui_scale),
+            scaled(8, self.ui_scale),
+        )
+        layout.setSpacing(scaled(3, self.ui_scale))
+        self.title = QLabel(title)
+        self.value = QLabel("0")
+        self.caption = QLabel("")
+        self.caption.setWordWrap(True)
+        self.value.setAlignment(Qt.AlignLeft)
+        layout.addWidget(self.title)
+        layout.addWidget(self.value)
+        layout.addWidget(self.caption)
+        self.apply_style()
+
+    def apply_style(self):
+        self.title.setStyleSheet(
+            f"color:{self.accent}; font-size:{scaled(12, self.ui_scale)}px; font-weight:900; "
+            "letter-spacing:0.5px;"
+        )
+        self.value.setStyleSheet(
+            f"color:#ffffff; font-size:{scaled(25, self.ui_scale)}px; font-weight:1000;"
+        )
+        self.caption.setStyleSheet(
+            f"color:#b7c0c8; font-size:{scaled(10, self.ui_scale)}px; font-weight:700;"
+        )
+        self.setMinimumHeight(scaled(82, self.ui_scale))
+        self.setStyleSheet(
+            f"background:#161b20; border:1px solid #26323a; "
+            f"border-left:{scaled(5, self.ui_scale)}px solid {self.accent}; "
+            f"border-radius:{scaled(12, self.ui_scale)}px;"
+        )
+
+    def set_data(self, value, caption=""):
+        self.value.setText(str(value))
+        self.caption.setText(str(caption or ""))
+
+
+class CompactOverviewPage(QScrollArea):
+    def __init__(self, scale=1.0):
+        super().__init__()
+        self.ui_scale = float(scale or 1.0)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QScrollArea.NoFrame)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(
+            scaled(6, self.ui_scale),
+            scaled(6, self.ui_scale),
+            scaled(6, self.ui_scale),
+            scaled(6, self.ui_scale),
+        )
+        layout.setSpacing(scaled(8, self.ui_scale))
+
+        heading = QLabel("Warehouse Overview")
+        heading.setObjectName("compactOverviewHeading")
+        subtitle = QLabel("Tap a tab below for the full list.")
+        subtitle.setObjectName("compactOverviewSubtitle")
+        layout.addWidget(heading)
+        layout.addWidget(subtitle)
+
+        grid_widget = QWidget()
+        self.grid = QGridLayout(grid_widget)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(scaled(8, self.ui_scale))
+
+        self.cards = {
+            "today_out": CompactMetricCard("Today Out", "#4cc9f0", self.ui_scale),
+            "today_in": CompactMetricCard("Today In", "#9bc53d", self.ui_scale),
+            "tomorrow_out": CompactMetricCard("Tomorrow Out", "#f4d35e", self.ui_scale),
+            "tomorrow_in": CompactMetricCard("Tomorrow In", "#ee6c4d", self.ui_scale),
+            "prep": CompactMetricCard("Prep", "#5bc0eb", self.ui_scale),
+            "outstanding": CompactMetricCard("Outstanding", "#ff5a5f", self.ui_scale),
+            "unreturned": CompactMetricCard("Unreturned", "#ffb000", self.ui_scale),
+            "quarantines": CompactMetricCard("Quarantines", "#80ed99", self.ui_scale),
+        }
+        for index, card in enumerate(self.cards.values()):
+            self.grid.addWidget(card, index // 2, index % 2)
+        layout.addWidget(grid_widget)
+        layout.addStretch(1)
+        self.setWidget(content)
+        enable_click_drag_scroll(self)
+
+    def set_data(self, metrics):
+        for key, card in self.cards.items():
+            value, caption = metrics.get(key, ("0", ""))
+            card.set_data(value, caption)
+
+
 def load_config():
     cfg = DEFAULT_CONFIG.copy()
     changed = False
@@ -779,6 +879,13 @@ class ViewerWindow(QMainWindow):
         root.addLayout(alert_bar)
 
         self.tabs = QTabWidget()
+        self.screen_tab_indexes = {}
+        if self.compact_display:
+            self.compact_overview_page = CompactOverviewPage(scale=self.ui_scale)
+            self.screen_tab_indexes["overview"] = self.tabs.addTab(self.compact_overview_page, "Home")
+        else:
+            self.compact_overview_page = None
+
         self.today_page = CombinedJobsPage(
             "Jobs Collecting / Delivering Today",
             "Jobs Returning Today",
@@ -793,15 +900,31 @@ class ViewerWindow(QMainWindow):
         self.outstanding_table = DashboardTable(scale=self.ui_scale)
         self.unreturned_table = DashboardTable(scale=self.ui_scale)
         self.notifications_table = DashboardTable(scale=self.ui_scale)
+        self.quarantines_table = DashboardTable(scale=self.ui_scale) if self.compact_display else None
 
-        self.tabs.addTab(self.today_page, "Today")
-        self.tabs.addTab(self.tomorrow_page, "Tomorrow")
-        self.tabs.addTab(self.prep_table, "Prep Status")
-        self.tabs.addTab(self.outstanding_table, "Outstanding Items")
-        self.tabs.addTab(self.unreturned_table, "Unreturned Jobs")
-        self.tabs.addTab(self.notifications_table, "Notification History")
+        self.screen_tab_indexes["today"] = self.tabs.addTab(self.today_page, "Today")
+        self.screen_tab_indexes["tomorrow"] = self.tabs.addTab(self.tomorrow_page, "Tomorrow")
+        self.screen_tab_indexes["prep"] = self.tabs.addTab(
+            self.prep_table,
+            "Prep" if self.compact_display else "Prep Status",
+        )
+        self.screen_tab_indexes["outstanding"] = self.tabs.addTab(
+            self.outstanding_table,
+            "Outstanding" if self.compact_display else "Outstanding Items",
+        )
+        self.screen_tab_indexes["unreturned"] = self.tabs.addTab(
+            self.unreturned_table,
+            "Unreturned" if self.compact_display else "Unreturned Jobs",
+        )
+        if self.compact_display and self.quarantines_table is not None:
+            self.screen_tab_indexes["quarantines"] = self.tabs.addTab(self.quarantines_table, "Quarantines")
+        self.screen_tab_indexes["notifications"] = self.tabs.addTab(
+            self.notifications_table,
+            "Alerts" if self.compact_display else "Notification History",
+        )
         self.prep_table.cellDoubleClicked.connect(self.open_unprepped_items_dialog)
         self.outstanding_table.cellDoubleClicked.connect(self.open_outstanding_items_dialog)
+        self.tabs.currentChanged.connect(lambda _index: self.update_compact_header())
 
         root.addWidget(self.tabs)
         self.setCentralWidget(central)
@@ -825,7 +948,9 @@ class ViewerWindow(QMainWindow):
         view_menu.addAction(fullscreen_action)
         if self.compact_display:
             menubar.hide()
-            self.tabs.tabBar().hide()
+            self.tabs.tabBar().setUsesScrollButtons(True)
+            self.tabs.setElideMode(Qt.ElideRight)
+            self.tabs.setDocumentMode(True)
         self.update_compact_header()
 
     def should_use_compact_display(self):
@@ -929,6 +1054,9 @@ class ViewerWindow(QMainWindow):
         table_padding = scaled(6 if self.compact_display else 10, scale)
         header_padding = scaled(7 if self.compact_display else 10, scale)
         header_font = scaled(13 if self.compact_display else 15, scale)
+        tab_vertical_padding = scaled(8 if self.compact_display else 12, scale)
+        tab_horizontal_padding = scaled(12 if self.compact_display else 20, scale)
+        tab_font = scaled(13 if self.compact_display else 14, scale)
         self.setStyleSheet(
             f"""
             QMainWindow, QWidget {{ background-color: #111315; color: #f3f3f3; font-size: {scaled(14, scale)}px; }}
@@ -936,8 +1064,9 @@ class ViewerWindow(QMainWindow):
             QTableWidget::item {{ padding: {table_padding}px; height: {scaled(34, scale)}px; }}
             QHeaderView::section {{ background-color: #1f252b; color: #f3f3f3; padding: {header_padding}px; border: none; border-bottom: 1px solid #2a2f35; font-size: {header_font}px; font-weight: 600; }}
             QTabWidget::pane {{ border: 1px solid #2a2f35; border-radius: {scaled(14, scale)}px; }}
-            QTabBar::tab {{ background: #1a1f24; color: #dcdcdc; padding: {scaled(12, scale)}px {scaled(20, scale)}px; border-top-left-radius: {scaled(10, scale)}px; border-top-right-radius: {scaled(10, scale)}px; font-size: {scaled(14, scale)}px; }}
-            QTabBar::tab:selected {{ background: #2b343d; }}
+            QTabBar::tab {{ background: #1a1f24; color: #dcdcdc; padding: {tab_vertical_padding}px {tab_horizontal_padding}px; border-top-left-radius: {scaled(10, scale)}px; border-top-right-radius: {scaled(10, scale)}px; font-size: {tab_font}px; font-weight: 800; }}
+            QTabBar::tab:selected {{ background: #57d68d; color: #06100b; }}
+            QTabBar::tab:hover {{ background: #28343d; }}
             QPushButton {{ background-color: #2b343d; color: white; padding: {scaled(10, scale)}px {scaled(14, scale)}px; border-radius: {scaled(10, scale)}px; font-size: {scaled(14, scale)}px; }}
             QPushButton:hover {{ background-color: #36424d; }}
             QPushButton#jobActionButton {{
@@ -958,6 +1087,8 @@ class ViewerWindow(QMainWindow):
             QLabel#sectionHeading {{ font-size: {scaled(22, scale)}px; font-weight: 700; padding: {scaled(8, scale)}px {scaled(4, scale)}px; }}
             QLabel#compactScreenLabel {{ font-size: {scaled(20, scale)}px; font-weight: 900; color: #ffffff; }}
             QLabel#compactMetaLabel {{ font-size: {scaled(12, scale)}px; font-weight: 700; color: #9fa8ad; }}
+            QLabel#compactOverviewHeading {{ font-size: {scaled(24, scale)}px; font-weight: 1000; color: #ffffff; }}
+            QLabel#compactOverviewSubtitle {{ font-size: {scaled(12, scale)}px; font-weight: 700; color: #aeb8bf; }}
             QLabel#alertQueueBadge {{
                 background-color: #c3423f;
                 color: white;
@@ -1023,16 +1154,13 @@ class ViewerWindow(QMainWindow):
             pass
 
     def set_current_tab(self):
-        mapping = {
-            "today": 0,
-            "tomorrow": 1,
-            "prep": 2,
-            "outstanding": 3,
-            "unreturned": 4,
-            "notifications": 5,
-        }
-        if self.current_screen in mapping:
-            self.tabs.setCurrentIndex(mapping[self.current_screen])
+        target = str(self.current_screen or "today").strip().lower()
+        if target in {"home", "landing", "dashboard"}:
+            target = "overview"
+        if self.compact_display and target not in self.screen_tab_indexes:
+            target = "overview"
+        if target in self.screen_tab_indexes:
+            self.tabs.setCurrentIndex(self.screen_tab_indexes[target])
         self.update_compact_header()
 
     def update_compact_header(self, refreshed_at=""):
@@ -1409,6 +1537,34 @@ class ViewerWindow(QMainWindow):
             outstanding.get("summary", {}).get("Outstanding", 0),
             "Booked out items still awaiting check-in",
         )
+        if self.compact_overview_page is not None:
+            self.compact_overview_page.set_data(
+                {
+                    "today_out": (
+                        today.get("summary", {}).get("Jobs Out", 0),
+                        "collecting / delivering",
+                    ),
+                    "today_in": (today.get("summary", {}).get("Jobs In", 0), "returning today"),
+                    "tomorrow_out": (
+                        tomorrow.get("summary", {}).get("Jobs Out", 0),
+                        "collecting / delivering",
+                    ),
+                    "tomorrow_in": (tomorrow.get("summary", {}).get("Jobs In", 0), "returning tomorrow"),
+                    "prep": (f"{prepared_qty}/{total_qty}", f"{prepped_pct}% prepped"),
+                    "outstanding": (
+                        outstanding.get("summary", {}).get("Outstanding", 0),
+                        "items awaiting check-in",
+                    ),
+                    "unreturned": (
+                        unreturned.get("summary", {}).get("Jobs", 0),
+                        "jobs in unreturned view",
+                    ),
+                    "quarantines": (
+                        quarantine_summary.get("Total", 0),
+                        quarantine_summary.get("Status", "current"),
+                    ),
+                }
+            )
 
         today_out = today.get("out_rows", [])
         today_in = today.get("in_rows", [])
@@ -1445,6 +1601,18 @@ class ViewerWindow(QMainWindow):
             ["Job Name", "Job Number", "Customer Returning", "Time", "Client", "Owner", "Job Returned"],
             unreturned.get("rows", []),
         )
+        if self.quarantines_table is not None:
+            quarantine_detail_rows = quarantines.get("detail_rows", []) or []
+            if quarantine_detail_rows:
+                self.quarantines_table.set_rows(
+                    ["Department", "Item", "Asset", "Reason", "Status", "Created"],
+                    quarantine_detail_rows,
+                )
+            else:
+                self.quarantines_table.set_rows(
+                    ["Rank", "Department", "Quarantines", "Tag"],
+                    quarantines.get("rows", []),
+                )
         self.notifications_table.set_rows(
             ["Time", "Title", "Source", "Details"],
             notifications.get("rows", []),

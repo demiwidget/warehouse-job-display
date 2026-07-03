@@ -1986,11 +1986,13 @@ class PiScreensTab(QWidget):
         )
         screen_buttons = QHBoxLayout()
         for label, screen in (
+            ("Show Home", "overview"),
             ("Show Today", "today"),
             ("Show Tomorrow", "tomorrow"),
             ("Show Prep", "prep"),
             ("Show Outstanding", "outstanding"),
             ("Show Unreturned", "unreturned"),
+            ("Show Quarantines", "quarantines"),
             ("Show Notification History", "notifications"),
         ):
             btn = QPushButton(label)
