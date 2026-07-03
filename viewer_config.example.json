@@ -6,6 +6,7 @@
   "screen": "today",
   "allow_all_screens": true,
   "display_scale": 100,
+  "compact_layout": "auto",
   "audio_output": "hdmi",
   "audio_volume": 100
 }

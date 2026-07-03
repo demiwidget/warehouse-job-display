@@ -13,7 +13,7 @@ import requests
 
 from app_version import sync_config_version
 from pi_audio import audio_health_report, audio_runtime_environment, normalize_audio_volume, sync_audio_config
-from pi_identity import normalize_display_scale, registration_id, registration_payload
+from pi_identity import normalize_compact_layout, normalize_display_scale, registration_id, registration_payload
 from pi_status import post_status
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -670,6 +670,16 @@ def handle_command(cfg, cmd):
         save_config(cfg)
         register(cfg)
         restart_viewer(cfg, f"Restarting display app at {new_scale}% display size.", state="display_restarting")
+    elif action == "set_compact_layout":
+        new_layout = normalize_compact_layout(cmd.get("compact_layout", cfg.get("compact_layout", "auto")))
+        cfg["compact_layout"] = new_layout
+        save_config(cfg)
+        register(cfg)
+        restart_viewer(
+            cfg,
+            f"Restarting display app with {new_layout} layout mode.",
+            state="display_restarting",
+        )
 
 
 def main():

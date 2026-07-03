@@ -435,6 +435,7 @@ class ManagerState:
                 "screen": payload.get("screen") or existing.get("screen") or "today",
                 "version": payload.get("version") or existing.get("version") or "",
                 "display_scale": payload.get("display_scale") or existing.get("display_scale") or 100,
+                "compact_layout": payload.get("compact_layout") or existing.get("compact_layout") or "auto",
                 "ip": remote_addr or existing.get("ip") or "",
                 "last_seen": now,
             }

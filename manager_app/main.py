@@ -1919,7 +1919,20 @@ class PiScreensTab(QWidget):
     command_finished = Signal(str)
     refresh_result_ready = Signal(object)
 
-    COLUMNS = ["ID", "Name", "IP", "Screen", "Scale", "Version", "Update", "State", "Audio", "Activity", "Last Seen"]
+    COLUMNS = [
+        "ID",
+        "Name",
+        "IP",
+        "Screen",
+        "Scale",
+        "Layout",
+        "Version",
+        "Update",
+        "State",
+        "Audio",
+        "Activity",
+        "Last Seen",
+    ]
     STATUS_COLORS = {
         "Online": "#2e7d32",
         "Display Restarting": "#f9a825",
@@ -1989,6 +2002,7 @@ class PiScreensTab(QWidget):
         command_buttons = QHBoxLayout()
         rename_btn = QPushButton("Rename Pi")
         display_size_btn = QPushButton("Set Display Size")
+        layout_mode_btn = QPushButton("Set Layout Mode")
         restart_btn = QPushButton("Restart Display App")
         update_btn = QPushButton("Update Pi From GitHub")
         sound_check_btn = QPushButton("Run Sound Check")
@@ -2002,6 +2016,7 @@ class PiScreensTab(QWidget):
         refresh_btn = QPushButton("Refresh List")
         rename_btn.clicked.connect(self.rename_selected_pi)
         display_size_btn.clicked.connect(self.set_display_size_selected)
+        layout_mode_btn.clicked.connect(self.set_layout_mode_selected)
         restart_btn.clicked.connect(lambda: self.send_action("restart"))
         update_btn.clicked.connect(lambda: self.send_action("update"))
         sound_check_btn.clicked.connect(lambda: self.send_action("sound_check"))
@@ -2015,6 +2030,7 @@ class PiScreensTab(QWidget):
         refresh_btn.clicked.connect(self.refresh)
         command_buttons.addWidget(rename_btn)
         command_buttons.addWidget(display_size_btn)
+        command_buttons.addWidget(layout_mode_btn)
         command_buttons.addWidget(restart_btn)
         command_buttons.addWidget(update_btn)
         command_buttons.addWidget(sound_check_btn)
@@ -2185,6 +2201,7 @@ class PiScreensTab(QWidget):
                 device.get("ip", ""),
                 device.get("screen", ""),
                 f"{device.get('display_scale', 100)}%",
+                str(device.get("compact_layout") or "auto").title(),
                 device.get("version", ""),
                 device.get("update", ""),
                 device.get("state", ""),
@@ -2328,6 +2345,26 @@ class PiScreensTab(QWidget):
         device_ids = [device["id"] for device in devices]
         self.state.queue_command(device_ids, "set_display_scale", display_scale=int(scale))
         self.status.setText(f"Queued {scale}% display size for {len(device_ids)} Pi screen(s).")
+
+    def set_layout_mode_selected(self):
+        if not self.selected_device_ids():
+            QMessageBox.warning(self, "No Pi Selected", "Select one or more Pi screens first.")
+            return
+
+        mode, accepted = QInputDialog.getItem(
+            self,
+            "Set Layout Mode",
+            "Choose the display layout mode:\nAuto uses compact layout on small pixel screens.",
+            ["auto", "compact", "standard"],
+            0,
+            False,
+        )
+        if not accepted:
+            return
+
+        device_ids = self.selected_device_ids()
+        self.state.queue_command(device_ids, "set_compact_layout", compact_layout=mode)
+        self.status.setText(f"Queued {mode} layout mode for {len(device_ids)} Pi screen(s).")
 
     def start_repeating_sound(self):
         sound_name = self.sound_loop_input.text().strip() or "job-changes.wav"

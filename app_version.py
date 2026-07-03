@@ -3,7 +3,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 VERSION_FILE = BASE_DIR / "version.txt"
-FALLBACK_VERSION = "2.0.90"
+FALLBACK_VERSION = "2.0.91"
 
 
 def read_current_version():

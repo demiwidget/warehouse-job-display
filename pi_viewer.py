@@ -48,7 +48,7 @@ except Exception:
 
 from app_version import CURRENT_VERSION, sync_config_version
 from pi_audio import apply_audio_preferences, audio_health_report, sync_audio_config
-from pi_identity import normalize_display_scale, registration_id, registration_payload
+from pi_identity import normalize_compact_layout, normalize_display_scale, registration_id, registration_payload
 from pi_status import post_status
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -64,6 +64,7 @@ DEFAULT_CONFIG = {
     "screen": "today",
     "allow_all_screens": True,
     "display_scale": 100,
+    "compact_layout": "auto",
     "audio_output": "hdmi",
     "audio_volume": 100,
     "maintenance": {
@@ -599,6 +600,10 @@ def load_config():
             pass
     changed = sync_config_version(cfg) or changed
     changed = sync_audio_config(cfg) or changed
+    compact_layout = normalize_compact_layout(cfg.get("compact_layout", "auto"))
+    if cfg.get("compact_layout") != compact_layout:
+        cfg["compact_layout"] = compact_layout
+        changed = True
     cfg, identity_changed, _payload = registration_payload(cfg)
     changed = changed or identity_changed
     if changed or not CONFIG_PATH.exists():
@@ -643,6 +648,8 @@ class ViewerWindow(QMainWindow):
         self.current_screen = self.config.get("screen", "today")
         self.display_scale = normalize_display_scale(self.config.get("display_scale", 100))
         self.ui_scale = self.display_scale / 100.0
+        self.compact_layout_mode = normalize_compact_layout(self.config.get("compact_layout", "auto"))
+        self.compact_display = self.should_use_compact_display()
         self.maintenance_enabled = False
         self.pending_alerts = []
         self.remote_alert_queue_remaining = 0
@@ -696,14 +703,17 @@ class ViewerWindow(QMainWindow):
 
         central = QWidget()
         root = QVBoxLayout(central)
+        margin = 4 if self.compact_display else 10
+        spacing = 4 if self.compact_display else 10
         root.setContentsMargins(
-            scaled(10, self.ui_scale),
-            scaled(10, self.ui_scale),
-            scaled(10, self.ui_scale),
-            scaled(10, self.ui_scale),
+            scaled(margin, self.ui_scale),
+            scaled(margin, self.ui_scale),
+            scaled(margin, self.ui_scale),
+            scaled(margin, self.ui_scale),
         )
-        root.setSpacing(scaled(10, self.ui_scale))
+        root.setSpacing(scaled(spacing, self.ui_scale))
 
+        self.cards_widget = QWidget()
         cards = QGridLayout()
         cards.setSpacing(scaled(10, self.ui_scale))
         self.card_quarantines = LeaderboardCard("Quarantines")
@@ -731,7 +741,29 @@ class ViewerWindow(QMainWindow):
         cards.addWidget(self.card_tomorrow_in, 1, 3)
         cards.addWidget(self.card_prep, 2, 0, 1, 2)
         cards.addWidget(self.card_outstanding, 2, 2, 1, 2)
-        root.addLayout(cards)
+        self.cards_widget.setLayout(cards)
+        root.addWidget(self.cards_widget)
+        if self.compact_display:
+            self.cards_widget.hide()
+
+        self.compact_header = QWidget()
+        compact_header_layout = QHBoxLayout(self.compact_header)
+        compact_header_layout.setContentsMargins(
+            scaled(6, self.ui_scale),
+            scaled(4, self.ui_scale),
+            scaled(6, self.ui_scale),
+            scaled(4, self.ui_scale),
+        )
+        compact_header_layout.setSpacing(scaled(8, self.ui_scale))
+        self.compact_screen_label = QLabel("")
+        self.compact_screen_label.setObjectName("compactScreenLabel")
+        self.compact_meta_label = QLabel("")
+        self.compact_meta_label.setObjectName("compactMetaLabel")
+        compact_header_layout.addWidget(self.compact_screen_label, 1)
+        compact_header_layout.addWidget(self.compact_meta_label)
+        root.addWidget(self.compact_header)
+        if not self.compact_display:
+            self.compact_header.hide()
 
         alert_bar = QHBoxLayout()
         alert_bar.addStretch(1)
@@ -780,6 +812,8 @@ class ViewerWindow(QMainWindow):
         self.last_refresh = QLabel("Last refresh: never")
         status.addPermanentWidget(self.version_label)
         status.addPermanentWidget(self.last_refresh)
+        if self.compact_display:
+            status.hide()
 
         menubar = self.menuBar()
         view_menu = menubar.addMenu("View")
@@ -789,6 +823,21 @@ class ViewerWindow(QMainWindow):
         fullscreen_action.triggered.connect(self.toggle_fullscreen)
         view_menu.addAction(refresh_action)
         view_menu.addAction(fullscreen_action)
+        if self.compact_display:
+            menubar.hide()
+            self.tabs.tabBar().hide()
+        self.update_compact_header()
+
+    def should_use_compact_display(self):
+        if self.compact_layout_mode == "compact":
+            return True
+        if self.compact_layout_mode == "standard":
+            return False
+        screen = QApplication.primaryScreen()
+        if not screen:
+            return False
+        geometry = screen.availableGeometry()
+        return geometry.height() <= 650 or geometry.width() <= 900
 
     def build_maintenance_overlay(self):
         self.maintenance_overlay = QWidget(self)
@@ -869,19 +918,23 @@ class ViewerWindow(QMainWindow):
             self.maintenance_overlay.raise_()
         else:
             self.maintenance_overlay.hide()
-            self.menuBar().show()
+            self.menuBar().setVisible(not self.compact_display)
             if self.statusBar():
-                self.statusBar().show()
+                self.statusBar().setVisible(not self.compact_display)
             QTimer.singleShot(0, self.show_next_alert)
 
     def apply_theme(self):
         scale = self.ui_scale
+        table_font = scaled(14 if self.compact_display else 16, scale)
+        table_padding = scaled(6 if self.compact_display else 10, scale)
+        header_padding = scaled(7 if self.compact_display else 10, scale)
+        header_font = scaled(13 if self.compact_display else 15, scale)
         self.setStyleSheet(
             f"""
             QMainWindow, QWidget {{ background-color: #111315; color: #f3f3f3; font-size: {scaled(14, scale)}px; }}
-            QTableWidget {{ background-color: #171a1d; gridline-color: #2a2f35; alternate-background-color: #1d2126; border: 1px solid #2a2f35; border-radius: {scaled(12, scale)}px; font-size: {scaled(16, scale)}px; selection-background-color: #27445d; }}
-            QTableWidget::item {{ padding: {scaled(10, scale)}px; height: {scaled(34, scale)}px; }}
-            QHeaderView::section {{ background-color: #1f252b; color: #f3f3f3; padding: {scaled(10, scale)}px; border: none; border-bottom: 1px solid #2a2f35; font-size: {scaled(15, scale)}px; font-weight: 600; }}
+            QTableWidget {{ background-color: #171a1d; gridline-color: #2a2f35; alternate-background-color: #1d2126; border: 1px solid #2a2f35; border-radius: {scaled(12, scale)}px; font-size: {table_font}px; selection-background-color: #27445d; }}
+            QTableWidget::item {{ padding: {table_padding}px; height: {scaled(34, scale)}px; }}
+            QHeaderView::section {{ background-color: #1f252b; color: #f3f3f3; padding: {header_padding}px; border: none; border-bottom: 1px solid #2a2f35; font-size: {header_font}px; font-weight: 600; }}
             QTabWidget::pane {{ border: 1px solid #2a2f35; border-radius: {scaled(14, scale)}px; }}
             QTabBar::tab {{ background: #1a1f24; color: #dcdcdc; padding: {scaled(12, scale)}px {scaled(20, scale)}px; border-top-left-radius: {scaled(10, scale)}px; border-top-right-radius: {scaled(10, scale)}px; font-size: {scaled(14, scale)}px; }}
             QTabBar::tab:selected {{ background: #2b343d; }}
@@ -903,6 +956,8 @@ class ViewerWindow(QMainWindow):
             }}
             QLabel {{ color: #f3f3f3; }}
             QLabel#sectionHeading {{ font-size: {scaled(22, scale)}px; font-weight: 700; padding: {scaled(8, scale)}px {scaled(4, scale)}px; }}
+            QLabel#compactScreenLabel {{ font-size: {scaled(20, scale)}px; font-weight: 900; color: #ffffff; }}
+            QLabel#compactMetaLabel {{ font-size: {scaled(12, scale)}px; font-weight: 700; color: #9fa8ad; }}
             QLabel#alertQueueBadge {{
                 background-color: #c3423f;
                 color: white;
@@ -978,6 +1033,22 @@ class ViewerWindow(QMainWindow):
         }
         if self.current_screen in mapping:
             self.tabs.setCurrentIndex(mapping[self.current_screen])
+        self.update_compact_header()
+
+    def update_compact_header(self, refreshed_at=""):
+        if not hasattr(self, "compact_screen_label"):
+            return
+        current_index = self.tabs.currentIndex() if hasattr(self, "tabs") else -1
+        screen_title = self.tabs.tabText(current_index) if current_index >= 0 else str(self.current_screen).title()
+        self.compact_screen_label.setText(screen_title)
+        parts = [f"v{self.config.get('version', 'unknown')}"]
+        if refreshed_at:
+            parts.append(refreshed_at)
+        if self.compact_layout_mode == "auto":
+            parts.append("compact auto")
+        else:
+            parts.append(self.compact_layout_mode)
+        self.compact_meta_label.setText("  |  ".join(parts))
 
     def poll_alerts(self):
         if self.clearing_alerts:
@@ -1378,9 +1449,9 @@ class ViewerWindow(QMainWindow):
             ["Time", "Title", "Source", "Details"],
             notifications.get("rows", []),
         )
-        self.last_refresh.setText(
-            "Last refresh: " + __import__("datetime").datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        )
+        refresh_time = __import__("datetime").datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        self.last_refresh.setText("Last refresh: " + refresh_time)
+        self.update_compact_header(refresh_time)
 
     def add_prep_action_buttons(self):
         try:

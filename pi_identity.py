@@ -11,6 +11,8 @@ PLACEHOLDER_DEVICE_IDS = {"", "pi-1"}
 DEFAULT_DISPLAY_SCALE = 100
 MIN_DISPLAY_SCALE = 75
 MAX_DISPLAY_SCALE = 200
+DEFAULT_COMPACT_LAYOUT = "auto"
+COMPACT_LAYOUT_MODES = {"auto", "compact", "standard"}
 
 
 def normalize_display_scale(value):
@@ -19,6 +21,13 @@ def normalize_display_scale(value):
     except Exception:
         scale = DEFAULT_DISPLAY_SCALE
     return max(MIN_DISPLAY_SCALE, min(MAX_DISPLAY_SCALE, scale))
+
+
+def normalize_compact_layout(value):
+    if isinstance(value, bool):
+        return "compact" if value else "standard"
+    layout = str(value or DEFAULT_COMPACT_LAYOUT).strip().lower()
+    return layout if layout in COMPACT_LAYOUT_MODES else DEFAULT_COMPACT_LAYOUT
 
 
 def _slugify(value, fallback="pi"):
@@ -117,12 +126,17 @@ def registration_payload(cfg, screen=None):
     if cfg.get("display_scale") != display_scale:
         cfg["display_scale"] = display_scale
         changed = True
+    compact_layout = normalize_compact_layout(cfg.get("compact_layout", DEFAULT_COMPACT_LAYOUT))
+    if cfg.get("compact_layout") != compact_layout:
+        cfg["compact_layout"] = compact_layout
+        changed = True
     payload = {
         "id": device_uid,
         "name": str(cfg.get("device_name", "")).strip() or device_uid,
         "screen": screen if screen is not None else cfg.get("screen", "today"),
         "version": str(cfg.get("version", "")).strip() or CURRENT_VERSION,
         "display_scale": display_scale,
+        "compact_layout": compact_layout,
     }
     if legacy_device_id and legacy_device_id != device_uid:
         payload["legacy_id"] = legacy_device_id
