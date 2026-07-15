@@ -1,9 +1,13 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from pathlib import Path
 from threading import Lock
 import html
+import json
 import math
+import os
 import re
+from tempfile import NamedTemporaryFile
 
 import requests
 
@@ -53,6 +57,8 @@ ALL_DEPARTMENT_TARGET = "__all__"
 NO_DEPARTMENT_TARGET = "__none__"
 UNKNOWN_DEPARTMENT_TARGET = "__unknown__"
 DEFAULT_OPPORTUNITY_INCLUDES = ("owner", "member")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PREP_METRICS_FILE = PROJECT_ROOT / "manager_data" / "prep_metrics.json"
 
 
 def parse_datetime(value):
@@ -357,6 +363,7 @@ class DashboardBuilder:
         self._item_snapshots = {}
         self._last_excluded_item_ids = None
         self._sound_gate_started_at = datetime.now()
+        self._prep_metric_state = self._load_prep_metric_state()
 
     def build(self, screen, settings):
         if not self._payloads:
@@ -368,6 +375,58 @@ class DashboardBuilder:
 
     def refresh(self):
         self._payloads = {}
+
+    def _load_prep_metric_state(self):
+        try:
+            data = json.loads(PREP_METRICS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        return {
+            "date": str(data.get("date") or datetime.now().date().isoformat()),
+            "count": safe_int(data.get("count"), 0),
+            "previous_date": str(data.get("previous_date") or ""),
+            "previous_count": safe_int(data.get("previous_count"), 0),
+            "snapshot": data.get("snapshot", {}) if isinstance(data.get("snapshot"), dict) else {},
+        }
+
+    def _save_prep_metric_state(self):
+        PREP_METRICS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temp_name = None
+        try:
+            with NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=PREP_METRICS_FILE.parent,
+                prefix=f".{PREP_METRICS_FILE.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temp_name = handle.name
+                json.dump(self._prep_metric_state, handle, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            Path(temp_name).replace(PREP_METRICS_FILE)
+        finally:
+            if temp_name:
+                try:
+                    Path(temp_name).unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    def _roll_prep_metrics_if_new_day(self):
+        today = datetime.now().date().isoformat()
+        if self._prep_metric_state.get("date") == today:
+            return
+        self._prep_metric_state = {
+            "date": today,
+            "count": 0,
+            "previous_date": str(self._prep_metric_state.get("date") or ""),
+            "previous_count": safe_int(self._prep_metric_state.get("count"), 0),
+            "snapshot": {},
+        }
+        self._save_prep_metric_state()
 
     def create_manual_alert(self, title, message, settings, sound_name="", play_sound=True, source="manual test"):
         clean_title = str(title or "").strip() or "Test Notification"
@@ -400,6 +459,7 @@ class DashboardBuilder:
 
     def refresh_data(self, settings):
         self._reset_history_if_new_day(settings)
+        self._roll_prep_metrics_if_new_day()
         excluded_item_ids = self._excluded_item_ids(settings)
         if self._last_excluded_item_ids is not None and excluded_item_ids != self._last_excluded_item_ids:
             self._item_snapshots = {}
@@ -565,6 +625,7 @@ class DashboardBuilder:
         rows = []
         prepared_total = 0
         remaining_total = 0
+        prepared_by_job = {}
 
         for opportunity in (prep_view or {}).get("opportunities", []):
             opportunity_id = opportunity.get("id")
@@ -578,9 +639,12 @@ class DashboardBuilder:
 
             prepared_total += prep["prepared_qty"]
             remaining_total += prep["remaining_qty"]
+            job_key = str(opportunity_id)
+            prepared_by_job[job_key] = prep["prepared_qty"]
             prep_status = "Booked Out" if prep["booked_out"] else f"{prep['prepared_qty']}/{prep['total_qty']}"
             rows.append(
                 {
+                    "__job_id": job_key,
                     "Job Name": self._opportunity_name(opportunity),
                     "Job Number": self._opportunity_number(opportunity),
                     "Delivery Date": self._format_date(parse_datetime(first_value(opportunity, "deliver_starts_at"))),
@@ -593,13 +657,67 @@ class DashboardBuilder:
                 }
             )
 
+        daily_prep = self._update_daily_prep_metrics(prepared_by_job)
         return {
             "title": "Prep Status",
             "summary": {
                 "Prepared Qty": prepared_total,
                 "Remaining Qty": remaining_total,
+                "Prepped Today": daily_prep["count"],
+                "Previous Day Prepped": daily_prep["previous_count"],
+                "Previous Day": daily_prep["previous_date"],
+                "Efficiency Score": daily_prep["efficiency_score"],
+                "Efficiency Label": daily_prep["efficiency_label"],
             },
             "rows": rows,
+        }
+
+    def _update_daily_prep_metrics(self, prepared_by_job):
+        self._roll_prep_metrics_if_new_day()
+        state = self._prep_metric_state
+        snapshot = state.get("snapshot", {}) if isinstance(state.get("snapshot"), dict) else {}
+        next_snapshot = dict(snapshot)
+        count = safe_int(state.get("count"), 0)
+        changed = False
+
+        for job_key, prepared_qty in (prepared_by_job or {}).items():
+            key = str(job_key)
+            current_qty = safe_int(prepared_qty, 0)
+            previous_value = snapshot.get(key)
+            if previous_value is None:
+                next_snapshot[key] = current_qty
+                changed = True
+                continue
+
+            previous_qty = safe_int(previous_value, 0)
+            if current_qty > previous_qty:
+                count += current_qty - previous_qty
+                next_snapshot[key] = current_qty
+                changed = True
+
+        if count != safe_int(state.get("count"), 0):
+            state["count"] = count
+            changed = True
+        if next_snapshot != snapshot:
+            state["snapshot"] = next_snapshot
+            changed = True
+        if changed:
+            self._save_prep_metric_state()
+
+        previous_count = safe_int(state.get("previous_count"), 0)
+        if previous_count > 0:
+            efficiency_score = round((count / previous_count) * 100)
+            efficiency_label = f"{efficiency_score}% of previous day"
+        else:
+            efficiency_score = None
+            efficiency_label = "No previous day baseline"
+
+        return {
+            "count": count,
+            "previous_count": previous_count,
+            "previous_date": state.get("previous_date", ""),
+            "efficiency_score": efficiency_score,
+            "efficiency_label": efficiency_label,
         }
 
     def _outstanding_payload(self, outstanding_view, client, item_cache):

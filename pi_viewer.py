@@ -673,6 +673,7 @@ class CompactOverviewPage(QScrollArea):
             "tomorrow_out": CompactMetricCard("Tomorrow Out", "#f4d35e", self.ui_scale),
             "tomorrow_in": CompactMetricCard("Tomorrow In", "#ee6c4d", self.ui_scale),
             "prep": CompactMetricCard("Prep", "#5bc0eb", self.ui_scale),
+            "prepped_today": CompactMetricCard("Prepped Today", "#80ed99", self.ui_scale),
             "outstanding": CompactMetricCard("Outstanding", "#ff5a5f", self.ui_scale),
             "unreturned": CompactMetricCard("Unreturned", "#ffb000", self.ui_scale),
             "quarantines": CompactMetricCard("Quarantines", "#80ed99", self.ui_scale),
@@ -822,6 +823,7 @@ class ViewerWindow(QMainWindow):
         self.card_tomorrow_out = SummaryCard("Tomorrow Out", "#fde74c")
         self.card_tomorrow_in = SummaryCard("Tomorrow In", "#e55934")
         self.card_prep = SummaryCard("Prep", "#5bc0eb")
+        self.card_prep_today = SummaryCard("Prepped Today", "#80ed99")
         self.card_outstanding = SummaryCard("Outstanding", "#c3423f")
         self.summary_cards = [
             self.card_quarantines,
@@ -830,6 +832,7 @@ class ViewerWindow(QMainWindow):
             self.card_tomorrow_out,
             self.card_tomorrow_in,
             self.card_prep,
+            self.card_prep_today,
             self.card_outstanding,
         ]
         for card in self.summary_cards:
@@ -840,7 +843,8 @@ class ViewerWindow(QMainWindow):
         cards.addWidget(self.card_tomorrow_out, 1, 2)
         cards.addWidget(self.card_tomorrow_in, 1, 3)
         cards.addWidget(self.card_prep, 2, 0, 1, 2)
-        cards.addWidget(self.card_outstanding, 2, 2, 1, 2)
+        cards.addWidget(self.card_prep_today, 2, 2)
+        cards.addWidget(self.card_outstanding, 2, 3)
         self.cards_widget.setLayout(cards)
         root.addWidget(self.cards_widget)
         if self.compact_display:
@@ -1528,11 +1532,19 @@ class ViewerWindow(QMainWindow):
         else:
             prepped_pct = 0
             unprepped_pct = 0
+        prepped_today = int(prep.get("summary", {}).get("Prepped Today", 0) or 0)
+        previous_prepped = int(prep.get("summary", {}).get("Previous Day Prepped", 0) or 0)
+        efficiency_label = str(prep.get("summary", {}).get("Efficiency Label", "") or "")
+        if previous_prepped > 0:
+            prepped_today_caption = f"{efficiency_label} ({previous_prepped} yesterday)"
+        else:
+            prepped_today_caption = efficiency_label or "No previous day baseline"
 
         self.card_prep.set_data(
             f"{prepared_qty}/{total_qty}",
             f"{prepped_pct}% prepped / {unprepped_pct}% unprepped",
         )
+        self.card_prep_today.set_data(prepped_today, prepped_today_caption)
         self.card_outstanding.set_data(
             outstanding.get("summary", {}).get("Outstanding", 0),
             "Booked out items still awaiting check-in",
@@ -1551,6 +1563,7 @@ class ViewerWindow(QMainWindow):
                     ),
                     "tomorrow_in": (tomorrow.get("summary", {}).get("Jobs In", 0), "returning tomorrow"),
                     "prep": (f"{prepared_qty}/{total_qty}", f"{prepped_pct}% prepped"),
+                    "prepped_today": (prepped_today, prepped_today_caption),
                     "outstanding": (
                         outstanding.get("summary", {}).get("Outstanding", 0),
                         "items awaiting check-in",
