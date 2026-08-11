@@ -73,6 +73,25 @@ def version_is_newer(candidate, current):
     return False
 
 
+def parse_time_minutes(value, default="00:00"):
+    match = re.match(r"^\s*(\d{1,2})[:.](\d{2})\s*$", str(value or default))
+    if not match:
+        match = re.match(r"^\s*(\d{1,2})[:.](\d{2})\s*$", str(default))
+    if not match:
+        return 0
+    hours = max(0, min(23, int(match.group(1))))
+    minutes = max(0, min(59, int(match.group(2))))
+    return (hours * 60) + minutes
+
+
+def is_time_in_window(now_minutes, start_minutes, end_minutes):
+    if start_minutes == end_minutes:
+        return False
+    if start_minutes < end_minutes:
+        return start_minutes <= now_minutes < end_minutes
+    return now_minutes >= start_minutes or now_minutes < end_minutes
+
+
 class ManagerState:
     def __init__(self, store=None):
         self.store = store or SettingsStore()
@@ -85,6 +104,8 @@ class ManagerState:
         self.commands = {}
         self.alerts = {device_id: [] for device_id in self.devices}
         self.dashboard = DashboardBuilder()
+        self.night_sleep_active = None
+        self.night_sleep_payload_signature = ""
         self.update_status_checked_at = 0
         self.update_status = {
             "checked_at": "",
@@ -247,6 +268,9 @@ class ManagerState:
 
     def get_manager_status(self):
         update_status = self.get_update_status()
+        settings = self.store.load_settings()
+        night_sleep = self.night_sleep_settings(settings)
+        night_sleep["active"] = self.is_night_sleep_due(settings)
         return {
             "version": CURRENT_VERSION,
             "is_manager_pi": self._manager_pi_ready(),
@@ -256,6 +280,7 @@ class ManagerState:
             "update_status": update_status,
             "manager_update_status": self._read_json_file(MANAGER_UPDATE_STATUS_FILE),
             "manager_update_log": self._read_log_tail(MANAGER_UPDATE_LOG_FILE),
+            "night_sleep": night_sleep,
             "security": security_status(),
         }
 
@@ -392,6 +417,78 @@ class ManagerState:
         self.log_activity("Settings", f"Saved {sections} settings.")
         return self.settings
 
+    def night_sleep_settings(self, settings=None):
+        settings = settings or self.store.load_settings()
+        sleep_settings = settings.get("night_sleep", {}) or {}
+        return {
+            "enabled": bool(sleep_settings.get("enabled", False)),
+            "start": str(sleep_settings.get("start") or "19:00").strip() or "19:00",
+            "end": str(sleep_settings.get("end") or "06:00").strip() or "06:00",
+            "text": str(sleep_settings.get("text") or "Manager is sleeping\nBoards will wake in the morning"),
+            "background": str(sleep_settings.get("background") or "#02060a"),
+            "foreground": str(sleep_settings.get("foreground") or "#b7f7d4"),
+        }
+
+    def is_night_sleep_due(self, settings=None, now=None):
+        sleep_settings = self.night_sleep_settings(settings)
+        if not sleep_settings["enabled"]:
+            return False
+        now = now or datetime.now()
+        start = parse_time_minutes(sleep_settings["start"], "19:00")
+        end = parse_time_minutes(sleep_settings["end"], "06:00")
+        now_minutes = (now.hour * 60) + now.minute
+        return is_time_in_window(now_minutes, start, end)
+
+    def night_sleep_payload(self, settings=None):
+        sleep_settings = self.night_sleep_settings(settings)
+        return {
+            "text": sleep_settings["text"],
+            "background": sleep_settings["background"],
+            "foreground": sleep_settings["foreground"],
+            "clear_notifications": True,
+        }
+
+    def sync_night_sleep(self, settings=None, force_device_ids=None):
+        settings = settings or self.store.load_settings()
+        active = self.is_night_sleep_due(settings)
+        payload = self.night_sleep_payload(settings)
+        payload_signature = repr(sorted(payload.items()))
+        force_ids = [str(device_id) for device_id in (force_device_ids or []) if str(device_id).strip()]
+
+        with self.lock:
+            previous = self.night_sleep_active
+            previous_payload_signature = self.night_sleep_payload_signature
+            self.night_sleep_active = active
+            self.night_sleep_payload_signature = payload_signature if active else ""
+            device_ids = force_ids or list(self.devices.keys())
+            should_queue = bool(device_ids) and (
+                bool(force_ids)
+                or (previous is None and active)
+                or (previous is not None and previous != active)
+                or (active and previous_payload_signature != payload_signature)
+            )
+
+        if not should_queue:
+            return active
+
+        if active:
+            with self.lock:
+                for queue in self.alerts.values():
+                    queue.clear()
+            self.queue_command(device_ids, "maintenance_show", **payload)
+            self.log_activity(
+                "Sleep",
+                f"Night sleep active; showing sleeping screen on {len(device_ids)} Pi screen(s).",
+            )
+        else:
+            self.queue_command(device_ids, "maintenance_hide")
+            if previous:
+                self.log_activity(
+                    "Sleep",
+                    f"Night sleep ended; waking {len(device_ids)} Pi screen(s).",
+                )
+        return active
+
     def test_current_rms(self, api_settings=None):
         with self.lock:
             settings = self.store.load_settings()
@@ -490,6 +587,12 @@ class ManagerState:
                     "version": result.get("version"),
                 },
             )
+        try:
+            settings = self.store.load_settings()
+            if self.is_night_sleep_due(settings):
+                self.sync_night_sleep(settings, force_device_ids=[device_id])
+        except Exception as error:
+            self.log_exception("Sleep", f"Could not sync night sleep for {device_id}", error)
         return result
 
     def report_device_status(self, payload, remote_addr):
@@ -718,10 +821,26 @@ class ManagerState:
             )
         return cleared
 
+    def sleeping_screen_payload(self, screen, settings=None):
+        sleep_settings = self.night_sleep_settings(settings)
+        title = "Manager Sleeping"
+        message = str(sleep_settings.get("text") or "Manager is sleeping\nBoards will wake in the morning")
+        return {
+            "title": title,
+            "summary": {"Status": "Sleeping", "Wake": sleep_settings.get("end", "")},
+            "rows": [],
+            "out_rows": [],
+            "in_rows": [],
+            "message": message,
+            "screen": screen,
+        }
+
     def screen_payload(self, screen):
         with self.lock:
             settings = self.store.load_settings()
             self.settings = settings
+        if self.sync_night_sleep(settings):
+            return self.sleeping_screen_payload(screen, settings)
         with self.dashboard_lock:
             payload = deepcopy(self.dashboard.build(screen, settings))
         return payload
@@ -730,6 +849,11 @@ class ManagerState:
         with self.lock:
             settings = self.store.load_settings()
             self.settings = settings
+        if self.sync_night_sleep(settings):
+            return {
+                screen: self.sleeping_screen_payload(screen, settings)
+                for screen in SCREEN_NAMES
+            }
         with self.dashboard_lock:
             return {
                 screen: deepcopy(self.dashboard.build(screen, settings))
@@ -840,6 +964,8 @@ class ManagerState:
         with self.lock:
             settings = self.store.load_settings()
             self.settings = settings
+        if self.sync_night_sleep(settings):
+            return
         started = monotonic()
         self.log_activity("Current RMS", "Refresh started.")
         try:

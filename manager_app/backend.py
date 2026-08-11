@@ -17,6 +17,8 @@ class DashboardMonitorThread(Thread):
                 self.state.refresh_dashboard()
                 settings = self.state.get_settings(include_secret=True)
                 interval = max(5, int(settings.get("alerts", {}).get("poll_seconds", 60)))
+                if (settings.get("night_sleep", {}) or {}).get("enabled"):
+                    interval = min(interval, 60)
             except Exception as error:
                 self.state.log_exception("Manager", "Background dashboard monitor failed", error)
                 interval = 30

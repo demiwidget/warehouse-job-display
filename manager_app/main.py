@@ -2086,6 +2086,48 @@ class PiScreensTab(QWidget):
         maintenance_layout.setColumnStretch(3, 1)
         controls_layout.addLayout(maintenance_layout)
 
+        night_sleep_settings = self.state.get_settings(include_secret=True).get("night_sleep", {}) or {}
+        sleep_layout = QGridLayout()
+        self.sleep_enabled_input = QCheckBox("Enable scheduled overnight sleep for all dashboard Pis")
+        self.sleep_enabled_input.setChecked(bool(night_sleep_settings.get("enabled", False)))
+        self.sleep_start_input = QLineEdit(str(night_sleep_settings.get("start") or "19:00"))
+        self.sleep_end_input = QLineEdit(str(night_sleep_settings.get("end") or "06:00"))
+        self.sleep_text_input = QTextEdit()
+        self.sleep_text_input.setPlainText(
+            str(night_sleep_settings.get("text") or "Manager is sleeping\nBoards will wake in the morning")
+        )
+        self.sleep_text_input.setMinimumHeight(58)
+        self.sleep_text_input.setPlaceholderText("Text to show overnight while the manager is sleeping.")
+        self.sleep_background_input = QLineEdit(str(night_sleep_settings.get("background") or "#02060a"))
+        self.sleep_foreground_input = QLineEdit(str(night_sleep_settings.get("foreground") or "#b7f7d4"))
+        pick_sleep_background_btn = QPushButton("Pick Background")
+        pick_sleep_text_btn = QPushButton("Pick Text Colour")
+        apply_sleep_btn = mark_primary(QPushButton("Apply Sleep Schedule"))
+        pick_sleep_background_btn.clicked.connect(
+            lambda: self.pick_colour(self.sleep_background_input, "Pick Sleep Background")
+        )
+        pick_sleep_text_btn.clicked.connect(
+            lambda: self.pick_colour(self.sleep_foreground_input, "Pick Sleep Text Colour")
+        )
+        apply_sleep_btn.clicked.connect(self.apply_night_sleep_schedule)
+
+        sleep_layout.addWidget(self.sleep_enabled_input, 0, 0, 1, 4)
+        sleep_layout.addWidget(QLabel("Sleep from"), 1, 0)
+        sleep_layout.addWidget(self.sleep_start_input, 1, 1)
+        sleep_layout.addWidget(QLabel("until"), 1, 2)
+        sleep_layout.addWidget(self.sleep_end_input, 1, 3)
+        sleep_layout.addWidget(QLabel("Sleeping text"), 2, 0)
+        sleep_layout.addWidget(self.sleep_text_input, 2, 1, 2, 3)
+        sleep_layout.addWidget(QLabel("Background"), 4, 0)
+        sleep_layout.addWidget(self.sleep_background_input, 4, 1)
+        sleep_layout.addWidget(pick_sleep_background_btn, 4, 2)
+        sleep_layout.addWidget(QLabel("Text colour"), 5, 0)
+        sleep_layout.addWidget(self.sleep_foreground_input, 5, 1)
+        sleep_layout.addWidget(pick_sleep_text_btn, 5, 2)
+        sleep_layout.addWidget(apply_sleep_btn, 6, 1)
+        sleep_layout.setColumnStretch(3, 1)
+        controls_layout.addLayout(sleep_layout)
+
         watchdog_settings = self.state.get_settings(include_secret=True).get("connection_watchdog", {}) or {}
         watchdog_layout = QGridLayout()
         self.watchdog_enabled_input = QCheckBox("Reboot selected Pis after sustained Manager Pi connection loss")
@@ -2422,6 +2464,50 @@ class PiScreensTab(QWidget):
             "foreground": QColor(foreground).name(),
         }
 
+    def normalise_sleep_time(self, text, fallback, label):
+        raw = str(text or fallback).strip().replace(".", ":")
+        parts = raw.split(":")
+        if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+            raise ValueError(f"{label} must be in 24-hour HH:MM format, for example 19:00.")
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        if hours < 0 or hours > 23 or minutes < 0 or minutes > 59:
+            raise ValueError(f"{label} must be a valid 24-hour time.")
+        return f"{hours:02d}:{minutes:02d}"
+
+    def night_sleep_payload(self):
+        start = self.normalise_sleep_time(self.sleep_start_input.text(), "19:00", "Sleep start")
+        end = self.normalise_sleep_time(self.sleep_end_input.text(), "06:00", "Sleep end")
+        text = self.sleep_text_input.toPlainText().strip() or "Manager is sleeping\nBoards will wake in the morning"
+        background = self.sleep_background_input.text().strip() or "#02060a"
+        foreground = self.sleep_foreground_input.text().strip() or "#b7f7d4"
+        if not QColor(background).isValid():
+            raise ValueError("Sleep background colour is not valid. Use a colour like #02060a.")
+        if not QColor(foreground).isValid():
+            raise ValueError("Sleep text colour is not valid. Use a colour like #b7f7d4.")
+        return {
+            "enabled": self.sleep_enabled_input.isChecked(),
+            "start": start,
+            "end": end,
+            "text": text,
+            "background": QColor(background).name(),
+            "foreground": QColor(foreground).name(),
+        }
+
+    def apply_night_sleep_schedule(self):
+        try:
+            payload = self.night_sleep_payload()
+        except ValueError as error:
+            QMessageBox.warning(self, "Night Sleep", str(error))
+            return
+
+        self.state.save_settings({"night_sleep": payload})
+        self.state.refresh_dashboard()
+        state_text = "enabled" if payload["enabled"] else "disabled"
+        self.status.setText(
+            f"Night sleep {state_text}: {payload['start']} to {payload['end']}. Manager sleep state synced."
+        )
+
     def show_maintenance_screen(self):
         device_ids = self.selected_device_ids()
         if not device_ids:
@@ -2531,7 +2617,9 @@ class ActivityConsoleTab(QWidget):
         controls_panel, controls_layout = make_toolbar_panel()
         controls = QHBoxLayout()
         self.category_filter = QComboBox()
-        self.category_filter.addItems(["All", "Current RMS", "Pis", "Audio", "Notifications", "Updates", "Commands", "Settings", "Manager"])
+        self.category_filter.addItems(
+            ["All", "Current RMS", "Pis", "Audio", "Notifications", "Updates", "Commands", "Settings", "Sleep", "Manager"]
+        )
         self.level_filter = QComboBox()
         self.level_filter.addItems(["All", "info", "warning", "error"])
         refresh_btn = QPushButton("Refresh")

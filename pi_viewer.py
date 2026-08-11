@@ -1036,6 +1036,10 @@ class ViewerWindow(QMainWindow):
             """
         )
         if enabled:
+            if as_bool(maintenance.get("clear_notifications", False)):
+                self.pending_alerts.clear()
+                self.remote_alert_queue_remaining = 0
+                self.update_alert_queue_badge()
             if self.active_alert_dialog:
                 self.active_alert_dialog.close()
                 self.active_alert_dialog = None

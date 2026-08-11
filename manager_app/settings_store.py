@@ -19,6 +19,14 @@ DEFAULT_SETTINGS = {
         "background": "#050505",
         "foreground": "#ffffff",
     },
+    "night_sleep": {
+        "enabled": False,
+        "start": "19:00",
+        "end": "06:00",
+        "text": "Manager is sleeping\nBoards will wake in the morning",
+        "background": "#02060a",
+        "foreground": "#b7f7d4",
+    },
     "connection_watchdog": {
         "enabled": False,
         "failure_minutes": 10,

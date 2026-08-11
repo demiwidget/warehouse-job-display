@@ -627,6 +627,7 @@ def handle_command(cfg, cmd):
             "text": str(cmd.get("text", "Maintenance in progress\nPlease wait")),
             "background": str(cmd.get("background", "#050505")),
             "foreground": str(cmd.get("foreground", "#ffffff")),
+            "clear_notifications": as_bool(cmd.get("clear_notifications", False)),
         }
         save_config(cfg)
         post_status(cfg, "online", "Maintenance splash screen shown.", source="agent", timeout=3, event_only=True)

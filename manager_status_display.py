@@ -791,6 +791,9 @@ class ManagerStatusWindow(QMainWindow):
         refresh_entry = self.latest_refresh_entry(activity)
         refresh_message = clean_text(refresh_entry.get("message") if refresh_entry else "", "Waiting")
         duration = refresh_duration(refresh_message)
+        night_sleep = manager_status.get("night_sleep", {}) if isinstance(manager_status.get("night_sleep"), dict) else {}
+        sleep_active = bool(night_sleep.get("active"))
+        sleep_end = clean_text(night_sleep.get("end"), "morning")
 
         manager_update_available = bool(update_status.get("manager_update_available"))
         update_tone = "warn" if manager_update_available or updates else "good"
@@ -808,6 +811,11 @@ class ManagerStatusWindow(QMainWindow):
             system_detail = "The local status display cannot reach the Manager Pi backend."
             system_tone = "bad"
             system_state = "Offline"
+        elif sleep_active:
+            system_title = "Manager sleeping"
+            system_detail = f"Dashboard refresh and alerts are paused until {sleep_end}."
+            system_tone = "good"
+            system_state = "Sleep"
         elif offline or service_problem:
             system_title = "Attention needed"
             parts = []
@@ -845,9 +853,9 @@ class ManagerStatusWindow(QMainWindow):
             "bad" if offline else "warn" if updates or unknown else "good",
         )
         self.rms_metric.set_content(
-            duration or "Waiting",
-            refresh_message,
-            "good" if duration else "muted",
+            "Sleeping" if sleep_active else duration or "Waiting",
+            f"Refresh paused until {sleep_end}." if sleep_active else refresh_message,
+            "muted" if sleep_active else "good" if duration else "muted",
         )
         self.update_metric.set_content(
             "Available" if manager_update_available or updates else "Current",
@@ -868,15 +876,18 @@ class ManagerStatusWindow(QMainWindow):
         )
 
         attention = []
-        for device in devices:
-            state = clean_text(device.get("state"), "Unknown")
-            update = clean_text(device.get("update"))
-            if state.lower() == "offline":
-                attention.append(f"{clean_text(device.get('name') or device.get('id'), 'Screen')}: offline")
-            elif update.lower().startswith("available"):
-                attention.append(f"{clean_text(device.get('name') or device.get('id'), 'Screen')}: {update}")
-        if service_problem:
-            attention.append(f"Manager Pi service issue: {', '.join(problem_service_names)}.")
+        if sleep_active:
+            attention.append(f"Night sleep is active until {sleep_end}.")
+        else:
+            for device in devices:
+                state = clean_text(device.get("state"), "Unknown")
+                update = clean_text(device.get("update"))
+                if state.lower() == "offline":
+                    attention.append(f"{clean_text(device.get('name') or device.get('id'), 'Screen')}: offline")
+                elif update.lower().startswith("available"):
+                    attention.append(f"{clean_text(device.get('name') or device.get('id'), 'Screen')}: {update}")
+            if service_problem:
+                attention.append(f"Manager Pi service issue: {', '.join(problem_service_names)}.")
         if not attention:
             attention.append("No urgent issues.")
         self.attention_panel.set_body("\n".join(attention[:5]))
