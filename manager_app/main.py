@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSpinBox,
-    QTabWidget,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -79,6 +79,55 @@ QWidget {
 QWidget#WarehousePage {
     background: #eef3f7;
 }
+QWidget#AppShell {
+    background: #eef3f7;
+}
+QFrame#Sidebar {
+    background: #102538;
+    border: 0;
+}
+QLabel#BrandTitle {
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: 950;
+}
+QLabel#BrandSubtitle {
+    color: #b8c9d8;
+    font-size: 11px;
+    font-weight: 700;
+}
+QLabel#SidebarCaption {
+    color: #7891a6;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 1px;
+}
+QFrame#MainStage {
+    background: #eef3f7;
+    border: 0;
+}
+QFrame#HeaderBar {
+    background: #ffffff;
+    border: 1px solid #d1dce6;
+    border-radius: 14px;
+}
+QLabel#HeaderTitle {
+    color: #102538;
+    font-size: 18px;
+    font-weight: 950;
+}
+QLabel#HeaderSubtitle {
+    color: #5c7082;
+    font-weight: 650;
+}
+QLabel#HeaderBadge {
+    background: #e6f4ed;
+    color: #1c6b57;
+    border: 1px solid #b7decf;
+    border-radius: 12px;
+    padding: 5px 10px;
+    font-weight: 900;
+}
 QScrollArea {
     background: #eef3f7;
     border: 0;
@@ -100,30 +149,6 @@ QScrollBar::handle:vertical:hover {
 QScrollBar::add-line:vertical,
 QScrollBar::sub-line:vertical {
     height: 0;
-}
-QTabWidget::pane {
-    border-top: 1px solid #c8d4df;
-    background: #eef3f7;
-}
-QTabBar::tab {
-    background: #dfe8f0;
-    color: #314255;
-    border: 1px solid #c2ceda;
-    border-bottom-color: #c8d4df;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-    padding: 8px 15px;
-    margin-right: 2px;
-    font-weight: 750;
-}
-QTabBar::tab:selected {
-    background: #244e73;
-    color: #ffffff;
-    border-color: #244e73;
-}
-QTabBar::tab:hover:!selected {
-    background: #edf3f8;
-    color: #17212b;
 }
 QLabel {
     color: #17212b;
@@ -236,6 +261,28 @@ QPushButton#DangerAction:hover {
 QPushButton#QuietAction {
     background: #eef3f7;
     color: #244e73;
+}
+QPushButton#NavButton {
+    background: transparent;
+    color: #d8e5ef;
+    border: 0;
+    border-radius: 11px;
+    padding: 11px 13px;
+    text-align: left;
+    font-size: 12px;
+    font-weight: 850;
+}
+QPushButton#NavButton:hover {
+    background: #183a56;
+    color: #ffffff;
+}
+QPushButton#NavButton:checked {
+    background: #ffffff;
+    color: #102538;
+}
+QPushButton#NavButton:checked:hover {
+    background: #ffffff;
+    color: #102538;
 }
 QCheckBox {
     background: transparent;
@@ -737,7 +784,7 @@ class CurrentRMSTab(QWidget):
 
         views_panel, views_layout = make_panel(
             "Dashboard Views",
-            "Current RMS saved views used for Today, Tomorrow, Prep, Outstanding, and Unreturned tabs.",
+            "Current RMS saved views used for the Today, Tomorrow, Prep, Outstanding, and Unreturned dashboard views.",
         )
         views_form = QFormLayout()
         views_form.addRow("Today out view", self.view_inputs["today_out"])
@@ -1625,6 +1672,245 @@ class ManagerInfoCard(QFrame):
         self.detail_label.setText(str(detail or ""))
 
 
+class OverviewPage(QWidget):
+    refresh_result_ready = Signal(object)
+    action_finished = Signal(str)
+    open_page_requested = Signal(str)
+
+    def __init__(self, state):
+        super().__init__()
+        self.state = state
+        self.active = True
+        self.refresh_in_progress = False
+        self.last_refresh_signature = ""
+
+        layout = make_scroll_page(self, margins=(18, 18, 18, 18), spacing=14)
+        add_page_heading(
+            layout,
+            "Overview",
+            "A live control-centre view of the manager, dashboard screens, notifications, and update state.",
+        )
+
+        status_grid = QGridLayout()
+        status_grid.setSpacing(12)
+        status_grid.setColumnStretch(0, 1)
+        status_grid.setColumnStretch(1, 1)
+        status_grid.setColumnStretch(2, 1)
+
+        self.manager_card = ManagerInfoCard("Manager")
+        self.rms_card = ManagerInfoCard("Current RMS")
+        self.dashboard_card = ManagerInfoCard("Dashboards")
+        self.notification_card = ManagerInfoCard("Notifications")
+        self.update_card = ManagerInfoCard("Software")
+        self.audio_card = ManagerInfoCard("Audio")
+        status_grid.addWidget(self.manager_card, 0, 0)
+        status_grid.addWidget(self.rms_card, 0, 1)
+        status_grid.addWidget(self.dashboard_card, 0, 2)
+        status_grid.addWidget(self.notification_card, 1, 0)
+        status_grid.addWidget(self.update_card, 1, 1)
+        status_grid.addWidget(self.audio_card, 1, 2)
+        layout.addLayout(status_grid)
+
+        quick_panel, quick_layout = make_panel(
+            "Quick Actions",
+            "Common operational actions without digging through the setup pages.",
+        )
+        quick_buttons = QHBoxLayout()
+        refresh_data_btn = mark_primary(QPushButton("Refresh Current RMS"))
+        check_updates_btn = QPushButton("Check Updates")
+        dashboards_btn = QPushButton("Open Dashboards")
+        notifications_btn = QPushButton("Open Notifications")
+        activity_btn = QPushButton("Open Activity Log")
+        refresh_data_btn.clicked.connect(self.refresh_dashboard_now)
+        check_updates_btn.clicked.connect(self.check_updates_now)
+        dashboards_btn.clicked.connect(lambda: self.open_page_requested.emit("dashboards"))
+        notifications_btn.clicked.connect(lambda: self.open_page_requested.emit("notifications"))
+        activity_btn.clicked.connect(lambda: self.open_page_requested.emit("activity"))
+        quick_buttons.addWidget(refresh_data_btn)
+        quick_buttons.addWidget(check_updates_btn)
+        quick_buttons.addWidget(dashboards_btn)
+        quick_buttons.addWidget(notifications_btn)
+        quick_buttons.addWidget(activity_btn)
+        quick_buttons.addStretch(1)
+        quick_layout.addLayout(quick_buttons)
+        self.action_status = make_status_label("Ready.")
+        quick_layout.addWidget(self.action_status)
+        layout.addWidget(quick_panel)
+
+        activity_panel, activity_layout = make_panel(
+            "Recent Activity",
+            "Latest manager events, newest first.",
+        )
+        self.recent_activity = QTextEdit()
+        self.recent_activity.setReadOnly(True)
+        self.recent_activity.setMinimumHeight(150)
+        activity_layout.addWidget(self.recent_activity)
+        layout.addWidget(activity_panel, 1)
+        layout.addStretch(1)
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.refresh)
+        self.timer.start(8000)
+        self.refresh_result_ready.connect(self.handle_refresh_result)
+        self.action_finished.connect(self.handle_action_finished)
+        self.refresh()
+
+    def set_active(self, active):
+        self.active = bool(active)
+        if self.active:
+            self.timer.start(8000)
+            self.refresh()
+        else:
+            self.timer.stop()
+
+    def refresh(self):
+        if self.refresh_in_progress:
+            return
+        self.refresh_in_progress = True
+        Thread(target=self._refresh_worker, daemon=True).start()
+
+    def _refresh_worker(self):
+        try:
+            devices = self.state.list_devices()
+            update_status = self.state.get_update_status()
+            manager_status = self.state.get_manager_status()
+            activity = self.state.list_activity(limit=8)
+            settings = self.state.get_settings(include_secret=False)
+        except Exception as error:
+            safe_emit(self.refresh_result_ready, {"ok": False, "error": str(error)})
+            return
+        safe_emit(
+            self.refresh_result_ready,
+            {
+                "ok": True,
+                "devices": devices,
+                "update_status": update_status,
+                "manager_status": manager_status,
+                "activity": activity,
+                "settings": settings,
+            },
+        )
+
+    def handle_refresh_result(self, result):
+        self.refresh_in_progress = False
+        if not result.get("ok"):
+            self.manager_card.set_content("Check", f"Could not refresh overview: {result.get('error')}", "bad")
+            return
+        self.apply_overview(result)
+
+    def apply_overview(self, result):
+        devices = result.get("devices", []) or []
+        update_status = result.get("update_status", {}) or {}
+        manager_status = result.get("manager_status", {}) or {}
+        settings = result.get("settings", {}) or {}
+        activity = result.get("activity", []) or []
+
+        signature = repr(
+            {
+                "devices": [
+                    {
+                        "id": device.get("id"),
+                        "state": device.get("state"),
+                        "update": device.get("update"),
+                        "audio": device.get("audio"),
+                    }
+                    for device in devices
+                ],
+                "update": update_status,
+                "manager": {
+                    "is_manager_pi": manager_status.get("is_manager_pi"),
+                    "backend_service": manager_status.get("backend_service"),
+                    "display_service": manager_status.get("display_service"),
+                    "night_sleep": (manager_status.get("night_sleep") or {}).get("active"),
+                },
+                "activity": activity,
+            }
+        )
+        if signature == self.last_refresh_signature:
+            return
+        self.last_refresh_signature = signature
+
+        online = sum(1 for device in devices if device.get("state") != "Offline")
+        offline = sum(1 for device in devices if device.get("state") == "Offline")
+        updates = sum(1 for device in devices if str(device.get("update", "")).startswith("Available"))
+        audio_ok = sum(1 for device in devices if device.get("audio") == "Audio OK")
+        audio_issues = sum(1 for device in devices if device.get("audio") == "Audio Issue")
+        configured = bool((settings.get("current_rms", {}) or {}).get("api_key"))
+        latest_rms = next((entry for entry in activity if entry.get("category") == "Current RMS"), {})
+        latest_notification = next((entry for entry in activity if entry.get("category") == "Notifications"), {})
+        latest_version = str(update_status.get("latest_version") or "unknown")
+        local_version = str(update_status.get("local_version") or manager_status.get("version") or "unknown")
+        manager_problem = str(manager_status.get("backend_service", "")).lower() in {"failed", "inactive"}
+        sleep_active = bool((manager_status.get("night_sleep") or {}).get("active"))
+
+        self.manager_card.set_content(
+            "Sleeping" if sleep_active else "Check" if manager_problem else "Online",
+            "Night sleep is active." if sleep_active else "Manager service needs attention." if manager_problem else "Manager backend is reachable.",
+            "warn" if sleep_active else "bad" if manager_problem else "good",
+        )
+        self.rms_card.set_content(
+            "Configured" if configured else "Setup Needed",
+            latest_rms.get("message", "No Current RMS refresh logged yet."),
+            "good" if configured else "warn",
+        )
+        self.dashboard_card.set_content(
+            f"{online}/{len(devices)} online",
+            f"{offline} offline | {updates} with updates available",
+            "bad" if offline else "warn" if updates else "good",
+        )
+        self.notification_card.set_content(
+            "Active",
+            latest_notification.get("message", "No recent notification events."),
+            "info",
+        )
+        self.update_card.set_content(
+            "Update Available" if update_status.get("manager_update_available") else "Current",
+            f"GitHub v{latest_version} | Manager v{local_version}",
+            "warn" if update_status.get("manager_update_available") else "good",
+        )
+        self.audio_card.set_content(
+            f"{audio_ok}/{len(devices)} OK",
+            f"{audio_issues} audio issue(s) reported.",
+            "bad" if audio_issues else "good" if devices else "muted",
+        )
+
+        lines = [
+            f"{entry.get('ts', '')}  |  {entry.get('category', '')}  |  {entry.get('message', '')}"
+            for entry in activity
+        ]
+        self.recent_activity.setPlainText("\n".join(lines) if lines else "No activity recorded yet.")
+
+    def refresh_dashboard_now(self):
+        self.action_status.setText("Refreshing Current RMS in the background...")
+
+        def worker():
+            try:
+                self.state.refresh_dashboard()
+                message = "Current RMS refresh requested."
+            except Exception as error:
+                message = f"Current RMS refresh failed: {error}"
+            safe_emit(self.action_finished, message)
+
+        Thread(target=worker, daemon=True).start()
+
+    def check_updates_now(self):
+        self.action_status.setText("Checking GitHub for updates...")
+
+        def worker():
+            try:
+                self.state.refresh_update_status(force=True)
+                message = "GitHub update check completed."
+            except Exception as error:
+                message = f"Update check failed: {error}"
+            safe_emit(self.action_finished, message)
+
+        Thread(target=worker, daemon=True).start()
+
+    def handle_action_finished(self, message):
+        self.action_status.setText(str(message or "Ready."))
+        QTimer.singleShot(0, self.refresh)
+
+
 class ManagerPiTab(QWidget):
     command_finished = Signal(str)
     refresh_result_ready = Signal(object)
@@ -2025,7 +2311,6 @@ class PiScreensTab(QWidget):
         set_audio_btn = QPushButton("Set Audio Output")
         sound_loop_start_btn = QPushButton("Start Repeating Sound")
         sound_loop_stop_btn = QPushButton("Stop Repeating Sound")
-        update_all_btn = mark_primary(QPushButton("Update All Pis + Manager"))
         check_updates_btn = QPushButton("Check GitHub Updates")
         reboot_btn = mark_danger(QPushButton("Reboot Pi"))
         remove_btn = mark_danger(QPushButton("Remove Selected"))
@@ -2039,7 +2324,6 @@ class PiScreensTab(QWidget):
         set_audio_btn.clicked.connect(self.set_audio_selected)
         sound_loop_start_btn.clicked.connect(self.start_repeating_sound)
         sound_loop_stop_btn.clicked.connect(lambda: self.send_action("sound_loop_stop"))
-        update_all_btn.clicked.connect(self.update_all)
         check_updates_btn.clicked.connect(self.check_updates_now)
         reboot_btn.clicked.connect(lambda: self.send_action("reboot"))
         remove_btn.clicked.connect(self.remove_selected_pis)
@@ -2073,7 +2357,6 @@ class PiScreensTab(QWidget):
         service_buttons = QHBoxLayout()
         service_buttons.addWidget(check_updates_btn)
         service_buttons.addWidget(refresh_btn)
-        service_buttons.addWidget(update_all_btn)
         service_buttons.addStretch(1)
         service_buttons.addWidget(reboot_btn)
         service_buttons.addWidget(remove_btn)
@@ -2349,31 +2632,6 @@ class PiScreensTab(QWidget):
     def check_updates_now(self):
         self.update_status.setText("Checking GitHub for updates...")
         Thread(target=lambda: self.state.refresh_update_status(force=True), daemon=True).start()
-
-    def update_all(self):
-        choice = QMessageBox.question(
-            self,
-            "Update Manager And All Pis?",
-            (
-                "Update every registered dashboard Pi and the Manager Pi from GitHub?\n\n"
-                "Dashboard Pi updates will be queued first. The Manager Pi update will start shortly after "
-                "so the screens have time to collect their update command."
-            ),
-        )
-        if choice != QMessageBox.Yes:
-            return
-
-        self.status.setText("Starting update all: queueing dashboard Pi updates, then Manager Pi update...")
-
-        def worker():
-            try:
-                result = self.state.run_manager_command("update_all")
-                message = str(result.get("message") or "Update all started.")
-            except Exception as error:
-                message = f"Update all failed: {error}"
-            safe_emit(self.command_finished, message)
-
-        Thread(target=worker, daemon=True).start()
 
     def on_command_finished(self, message):
         self.status.setText(message)
@@ -2794,32 +3052,125 @@ class ActivityConsoleTab(QWidget):
 
 
 class ManagerWindow(QMainWindow):
+    NAV_ITEMS = [
+        ("overview", "Overview", "Live status and quick actions", OverviewPage),
+        ("setup", "Setup", "Connection and install commands", ConnectionTab),
+        ("data", "Data Source", "Current RMS views and API", CurrentRMSTab),
+        ("notifications", "Notifications", "Alerts, routing, email, sounds", AlertsTab),
+        ("manager", "Manager Pi", "Backend services and security", ManagerPiTab),
+        ("dashboards", "Dashboards", "Screen fleet controls", PiScreensTab),
+        ("activity", "Activity Log", "Diagnostics and event history", ActivityConsoleTab),
+    ]
+
     def __init__(self, state):
         super().__init__()
         self.state = state
         self.confirmed_close = False
         self.setWindowTitle("Warehouse Dashboard Manager")
-        self.resize(1280, 820)
+        self.resize(1360, 860)
         self.setStyleSheet(APP_STYLESHEET)
 
-        tabs = QTabWidget()
-        tabs.setDocumentMode(True)
-        tabs.addTab(ConnectionTab(state), "Setup")
-        tabs.addTab(CurrentRMSTab(state), "Data Source")
-        tabs.addTab(AlertsTab(state), "Notifications")
-        tabs.addTab(ManagerPiTab(state), "Manager Pi")
-        tabs.addTab(PiScreensTab(state), "Dashboards")
-        tabs.addTab(ActivityConsoleTab(state), "Activity Log")
-        self.setCentralWidget(tabs)
-        self.tabs = tabs
-        tabs.currentChanged.connect(self.on_tab_changed)
-        QTimer.singleShot(0, lambda: self.on_tab_changed(tabs.currentIndex()))
+        root = QWidget()
+        root.setObjectName("AppShell")
+        root_layout = QHBoxLayout(root)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
-    def on_tab_changed(self, index):
-        for tab_index in range(self.tabs.count()):
-            widget = self.tabs.widget(tab_index)
-            if hasattr(widget, "set_active"):
-                widget.set_active(tab_index == index)
+        sidebar = QFrame()
+        sidebar.setObjectName("Sidebar")
+        sidebar.setFixedWidth(238)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(18, 18, 18, 18)
+        sidebar_layout.setSpacing(8)
+
+        brand = QLabel("Warehouse\nManager")
+        brand.setObjectName("BrandTitle")
+        sidebar_layout.addWidget(brand)
+        subtitle = QLabel("Control centre")
+        subtitle.setObjectName("BrandSubtitle")
+        sidebar_layout.addWidget(subtitle)
+        sidebar_layout.addSpacing(16)
+
+        navigation_caption = QLabel("WORKFLOWS")
+        navigation_caption.setObjectName("SidebarCaption")
+        sidebar_layout.addWidget(navigation_caption)
+
+        stage = QFrame()
+        stage.setObjectName("MainStage")
+        stage_layout = QVBoxLayout(stage)
+        stage_layout.setContentsMargins(16, 16, 16, 16)
+        stage_layout.setSpacing(12)
+
+        header = QFrame()
+        header.setObjectName("HeaderBar")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(16, 12, 16, 12)
+        header_layout.setSpacing(12)
+        header_text = QVBoxLayout()
+        header_text.setSpacing(2)
+        self.header_title = QLabel("Overview")
+        self.header_title.setObjectName("HeaderTitle")
+        self.header_subtitle = QLabel("Live status and quick actions")
+        self.header_subtitle.setObjectName("HeaderSubtitle")
+        header_text.addWidget(self.header_title)
+        header_text.addWidget(self.header_subtitle)
+        header_layout.addLayout(header_text, 1)
+        self.header_badge = QLabel("Remote Manager Pi" if getattr(state, "is_remote", False) else "Local Manager")
+        self.header_badge.setObjectName("HeaderBadge")
+        header_layout.addWidget(self.header_badge)
+        stage_layout.addWidget(header)
+
+        self.stack = QStackedWidget()
+        self.stack.setObjectName("PageStack")
+        stage_layout.addWidget(self.stack, 1)
+
+        self.pages = {}
+        self.page_keys = []
+        self.nav_buttons = {}
+        for index, (key, title, description, page_class) in enumerate(self.NAV_ITEMS):
+            button = QPushButton(title)
+            button.setObjectName("NavButton")
+            button.setCheckable(True)
+            button.setToolTip(description)
+            button.clicked.connect(lambda _checked=False, page_key=key: self.show_page(page_key))
+            sidebar_layout.addWidget(button)
+            self.nav_buttons[key] = button
+
+            page = page_class(state)
+            if isinstance(page, OverviewPage):
+                page.open_page_requested.connect(self.show_page)
+            self.stack.addWidget(page)
+            self.pages[key] = page
+            self.page_keys.append(key)
+
+        sidebar_layout.addStretch(1)
+        version_label = QLabel(f"Version {self.state.get_update_status().get('local_version', 'unknown')}")
+        version_label.setObjectName("BrandSubtitle")
+        sidebar_layout.addWidget(version_label)
+
+        root_layout.addWidget(sidebar)
+        root_layout.addWidget(stage, 1)
+        self.setCentralWidget(root)
+        QTimer.singleShot(0, lambda: self.show_page("overview"))
+
+    def show_page(self, key):
+        if isinstance(key, int):
+            index = key
+            key = self.page_keys[index] if 0 <= index < len(self.page_keys) else "overview"
+        index = self.page_keys.index(key) if key in self.page_keys else 0
+        key = self.page_keys[index]
+        self.stack.setCurrentIndex(index)
+
+        for page_key, page in self.pages.items():
+            if hasattr(page, "set_active"):
+                page.set_active(page_key == key)
+            button = self.nav_buttons.get(page_key)
+            if button:
+                button.setChecked(page_key == key)
+
+        _key, title, description, _page_class = self.NAV_ITEMS[index]
+        self.header_title.setText(title)
+        self.header_subtitle.setText(description)
 
     def closeEvent(self, event):
         if getattr(self.state, "is_remote", False):
