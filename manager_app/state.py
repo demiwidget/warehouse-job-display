@@ -1035,7 +1035,15 @@ class ManagerState:
             },
         )
 
-    def send_test_notification(self, title, message, sound_name="", play_sound=True, device_ids=None):
+    def send_test_notification(
+        self,
+        title,
+        message,
+        sound_name="",
+        play_sound=True,
+        show_popup=True,
+        device_ids=None,
+    ):
         with self.lock:
             settings = self.store.load_settings()
             self.settings = settings
@@ -1052,6 +1060,7 @@ class ManagerState:
                 settings=settings,
                 sound_name=sound_name,
                 play_sound=play_sound,
+                show_popup=show_popup,
             )
 
         if not alert:
@@ -1066,6 +1075,11 @@ class ManagerState:
         self.log_activity(
             "Notifications",
             f"Queued test notification for {len(target_ids)} Pi screen(s): {alert.get('title')}.",
-            details={"device_ids": target_ids, "play_sound": alert.get("play_sound"), "sound": alert.get("sound")},
+            details={
+                "device_ids": target_ids,
+                "show_popup": alert.get("show_popup"),
+                "play_sound": alert.get("play_sound"),
+                "sound": alert.get("sound"),
+            },
         )
         return True, f"Queued a test notification for {len(target_ids)} Pi screen(s)."

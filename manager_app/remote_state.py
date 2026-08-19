@@ -141,7 +141,15 @@ class RemoteManagerState:
     def remove_devices(self, device_ids):
         return int(self._post("/api/devices/remove", {"device_ids": device_ids}).get("removed", 0) or 0)
 
-    def send_test_notification(self, title, message, sound_name="", play_sound=True, device_ids=None):
+    def send_test_notification(
+        self,
+        title,
+        message,
+        sound_name="",
+        play_sound=True,
+        show_popup=True,
+        device_ids=None,
+    ):
         result = self._post(
             "/api/notifications/test",
             {
@@ -149,6 +157,7 @@ class RemoteManagerState:
                 "message": message,
                 "sound_name": sound_name,
                 "play_sound": play_sound,
+                "show_popup": show_popup,
                 "device_ids": device_ids,
             },
         )

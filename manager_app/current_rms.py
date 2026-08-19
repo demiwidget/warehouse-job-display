@@ -428,9 +428,20 @@ class DashboardBuilder:
         }
         self._save_prep_metric_state()
 
-    def create_manual_alert(self, title, message, settings, sound_name="", play_sound=True, source="manual test"):
+    def create_manual_alert(
+        self,
+        title,
+        message,
+        settings,
+        sound_name="",
+        play_sound=True,
+        show_popup=True,
+        source="manual test",
+    ):
         clean_title = str(title or "").strip() or "Test Notification"
         clean_message = str(message or "").strip()
+        if not clean_message and not show_popup and play_sound:
+            clean_message = clean_title
         if not clean_message:
             return None
 
@@ -452,7 +463,7 @@ class DashboardBuilder:
             "type": "manual_test",
             "title": clean_title,
             "html": popup.get("html", ""),
-            "show_popup": True,
+            "show_popup": bool(show_popup),
             "play_sound": bool(play_sound and str(sound_name or "").strip()),
             "sound": str(sound_name or "").strip(),
         }

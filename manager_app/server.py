@@ -196,6 +196,7 @@ def create_app(state):
             message=payload.get("message", ""),
             sound_name=payload.get("sound_name", ""),
             play_sound=payload.get("play_sound", True),
+            show_popup=payload.get("show_popup", True),
             device_ids=payload.get("device_ids"),
         )
         return jsonify({"success": success, "message": message})

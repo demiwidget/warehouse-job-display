@@ -69,102 +69,102 @@ MANAGER_PI_BOOTSTRAP_URL = (
 
 APP_STYLESHEET = """
 QMainWindow {
-    background: #0e1216;
+    background: #eef3f7;
 }
 QWidget {
-    color: #edf4f7;
+    color: #17212b;
     font-family: "Segoe UI", "Aptos", "Verdana";
-    font-size: 12px;
+    font-size: 11px;
 }
 QWidget#WarehousePage {
-    background: #0e1216;
+    background: #eef3f7;
 }
 QScrollArea {
-    background: #0e1216;
+    background: #eef3f7;
     border: 0;
 }
 QScrollBar:vertical {
-    background: #0b0f13;
-    width: 12px;
+    background: #dbe4ec;
+    width: 11px;
     margin: 2px;
     border-radius: 6px;
 }
 QScrollBar::handle:vertical {
-    background: #2f4652;
+    background: #8fa1b2;
     border-radius: 6px;
     min-height: 28px;
 }
 QScrollBar::handle:vertical:hover {
-    background: #57d68d;
+    background: #315b7c;
 }
 QScrollBar::add-line:vertical,
 QScrollBar::sub-line:vertical {
     height: 0;
 }
 QTabWidget::pane {
-    border-top: 1px solid #2b3a43;
-    background: #0e1216;
+    border-top: 1px solid #c8d4df;
+    background: #eef3f7;
 }
 QTabBar::tab {
-    background: #141b20;
-    color: #d7e3e8;
-    border: 1px solid #263640;
-    border-bottom-color: #2b3a43;
+    background: #dfe8f0;
+    color: #314255;
+    border: 1px solid #c2ceda;
+    border-bottom-color: #c8d4df;
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
-    padding: 7px 14px;
-    margin-right: 3px;
+    padding: 8px 15px;
+    margin-right: 2px;
     font-weight: 750;
 }
 QTabBar::tab:selected {
-    background: #57d68d;
-    color: #04130b;
-    border-color: #57d68d;
+    background: #244e73;
+    color: #ffffff;
+    border-color: #244e73;
 }
 QTabBar::tab:hover:!selected {
-    background: #1c2a32;
-    color: #f5fbff;
+    background: #edf3f8;
+    color: #17212b;
 }
 QLabel {
-    color: #edf4f7;
+    color: #17212b;
     background: transparent;
 }
 QLabel#PageTitle {
-    font-size: 21px;
+    font-size: 20px;
     font-weight: 900;
-    color: #f7fbff;
+    color: #102538;
 }
 QLabel#PageIntro {
-    color: #a9bac3;
+    color: #506579;
     font-size: 12px;
     font-weight: 600;
 }
 QLabel#SectionTitle {
-    color: #f7fbff;
+    color: #17212b;
     font-size: 15px;
     font-weight: 900;
 }
 QLabel#SectionSubtitle {
-    color: #9fb0b8;
+    color: #5c7082;
     font-weight: 600;
 }
 QLabel#StatusStrip {
-    background: #101820;
-    border: 1px solid #2b3a43;
+    background: #e6edf4;
+    border: 1px solid #c9d5df;
     border-radius: 8px;
-    color: #c8d6dd;
+    color: #26394b;
     font-weight: 800;
     padding: 7px;
 }
 QFrame#WarehousePanel,
 QFrame#ManagerSection {
-    background: #141b20;
-    border: 1px solid #2b3a43;
+    background: #ffffff;
+    border: 1px solid #d1dce6;
     border-radius: 12px;
 }
 QFrame#ToolbarPanel {
-    background: #111920;
-    border: 1px solid #2b3a43;
+    background: #ffffff;
+    border: 1px solid #d1dce6;
     border-radius: 12px;
 }
 QLineEdit,
@@ -172,73 +172,74 @@ QTextEdit,
 QPlainTextEdit,
 QSpinBox,
 QComboBox {
-    background: #0b0f13;
-    color: #f5fbff;
-    border: 1px solid #3c515d;
+    background: #fbfdff;
+    color: #17212b;
+    border: 1px solid #b9c8d6;
     border-radius: 7px;
     padding: 5px;
-    selection-background-color: #57d68d;
-    selection-color: #04130b;
+    selection-background-color: #244e73;
+    selection-color: #ffffff;
 }
 QLineEdit:focus,
 QTextEdit:focus,
 QPlainTextEdit:focus,
 QSpinBox:focus,
 QComboBox:focus {
-    border-color: #57d68d;
+    border-color: #244e73;
 }
 QLineEdit:disabled,
 QTextEdit:disabled,
 QSpinBox:disabled,
 QComboBox:disabled {
-    color: #73828a;
-    border-color: #1d2a31;
+    color: #8292a2;
+    border-color: #ccd6df;
+    background: #eef2f6;
 }
 QTextEdit {
     line-height: 1.35em;
 }
 QComboBox::drop-down {
-    border-left: 1px solid #2b3a43;
+    border-left: 1px solid #c8d4df;
     width: 24px;
 }
 QPushButton {
-    background: #22313a;
-    color: #f5fbff;
-    border: 1px solid #3c515d;
+    background: #e8eef4;
+    color: #17212b;
+    border: 1px solid #b8c7d4;
     border-radius: 8px;
     padding: 6px 10px;
     font-weight: 800;
 }
 QPushButton:hover {
-    background: #2d414d;
-    border-color: #5f7a88;
+    background: #f7fbff;
+    border-color: #7f98ad;
 }
 QPushButton:pressed {
-    background: #17232b;
+    background: #dbe5ee;
 }
 QPushButton#PrimaryAction {
-    background: #57d68d;
-    color: #04130b;
-    border-color: #57d68d;
+    background: #1c6b57;
+    color: #ffffff;
+    border-color: #1c6b57;
 }
 QPushButton#PrimaryAction:hover {
-    background: #6ee6a0;
+    background: #238267;
 }
 QPushButton#DangerAction {
-    background: #793238;
-    color: #fff4f4;
-    border-color: #a84a52;
+    background: #b42318;
+    color: #ffffff;
+    border-color: #b42318;
 }
 QPushButton#DangerAction:hover {
-    background: #93414a;
+    background: #d13a2f;
 }
 QPushButton#QuietAction {
-    background: #17232b;
-    color: #c9d7dd;
+    background: #eef3f7;
+    color: #244e73;
 }
 QCheckBox {
     background: transparent;
-    color: #edf4f7;
+    color: #17212b;
     spacing: 6px;
     font-weight: 650;
 }
@@ -246,41 +247,41 @@ QCheckBox::indicator {
     width: 16px;
     height: 16px;
     border-radius: 5px;
-    border: 1px solid #4a6270;
-    background: #0b0f13;
+    border: 1px solid #8ea0b1;
+    background: #ffffff;
 }
 QCheckBox::indicator:checked {
-    background: #57d68d;
-    border-color: #57d68d;
+    background: #1c6b57;
+    border-color: #1c6b57;
 }
 QTableWidget {
-    background: #0b0f13;
-    alternate-background-color: #111a20;
-    color: #f5fbff;
-    gridline-color: #263640;
-    border: 1px solid #2b3a43;
+    background: #ffffff;
+    alternate-background-color: #f5f8fb;
+    color: #17212b;
+    gridline-color: #d5dee7;
+    border: 1px solid #c9d5df;
     border-radius: 10px;
-    selection-background-color: #244d3a;
-    selection-color: #f7fbff;
+    selection-background-color: #d8e9f7;
+    selection-color: #17212b;
 }
 QTableWidget::item {
-    padding: 5px;
-    border-bottom: 1px solid #17232b;
+    padding: 4px;
+    border-bottom: 1px solid #e3e9ef;
 }
 QTableWidget::item:selected {
-    background: #244d3a;
+    background: #d8e9f7;
 }
 QHeaderView::section {
-    background: #18252d;
-    color: #83c5d8;
+    background: #edf3f8;
+    color: #315b7c;
     border: 0;
-    border-right: 1px solid #2b3a43;
-    border-bottom: 1px solid #2b3a43;
+    border-right: 1px solid #d1dce6;
+    border-bottom: 1px solid #d1dce6;
     padding: 6px;
     font-weight: 900;
 }
 QMessageBox {
-    background: #141b20;
+    background: #ffffff;
 }
 """
 
@@ -405,6 +406,13 @@ def tune_table(table):
     return table
 
 
+def safe_emit(signal, payload):
+    try:
+        signal.emit(payload)
+    except RuntimeError:
+        pass
+
+
 class DashboardMonitorThread(Thread):
     def __init__(self, state):
         super().__init__(daemon=True)
@@ -485,8 +493,8 @@ class ConnectionTab(QWidget):
         layout = make_scroll_page(self)
         add_page_heading(
             layout,
-            "Connection & Install",
-            "Network settings and live one-command installers for dashboard Pis and Manager Pi trials.",
+            "Setup",
+            "Network settings and live one-command installers for dashboard screens and Manager Pi deployments.",
         )
 
         settings = self.state.get_settings(include_secret=True)
@@ -656,12 +664,12 @@ class CurrentRMSTab(QWidget):
         layout = make_scroll_page(self)
         add_page_heading(
             layout,
-            "Current RMS",
-            "API connection, job view IDs, excluded items, and quarantine leaderboard settings.",
+            "Data Source",
+            "Current RMS API connection, job view IDs, excluded items, and quarantine leaderboard settings.",
         )
 
         rms_panel, rms_layout = make_panel(
-            "API Details & Dashboard Views",
+            "API Connection",
             "Secrets stay in the manager data folder only; they are not written into the GitHub repo.",
         )
         form = QFormLayout()
@@ -724,23 +732,44 @@ class CurrentRMSTab(QWidget):
         form.addRow("Rows per page", self.per_page_input)
         form.addRow("Max pages", self.max_pages_input)
         form.addRow("Parallel API requests", self.api_workers_input)
-        form.addRow("Today out view", self.view_inputs["today_out"])
-        form.addRow("Today in view", self.view_inputs["today_in"])
-        form.addRow("Tomorrow out view", self.view_inputs["tomorrow_out"])
-        form.addRow("Tomorrow in view", self.view_inputs["tomorrow_in"])
-        form.addRow("Prep / next 7 days view", self.view_inputs["prep"])
-        form.addRow("Outstanding view", self.view_inputs["outstanding"])
-        form.addRow("Unreturned jobs view", self.view_inputs["unreturned"])
-        form.addRow("Prep / alert excluded item IDs", self.excluded_items_input)
-        form.addRow("Show quarantine leaderboard", self.quarantine_enabled_input)
-        form.addRow("Quarantine department field", self.quarantine_field_input)
-        form.addRow("Quarantine rows per page", self.quarantine_per_page_input)
-        form.addRow("Quarantine max pages", self.quarantine_max_pages_input)
-        form.addRow("Active quarantines only", self.quarantine_active_only_input)
-        form.addRow("Ignored quarantine department IDs", self.quarantine_excluded_departments_input)
-        form.addRow("Quarantine department names", self.quarantine_departments_input)
         rms_layout.addLayout(form)
+        layout.addWidget(rms_panel)
 
+        views_panel, views_layout = make_panel(
+            "Dashboard Views",
+            "Current RMS saved views used for Today, Tomorrow, Prep, Outstanding, and Unreturned tabs.",
+        )
+        views_form = QFormLayout()
+        views_form.addRow("Today out view", self.view_inputs["today_out"])
+        views_form.addRow("Today in view", self.view_inputs["today_in"])
+        views_form.addRow("Tomorrow out view", self.view_inputs["tomorrow_out"])
+        views_form.addRow("Tomorrow in view", self.view_inputs["tomorrow_in"])
+        views_form.addRow("Prep / next 7 days view", self.view_inputs["prep"])
+        views_form.addRow("Outstanding view", self.view_inputs["outstanding"])
+        views_form.addRow("Unreturned jobs view", self.view_inputs["unreturned"])
+        views_form.addRow("Prep / alert excluded item IDs", self.excluded_items_input)
+        views_layout.addLayout(views_form)
+        layout.addWidget(views_panel)
+
+        quarantine_panel, quarantine_layout = make_panel(
+            "Quarantine Leaderboard",
+            "Department mapping and paging for the quarantine tiles shown on the dashboards.",
+        )
+        quarantine_form = QFormLayout()
+        quarantine_form.addRow("Show quarantine leaderboard", self.quarantine_enabled_input)
+        quarantine_form.addRow("Quarantine department field", self.quarantine_field_input)
+        quarantine_form.addRow("Quarantine rows per page", self.quarantine_per_page_input)
+        quarantine_form.addRow("Quarantine max pages", self.quarantine_max_pages_input)
+        quarantine_form.addRow("Active quarantines only", self.quarantine_active_only_input)
+        quarantine_form.addRow("Ignored quarantine department IDs", self.quarantine_excluded_departments_input)
+        quarantine_form.addRow("Quarantine department names", self.quarantine_departments_input)
+        quarantine_layout.addLayout(quarantine_form)
+        layout.addWidget(quarantine_panel)
+
+        actions_panel, actions_layout = make_panel(
+            "Data Actions",
+            "Save settings, test the API credentials, or force the manager to refresh dashboard data now.",
+        )
         buttons = QHBoxLayout()
         save_btn = mark_primary(QPushButton("Save API Details Locally"))
         test_btn = QPushButton("Test Current RMS Connection")
@@ -752,7 +781,7 @@ class CurrentRMSTab(QWidget):
         buttons.addWidget(test_btn)
         buttons.addWidget(refresh_btn)
         buttons.addStretch(1)
-        rms_layout.addLayout(buttons)
+        actions_layout.addLayout(buttons)
 
         note = QLabel(
             "API details and view IDs are stored only in manager_data/settings.json on the manager. "
@@ -760,8 +789,8 @@ class CurrentRMSTab(QWidget):
         )
         note.setWordWrap(True)
         note.setObjectName("SectionSubtitle")
-        rms_layout.addWidget(note)
-        layout.addWidget(rms_panel)
+        actions_layout.addWidget(note)
+        layout.addWidget(actions_panel)
         layout.addStretch(1)
 
     def settings_payload(self):
@@ -808,6 +837,46 @@ class CurrentRMSTab(QWidget):
 
 
 class AlertsTab(QWidget):
+    DELIVERY_MODES = [
+        ("popup_sound", "Popup + sound"),
+        ("popup_only", "Popup only (silent)"),
+        ("sound_only", "Sound only"),
+        ("log_only", "Log/email only"),
+    ]
+
+    @classmethod
+    def populate_delivery_combo(cls, combo, config=None, default_mode="popup_sound"):
+        for key, label in cls.DELIVERY_MODES:
+            combo.addItem(label, key)
+        mode = cls.delivery_mode_from_config(config or {}, default_mode=default_mode)
+        index = combo.findData(mode)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+
+    @staticmethod
+    def delivery_mode_from_config(config, default_mode="popup_sound"):
+        if "delivery_mode" in config:
+            mode = str(config.get("delivery_mode") or "").strip()
+            if mode in {"popup_sound", "popup_only", "sound_only", "log_only"}:
+                return mode
+        show_popup = bool(config.get("show_popup", default_mode in {"popup_sound", "popup_only"}))
+        play_sound = bool(config.get("play_sound", default_mode in {"popup_sound", "sound_only"}))
+        if show_popup and play_sound:
+            return "popup_sound"
+        if show_popup:
+            return "popup_only"
+        if play_sound:
+            return "sound_only"
+        return "log_only"
+
+    @staticmethod
+    def delivery_flags(mode):
+        clean_mode = str(mode or "popup_sound")
+        return {
+            "show_popup": clean_mode in {"popup_sound", "popup_only"},
+            "play_sound": clean_mode in {"popup_sound", "sound_only"},
+            "delivery_mode": clean_mode,
+        }
+
     @staticmethod
     def format_department_routes(routes):
         lines = []
@@ -953,8 +1022,8 @@ class AlertsTab(QWidget):
         layout = make_scroll_page(self)
         add_page_heading(
             layout,
-            "Alerts",
-            "Configure notification events, sounds, popup behaviour, and targeted test alerts for selected Pis.",
+            "Notifications",
+            "Choose how each alert is delivered, where it is routed, which sounds it uses, and who gets email copies.",
         )
         settings = self.state.get_settings(include_secret=True).get("alerts", {})
         event_types = settings.get("event_types", {})
@@ -968,7 +1037,7 @@ class AlertsTab(QWidget):
 
         rules_panel, rules_layout = make_panel(
             "Live Alert Rules",
-            "Each alert type can independently show a popup, play a sound, or be tested against the selected Pi screens.",
+            "Set the delivery mode for each alert type. Use Popup only (silent) when staff need to confirm the message without an audio cue.",
         )
         form = QFormLayout()
         self.poll_seconds_input = QSpinBox()
@@ -999,21 +1068,18 @@ class AlertsTab(QWidget):
         grid.setVerticalSpacing(8)
         grid.addWidget(QLabel("Alert Type"), 0, 0)
         grid.addWidget(QLabel("Enabled"), 0, 1)
-        grid.addWidget(QLabel("Popup"), 0, 2)
-        grid.addWidget(QLabel("Sound"), 0, 3)
-        grid.addWidget(QLabel("Email"), 0, 4)
-        grid.addWidget(QLabel("Sound File"), 0, 5)
-        grid.addWidget(QLabel("Test"), 0, 6)
+        grid.addWidget(QLabel("Delivery"), 0, 2)
+        grid.addWidget(QLabel("Email"), 0, 3)
+        grid.addWidget(QLabel("Sound File"), 0, 4)
+        grid.addWidget(QLabel("Test"), 0, 5)
 
         self.event_inputs = {}
         for row, (event_key, label) in enumerate(ALERT_LABELS, start=1):
             config = event_types.get(event_key, {})
             enabled = QCheckBox()
             enabled.setChecked(bool(config.get("enabled", True)))
-            popup = QCheckBox()
-            popup.setChecked(bool(config.get("show_popup", True)))
-            sound = QCheckBox()
-            sound.setChecked(bool(config.get("play_sound", True)))
+            delivery = QComboBox()
+            self.populate_delivery_combo(delivery, config)
             send_email = QCheckBox()
             send_email.setChecked(bool(config.get("send_email", False)))
             sound_name = QLineEdit(str(config.get("sound", "")))
@@ -1024,16 +1090,14 @@ class AlertsTab(QWidget):
 
             grid.addWidget(QLabel(label), row, 0)
             grid.addWidget(enabled, row, 1, alignment=Qt.AlignCenter)
-            grid.addWidget(popup, row, 2, alignment=Qt.AlignCenter)
-            grid.addWidget(sound, row, 3, alignment=Qt.AlignCenter)
-            grid.addWidget(send_email, row, 4, alignment=Qt.AlignCenter)
-            grid.addWidget(sound_name, row, 5)
-            grid.addWidget(test_button, row, 6)
+            grid.addWidget(delivery, row, 2)
+            grid.addWidget(send_email, row, 3, alignment=Qt.AlignCenter)
+            grid.addWidget(sound_name, row, 4)
+            grid.addWidget(test_button, row, 5)
 
             self.event_inputs[event_key] = {
                 "enabled": enabled,
-                "show_popup": popup,
-                "play_sound": sound,
+                "delivery": delivery,
                 "send_email": send_email,
                 "sound": sound_name,
                 "test": test_button,
@@ -1043,7 +1107,7 @@ class AlertsTab(QWidget):
 
         note = QLabel(
             "Use the routing sections below to choose exactly which registered Pis receive each live alert. "
-            "Sound files are served from the manager's sounds folder and refreshed on each Pi before playback."
+            "Sound files are only used when the delivery mode includes sound."
         )
         note.setWordWrap(True)
         note.setObjectName("SectionSubtitle")
@@ -1214,26 +1278,10 @@ class AlertsTab(QWidget):
         routing_layout.addWidget(routing_note)
         layout.addWidget(routing_panel)
 
-        test_box, test_layout = make_panel(
-            "Test Notifications",
-            "Send a custom popup or category sound to only the checked Pi screens below.",
+        sounds_panel, sounds_layout = make_panel(
+            "Sound Library",
+            "Import WAV files to the manager and use the exact filename in alert rules that include sound.",
         )
-
-        test_form = QFormLayout()
-        self.test_title_input = QLineEdit("Test Notification")
-        self.test_message_input = QTextEdit()
-        self.test_message_input.setPlaceholderText("Type the popup text you want to show on the Pis.")
-        self.test_message_input.setMinimumHeight(92)
-        self.test_sound_input = QLineEdit("job-today.wav")
-        self.test_sound_enabled = QCheckBox("Play sound")
-        self.test_sound_enabled.setChecked(True)
-
-        test_form.addRow("Title", self.test_title_input)
-        test_form.addRow("Message", self.test_message_input)
-        test_form.addRow("Sound file", self.test_sound_input)
-        test_form.addRow("", self.test_sound_enabled)
-        test_layout.addLayout(test_form)
-
         sound_buttons = QHBoxLayout()
         import_sound_btn = QPushButton("Import WAV Sound")
         open_sounds_btn = QPushButton("Open Sounds Folder")
@@ -1242,7 +1290,28 @@ class AlertsTab(QWidget):
         sound_buttons.addWidget(import_sound_btn)
         sound_buttons.addWidget(open_sounds_btn)
         sound_buttons.addStretch(1)
-        test_layout.addLayout(sound_buttons)
+        sounds_layout.addLayout(sound_buttons)
+        layout.addWidget(sounds_panel)
+
+        test_box, test_layout = make_panel(
+            "Test Notifications",
+            "Send a popup, a silent popup, or a sound test to only the checked Pi screens below.",
+        )
+
+        test_form = QFormLayout()
+        self.test_title_input = QLineEdit("Test Notification")
+        self.test_message_input = QTextEdit()
+        self.test_message_input.setPlaceholderText("Type the popup text you want to show on the Pis.")
+        self.test_message_input.setMinimumHeight(92)
+        self.test_sound_input = QLineEdit("job-today.wav")
+        self.test_delivery_input = QComboBox()
+        self.populate_delivery_combo(self.test_delivery_input, {"delivery_mode": "popup_sound"})
+
+        test_form.addRow("Title", self.test_title_input)
+        test_form.addRow("Message", self.test_message_input)
+        test_form.addRow("Delivery", self.test_delivery_input)
+        test_form.addRow("Sound file", self.test_sound_input)
+        test_layout.addLayout(test_form)
 
         target_heading = QLabel("Send Test To")
         target_heading.setObjectName("SectionSubtitle")
@@ -1273,7 +1342,7 @@ class AlertsTab(QWidget):
         test_layout.addLayout(test_buttons)
 
         test_note = QLabel(
-            "This uses the same popup route as the live Pi alerts, but only sends to the checked Pi screens above."
+            "This uses the same Pi alert route as live notifications, but only sends to the checked screens above."
         )
         test_note.setWordWrap(True)
         test_layout.addWidget(test_note)
@@ -1284,10 +1353,12 @@ class AlertsTab(QWidget):
     def settings_payload(self):
         event_types = {}
         for event_key, inputs in self.event_inputs.items():
+            delivery = self.delivery_flags(inputs["delivery"].currentData())
             event_types[event_key] = {
                 "enabled": inputs["enabled"].isChecked(),
-                "show_popup": inputs["show_popup"].isChecked(),
-                "play_sound": inputs["play_sound"].isChecked(),
+                "show_popup": delivery["show_popup"],
+                "play_sound": delivery["play_sound"],
+                "delivery_mode": delivery["delivery_mode"],
                 "send_email": inputs["send_email"].isChecked(),
                 "sound": inputs["sound"].text().strip(),
             }
@@ -1461,11 +1532,20 @@ class AlertsTab(QWidget):
             QMessageBox.warning(self, "Test Notification", "Select at least one Pi screen to send the test to.")
             return
 
+        delivery = self.delivery_flags(self.test_delivery_input.currentData())
+        if delivery["play_sound"] and not self.test_sound_input.text().strip():
+            QMessageBox.warning(self, "Test Notification", "Choose a sound file or use Popup only (silent).")
+            return
+        if not delivery["show_popup"] and not delivery["play_sound"]:
+            QMessageBox.warning(self, "Test Notification", "Choose a delivery mode that shows a popup or plays a sound.")
+            return
+
         success, message = self.state.send_test_notification(
             title=self.test_title_input.text().strip(),
             message=self.test_message_input.toPlainText(),
             sound_name=self.test_sound_input.text().strip(),
-            play_sound=self.test_sound_enabled.isChecked(),
+            play_sound=delivery["play_sound"],
+            show_popup=delivery["show_popup"],
             device_ids=device_ids,
         )
         if success:
@@ -1476,35 +1556,40 @@ class AlertsTab(QWidget):
     def send_category_test_notification(self, event_key, label):
         device_ids = self.selected_test_device_ids()
         if not device_ids:
-            QMessageBox.warning(self, "Test Sound", "Select at least one Pi screen to send the test to.")
+            QMessageBox.warning(self, "Test Alert", "Select at least one Pi screen to send the test to.")
             return
 
         inputs = self.event_inputs.get(event_key, {})
+        delivery = self.delivery_flags(inputs.get("delivery").currentData() if inputs.get("delivery") else "popup_sound")
         sound_name = inputs.get("sound").text().strip() if inputs.get("sound") else ""
-        if not sound_name:
-            QMessageBox.warning(self, "Test Sound", f"{label} does not have a sound file configured.")
+        if delivery["play_sound"] and not sound_name:
+            QMessageBox.warning(self, "Test Alert", f"{label} is set to play sound but has no sound file configured.")
+            return
+        if not delivery["show_popup"] and not delivery["play_sound"]:
+            QMessageBox.warning(self, "Test Alert", f"{label} is set to log/email only, so there is nothing to send to a Pi.")
             return
 
         success, message = self.state.send_test_notification(
             title=f"Test: {label}",
-            message=f"Testing {label} sound file:\n{sound_name}",
+            message=f"Testing {label} notification delivery.",
             sound_name=sound_name,
-            play_sound=True,
+            play_sound=delivery["play_sound"],
+            show_popup=delivery["show_popup"],
             device_ids=device_ids,
         )
         if success:
-            QMessageBox.information(self, "Test Sound", message)
+            QMessageBox.information(self, "Test Alert", message)
         else:
-            QMessageBox.warning(self, "Test Sound", message)
+            QMessageBox.warning(self, "Test Alert", message)
 
 
 class ManagerInfoCard(QFrame):
     TONE_COLORS = {
-        "good": "#2e7d32",
-        "warn": "#f9a825",
-        "bad": "#b71c1c",
-        "info": "#1565c0",
-        "muted": "#607d8b",
+        "good": "#1c6b57",
+        "warn": "#d48b12",
+        "bad": "#b42318",
+        "info": "#244e73",
+        "muted": "#7b8b9a",
     }
 
     def __init__(self, title):
@@ -1515,12 +1600,12 @@ class ManagerInfoCard(QFrame):
         layout.setSpacing(5)
 
         self.title_label = QLabel(title.upper())
-        self.title_label.setStyleSheet("color:#83c5d8; font-size:11px; font-weight:900; letter-spacing:1px;")
+        self.title_label.setStyleSheet("color:#315b7c; font-size:11px; font-weight:900; letter-spacing:1px;")
         self.value_label = QLabel("Loading")
-        self.value_label.setStyleSheet("color:#f7fbff; font-size:19px; font-weight:900;")
+        self.value_label.setStyleSheet("color:#17212b; font-size:19px; font-weight:900;")
         self.value_label.setWordWrap(True)
         self.detail_label = QLabel("")
-        self.detail_label.setStyleSheet("color:#b7c7cf; font-size:12px; font-weight:650;")
+        self.detail_label.setStyleSheet("color:#516579; font-size:12px; font-weight:650;")
         self.detail_label.setWordWrap(True)
 
         layout.addWidget(self.title_label)
@@ -1533,7 +1618,7 @@ class ManagerInfoCard(QFrame):
     def set_content(self, value, detail="", tone="muted"):
         color = self.TONE_COLORS.get(tone, self.TONE_COLORS["muted"])
         self.setStyleSheet(
-            f"QFrame#ManagerInfoCard {{ background:#141b20; border:1px solid #2b3a43; "
+            f"QFrame#ManagerInfoCard {{ background:#ffffff; border:1px solid #d1dce6; "
             f"border-left:7px solid {color}; border-radius:12px; }}"
         )
         self.value_label.setText(str(value or "Unknown"))
@@ -1546,77 +1631,15 @@ class ManagerPiTab(QWidget):
 
     def __init__(self, state):
         super().__init__()
-        self.setObjectName("ManagerPiTab")
-        self.setStyleSheet(
-            """
-            QWidget#ManagerPiTab {
-                background:#0e1216;
-                color:#edf4f7;
-            }
-            QWidget#ManagerPiTab QLabel {
-                color:#edf4f7;
-            }
-            QWidget#ManagerPiTab QPushButton {
-                background:#22313a;
-                color:#f5fbff;
-                border:1px solid #3c515d;
-                border-radius:8px;
-                padding:6px 10px;
-                font-weight:750;
-            }
-            QWidget#ManagerPiTab QPushButton:hover {
-                background:#2d414d;
-            }
-            QWidget#ManagerPiTab QPushButton#PrimaryAction {
-                background:#57d68d;
-                color:#04130b;
-                border-color:#57d68d;
-            }
-            QWidget#ManagerPiTab QPushButton#DangerAction {
-                background:#793238;
-                border-color:#a84a52;
-            }
-            QWidget#ManagerPiTab QLineEdit,
-            QWidget#ManagerPiTab QTextEdit {
-                background:#0b0f13;
-                color:#f5fbff;
-                border:1px solid #3c515d;
-                border-radius:7px;
-                padding:5px;
-                selection-background-color:#57d68d;
-                selection-color:#04130b;
-            }
-            """
-        )
         self.state = state
         self.refresh_in_progress = False
         self.active = True
-        outer_layout = QVBoxLayout(self)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setFrameShape(QFrame.NoFrame)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        outer_layout.addWidget(self.scroll_area)
-
-        content = QWidget()
-        content.setObjectName("ManagerPiContent")
-        self.scroll_area.setWidget(content)
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(12, 12, 12, 14)
-        layout.setSpacing(10)
-
-        heading = QLabel("Manager Pi Control")
-        heading.setStyleSheet("font-size: 21px; font-weight: 900;")
-        layout.addWidget(heading)
-
-        intro = QLabel(
-            "These controls affect the Manager Pi backend, not the individual dashboard screen Pis. "
-            "Use this page to update or restart the always-on Manager Pi."
+        layout = make_scroll_page(self)
+        add_page_heading(
+            layout,
+            "Manager Pi",
+            "Backend health, software updates, service restarts, reboot controls, and remote password changes.",
         )
-        intro.setWordWrap(True)
-        intro.setStyleSheet("color:#a9bac3; font-size:12px;")
-        layout.addWidget(intro)
 
         status_grid = QGridLayout()
         status_grid.setSpacing(10)
@@ -1670,10 +1693,7 @@ class ManagerPiTab(QWidget):
 
         self.command_status = QLabel("Ready.")
         self.command_status.setWordWrap(True)
-        self.command_status.setStyleSheet(
-            "background:#101820; border:1px solid #2b3a43; border-radius:8px; padding:7px; "
-            "color:#c8d6dd; font-weight:800;"
-        )
+        self.command_status.setObjectName("StatusStrip")
         actions_layout.addWidget(self.command_status)
         layout.addWidget(actions_frame)
 
@@ -1718,33 +1738,16 @@ class ManagerPiTab(QWidget):
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
-        self.timer.start(5000)
+        self.timer.start(8000)
         self.refresh()
 
     def make_section(self, title, subtitle=""):
-        frame = QFrame()
-        frame.setObjectName("ManagerSection")
-        frame.setStyleSheet(
-            "QFrame#ManagerSection { background:#141b20; border:1px solid #2b3a43; border-radius:12px; }"
-        )
-        section_layout = QVBoxLayout(frame)
-        section_layout.setContentsMargins(12, 10, 12, 10)
-        section_layout.setSpacing(7)
-
-        title_label = QLabel(title)
-        title_label.setStyleSheet("color:#f7fbff; font-size:15px; font-weight:900;")
-        section_layout.addWidget(title_label)
-        if subtitle:
-            subtitle_label = QLabel(subtitle)
-            subtitle_label.setWordWrap(True)
-            subtitle_label.setStyleSheet("color:#9fb0b8;")
-            section_layout.addWidget(subtitle_label)
-        return frame, section_layout
+        return make_panel(title, subtitle)
 
     def set_active(self, active):
         self.active = bool(active)
         if self.active:
-            self.timer.start(5000)
+            self.timer.start(8000)
             self.refresh()
         else:
             self.timer.stop()
@@ -1759,9 +1762,9 @@ class ManagerPiTab(QWidget):
         try:
             status = self.state.get_manager_status()
         except Exception as error:
-            self.refresh_result_ready.emit({"ok": False, "error": str(error)})
+            safe_emit(self.refresh_result_ready, {"ok": False, "error": str(error)})
             return
-        self.refresh_result_ready.emit({"ok": True, "status": status})
+        safe_emit(self.refresh_result_ready, {"ok": True, "status": status})
 
     def handle_refresh_result(self, result):
         self.refresh_in_progress = False
@@ -1881,7 +1884,7 @@ class ManagerPiTab(QWidget):
                 message = str(result.get("message") or f"{action} sent.")
             except Exception as error:
                 message = f"Manager Pi command failed: {error}"
-            self.command_finished.emit(message)
+            safe_emit(self.command_finished, message)
 
         Thread(target=worker, daemon=True).start()
 
@@ -1959,18 +1962,20 @@ class PiScreensTab(QWidget):
         self.refresh_in_progress = False
         self.active = True
         self.last_refresh_signature = ""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 14)
-        layout.setSpacing(10)
+        layout = make_scroll_page(self, margins=(12, 12, 12, 18), spacing=10)
         add_page_heading(
             layout,
-            "Pi Screens",
-            "Monitor every registered dashboard Pi and send screen, update, restart, reboot, rename, and display-size commands.",
+            "Dashboards",
+            "Monitor registered dashboard screens and send targeted display, audio, update, restart, and recovery commands.",
         )
 
         self.update_status = make_status_label("Checking GitHub update status...")
         layout.addWidget(self.update_status)
 
+        fleet_panel, fleet_layout = make_panel(
+            "Registered Dashboards",
+            "Select one or more dashboard screens before sending targeted commands.",
+        )
         self.table = QTableWidget(0, len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels(self.COLUMNS)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -1978,14 +1983,17 @@ class PiScreensTab(QWidget):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setMinimumHeight(260)
         tune_table(self.table)
-        layout.addWidget(self.table)
+        fleet_layout.addWidget(self.table)
+        layout.addWidget(fleet_panel)
 
         controls_panel, controls_layout = make_panel(
-            "Selected Pi Controls",
-            "Select one or more rows above, then use these buttons to change screens or queue actions.",
+            "Selected Dashboard Actions",
+            "Use these commands for the highlighted dashboard rows only.",
         )
-        screen_buttons = QHBoxLayout()
-        for label, screen in (
+        nav_label = QLabel("Screen navigation")
+        nav_label.setObjectName("SectionSubtitle")
+        controls_layout.addWidget(nav_label)
+        screen_actions = (
             ("Show Home", "overview"),
             ("Show Today", "today"),
             ("Show Tomorrow", "tomorrow"),
@@ -1994,14 +2002,20 @@ class PiScreensTab(QWidget):
             ("Show Unreturned", "unreturned"),
             ("Show Quarantines", "quarantines"),
             ("Show Notification History", "notifications"),
-        ):
-            btn = QPushButton(label)
-            btn.clicked.connect(lambda _checked=False, target=screen: self.send_screen(target))
-            screen_buttons.addWidget(btn)
-        screen_buttons.addStretch(1)
-        controls_layout.addLayout(screen_buttons)
+        )
+        for screen_action_group in (screen_actions[:4], screen_actions[4:]):
+            screen_buttons = QHBoxLayout()
+            for label, screen in screen_action_group:
+                btn = QPushButton(label)
+                btn.clicked.connect(lambda _checked=False, target=screen: self.send_screen(target))
+                screen_buttons.addWidget(btn)
+            screen_buttons.addStretch(1)
+            controls_layout.addLayout(screen_buttons)
 
-        command_buttons = QHBoxLayout()
+        command_label = QLabel("Device setup and software")
+        command_label.setObjectName("SectionSubtitle")
+        controls_layout.addWidget(command_label)
+        primary_command_buttons = QHBoxLayout()
         rename_btn = QPushButton("Rename Pi")
         display_size_btn = QPushButton("Set Display Size")
         layout_mode_btn = QPushButton("Set Layout Mode")
@@ -2030,17 +2044,23 @@ class PiScreensTab(QWidget):
         reboot_btn.clicked.connect(lambda: self.send_action("reboot"))
         remove_btn.clicked.connect(self.remove_selected_pis)
         refresh_btn.clicked.connect(self.refresh)
-        command_buttons.addWidget(rename_btn)
-        command_buttons.addWidget(display_size_btn)
-        command_buttons.addWidget(layout_mode_btn)
-        command_buttons.addWidget(restart_btn)
-        command_buttons.addWidget(update_btn)
-        command_buttons.addWidget(sound_check_btn)
-        command_buttons.addWidget(set_audio_btn)
-        command_buttons.addWidget(update_all_btn)
-        command_buttons.addStretch(1)
-        controls_layout.addLayout(command_buttons)
+        primary_command_buttons.addWidget(rename_btn)
+        primary_command_buttons.addWidget(display_size_btn)
+        primary_command_buttons.addWidget(layout_mode_btn)
+        primary_command_buttons.addWidget(restart_btn)
+        primary_command_buttons.addWidget(update_btn)
+        primary_command_buttons.addStretch(1)
+        controls_layout.addLayout(primary_command_buttons)
 
+        utility_command_buttons = QHBoxLayout()
+        utility_command_buttons.addWidget(sound_check_btn)
+        utility_command_buttons.addWidget(set_audio_btn)
+        utility_command_buttons.addStretch(1)
+        controls_layout.addLayout(utility_command_buttons)
+
+        sound_label = QLabel("Audio walk-test")
+        sound_label.setObjectName("SectionSubtitle")
+        controls_layout.addWidget(sound_label)
         sound_test_layout = QHBoxLayout()
         self.sound_loop_input = QLineEdit("job-changes.wav")
         self.sound_loop_input.setPlaceholderText("Sound file, e.g. job-changes.wav")
@@ -2050,7 +2070,21 @@ class PiScreensTab(QWidget):
         sound_test_layout.addWidget(sound_loop_stop_btn)
         controls_layout.addLayout(sound_test_layout)
 
+        service_buttons = QHBoxLayout()
+        service_buttons.addWidget(check_updates_btn)
+        service_buttons.addWidget(refresh_btn)
+        service_buttons.addWidget(update_all_btn)
+        service_buttons.addStretch(1)
+        service_buttons.addWidget(reboot_btn)
+        service_buttons.addWidget(remove_btn)
+        controls_layout.addLayout(service_buttons)
+        layout.addWidget(controls_panel)
+
         maintenance_settings = self.state.get_settings(include_secret=True).get("maintenance", {}) or {}
+        maintenance_panel, maintenance_panel_layout = make_panel(
+            "Maintenance Screen",
+            "Blank selected dashboard screens while you work behind the scenes.",
+        )
         maintenance_layout = QGridLayout()
         self.maintenance_text_input = QTextEdit()
         self.maintenance_text_input.setPlainText(
@@ -2084,9 +2118,14 @@ class PiScreensTab(QWidget):
         maintenance_layout.addWidget(show_maintenance_btn, 4, 1)
         maintenance_layout.addWidget(hide_maintenance_btn, 4, 2)
         maintenance_layout.setColumnStretch(3, 1)
-        controls_layout.addLayout(maintenance_layout)
+        maintenance_panel_layout.addLayout(maintenance_layout)
+        layout.addWidget(maintenance_panel)
 
         night_sleep_settings = self.state.get_settings(include_secret=True).get("night_sleep", {}) or {}
+        sleep_panel, sleep_panel_layout = make_panel(
+            "Overnight Sleep",
+            "Schedule all dashboard screens to show a sleeping message while the manager pauses overnight work.",
+        )
         sleep_layout = QGridLayout()
         self.sleep_enabled_input = QCheckBox("Enable scheduled overnight sleep for all dashboard Pis")
         self.sleep_enabled_input.setChecked(bool(night_sleep_settings.get("enabled", False)))
@@ -2126,9 +2165,14 @@ class PiScreensTab(QWidget):
         sleep_layout.addWidget(pick_sleep_text_btn, 5, 2)
         sleep_layout.addWidget(apply_sleep_btn, 6, 1)
         sleep_layout.setColumnStretch(3, 1)
-        controls_layout.addLayout(sleep_layout)
+        sleep_panel_layout.addLayout(sleep_layout)
+        layout.addWidget(sleep_panel)
 
         watchdog_settings = self.state.get_settings(include_secret=True).get("connection_watchdog", {}) or {}
+        watchdog_panel, watchdog_panel_layout = make_panel(
+            "Auto-Recovery",
+            "Optional reboot guard for selected dashboards that repeatedly lose contact with the Manager Pi.",
+        )
         watchdog_layout = QGridLayout()
         self.watchdog_enabled_input = QCheckBox("Reboot selected Pis after sustained Manager Pi connection loss")
         self.watchdog_enabled_input.setChecked(bool(watchdog_settings.get("enabled", False)))
@@ -2149,23 +2193,15 @@ class PiScreensTab(QWidget):
         watchdog_layout.addWidget(QLabel("minutes"), 2, 2)
         watchdog_layout.addWidget(apply_watchdog_btn, 3, 1)
         watchdog_layout.setColumnStretch(3, 1)
-        controls_layout.addLayout(watchdog_layout)
-
-        service_buttons = QHBoxLayout()
-        service_buttons.addWidget(check_updates_btn)
-        service_buttons.addWidget(refresh_btn)
-        service_buttons.addStretch(1)
-        service_buttons.addWidget(reboot_btn)
-        service_buttons.addWidget(remove_btn)
-        controls_layout.addLayout(service_buttons)
-        layout.addWidget(controls_panel)
+        watchdog_panel_layout.addLayout(watchdog_layout)
+        layout.addWidget(watchdog_panel)
 
         self.status = make_status_label("Waiting for Pi screens to register...")
         layout.addWidget(self.status)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
-        self.timer.start(3000)
+        self.timer.start(6000)
         self.command_finished.connect(self.on_command_finished)
         self.refresh_result_ready.connect(self.handle_refresh_result)
         self.refresh()
@@ -2201,7 +2237,7 @@ class PiScreensTab(QWidget):
     def set_active(self, active):
         self.active = bool(active)
         if self.active:
-            self.timer.start(3000)
+            self.timer.start(6000)
             self.refresh()
         else:
             self.timer.stop()
@@ -2217,9 +2253,9 @@ class PiScreensTab(QWidget):
             devices = self.state.list_devices()
             update_status = self.state.get_update_status()
         except Exception as error:
-            self.refresh_result_ready.emit({"ok": False, "error": str(error)})
+            safe_emit(self.refresh_result_ready, {"ok": False, "error": str(error)})
             return
-        self.refresh_result_ready.emit({"ok": True, "devices": devices, "update_status": update_status})
+        safe_emit(self.refresh_result_ready, {"ok": True, "devices": devices, "update_status": update_status})
 
     def handle_refresh_result(self, result):
         self.refresh_in_progress = False
@@ -2229,57 +2265,70 @@ class PiScreensTab(QWidget):
         self.apply_devices(result.get("devices", []) or [], result.get("update_status", {}) or {})
 
     def apply_devices(self, devices, update_status):
-        signature = repr(devices) + repr(update_status)
+        stable_devices = []
+        for device in devices:
+            stable_devices.append(
+                {
+                    key: value
+                    for key, value in device.items()
+                    if key not in {"last_seen", "status_updated_at", "audio_checked_at"}
+                }
+            )
+        signature = repr(stable_devices) + repr(update_status)
         if signature == self.last_refresh_signature:
             self.update_status.setText(self.format_update_status(update_status))
             return
         self.last_refresh_signature = signature
-        self.table.setRowCount(len(devices))
         online_count = 0
         offline_count = 0
         update_count = 0
-        for row, device in enumerate(devices):
-            values = [
-                device.get("id", ""),
-                device.get("name", ""),
-                device.get("ip", ""),
-                device.get("screen", ""),
-                f"{device.get('display_scale', 100)}%",
-                str(device.get("compact_layout") or "auto").title(),
-                device.get("version", ""),
-                device.get("update", ""),
-                device.get("state", ""),
-                device.get("audio", ""),
-                device.get("activity", ""),
-                device.get("last_seen", ""),
-            ]
-            state_value = str(device.get("state", "")).strip()
-            update_value = str(device.get("update", "")).strip()
-            if state_value == "Offline":
-                offline_count += 1
-            elif state_value:
-                online_count += 1
-            if update_value.startswith("Available"):
-                update_count += 1
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(str(value))
-                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                if self.COLUMNS[column] == "State":
-                    color = self.STATUS_COLORS.get(str(value), "")
-                    if color:
-                        item.setBackground(QColor(color))
-                        item.setForeground(QColor("#ffffff"))
-                elif self.COLUMNS[column] == "Audio":
-                    color = self.AUDIO_COLORS.get(str(value), "")
-                    if color:
-                        item.setBackground(QColor(color))
-                        item.setForeground(QColor("#111111" if str(value) == "Check stale" else "#ffffff"))
-                    item.setToolTip(str(device.get("audio_detail", "")))
-                elif self.COLUMNS[column] == "Update" and str(value).startswith("Available"):
-                    item.setBackground(QColor("#f9a825"))
-                    item.setForeground(QColor("#111111"))
-                self.table.setItem(row, column, item)
-        self.table.resizeColumnsToContents()
+        self.table.setUpdatesEnabled(False)
+        try:
+            self.table.setRowCount(len(devices))
+            for row, device in enumerate(devices):
+                values = [
+                    device.get("id", ""),
+                    device.get("name", ""),
+                    device.get("ip", ""),
+                    device.get("screen", ""),
+                    f"{device.get('display_scale', 100)}%",
+                    str(device.get("compact_layout") or "auto").title(),
+                    device.get("version", ""),
+                    device.get("update", ""),
+                    device.get("state", ""),
+                    device.get("audio", ""),
+                    device.get("activity", ""),
+                    device.get("last_seen", ""),
+                ]
+                state_value = str(device.get("state", "")).strip()
+                update_value = str(device.get("update", "")).strip()
+                if state_value == "Offline":
+                    offline_count += 1
+                elif state_value:
+                    online_count += 1
+                if update_value.startswith("Available"):
+                    update_count += 1
+                for column, value in enumerate(values):
+                    item = QTableWidgetItem(str(value))
+                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                    if self.COLUMNS[column] == "State":
+                        color = self.STATUS_COLORS.get(str(value), "")
+                        if color:
+                            item.setBackground(QColor(color))
+                            item.setForeground(QColor("#ffffff"))
+                    elif self.COLUMNS[column] == "Audio":
+                        color = self.AUDIO_COLORS.get(str(value), "")
+                        if color:
+                            item.setBackground(QColor(color))
+                            item.setForeground(QColor("#111111" if str(value) == "Check stale" else "#ffffff"))
+                        item.setToolTip(str(device.get("audio_detail", "")))
+                    elif self.COLUMNS[column] == "Update" and str(value).startswith("Available"):
+                        item.setBackground(QColor("#d48b12"))
+                        item.setForeground(QColor("#111111"))
+                    self.table.setItem(row, column, item)
+            self.table.resizeColumnsToContents()
+        finally:
+            self.table.setUpdatesEnabled(True)
         self.update_status.setText(self.format_update_status(update_status))
         self.status.setText(
             f"{len(devices)} Pi screen(s) registered. {online_count} active / {offline_count} offline. "
@@ -2322,7 +2371,7 @@ class PiScreensTab(QWidget):
                 message = str(result.get("message") or "Update all started.")
             except Exception as error:
                 message = f"Update all failed: {error}"
-            self.command_finished.emit(message)
+            safe_emit(self.command_finished, message)
 
         Thread(target=worker, daemon=True).start()
 
@@ -2610,8 +2659,8 @@ class ActivityConsoleTab(QWidget):
         layout.setSpacing(10)
         add_page_heading(
             layout,
-            "Console",
-            "Live manager activity, diagnostics, and behind-the-scenes event history.",
+            "Activity Log",
+            "Manager activity, diagnostics, update events, and behind-the-scenes notification history.",
         )
 
         controls_panel, controls_layout = make_toolbar_panel()
@@ -2655,14 +2704,14 @@ class ActivityConsoleTab(QWidget):
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
-        self.timer.start(2000)
+        self.timer.start(5000)
         self.refresh_result_ready.connect(self.handle_refresh_result)
         self.refresh()
 
     def set_active(self, active):
         self.active = bool(active)
         if self.active:
-            self.timer.start(2000)
+            self.timer.start(5000)
             self.refresh()
         else:
             self.timer.stop()
@@ -2683,9 +2732,9 @@ class ActivityConsoleTab(QWidget):
                 limit=500,
             )
         except Exception as error:
-            self.refresh_result_ready.emit({"ok": False, "error": str(error)})
+            safe_emit(self.refresh_result_ready, {"ok": False, "error": str(error)})
             return
-        self.refresh_result_ready.emit({"ok": True, "entries": entries})
+        safe_emit(self.refresh_result_ready, {"ok": True, "entries": entries})
 
     def handle_refresh_result(self, result):
         self.refresh_in_progress = False
@@ -2699,25 +2748,29 @@ class ActivityConsoleTab(QWidget):
         if signature == self.last_refresh_signature:
             return
         self.last_refresh_signature = signature
-        self.table.setRowCount(len(entries))
-        for row, entry in enumerate(entries):
-            values = [
-                entry.get("ts", ""),
-                str(entry.get("level", "")).upper(),
-                entry.get("category", ""),
-                entry.get("message", ""),
-            ]
-            level_color = self.LEVEL_COLORS.get(str(entry.get("level", "")).lower(), "")
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(str(value))
-                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                if column == 1 and level_color:
-                    item.setBackground(QColor(level_color))
-                    item.setForeground(QColor("#ffffff"))
-                self.table.setItem(row, column, item)
-        self.table.resizeColumnsToContents()
-        if self.table.columnCount() >= 4:
-            self.table.setColumnWidth(3, 560)
+        self.table.setUpdatesEnabled(False)
+        try:
+            self.table.setRowCount(len(entries))
+            for row, entry in enumerate(entries):
+                values = [
+                    entry.get("ts", ""),
+                    str(entry.get("level", "")).upper(),
+                    entry.get("category", ""),
+                    entry.get("message", ""),
+                ]
+                level_color = self.LEVEL_COLORS.get(str(entry.get("level", "")).lower(), "")
+                for column, value in enumerate(values):
+                    item = QTableWidgetItem(str(value))
+                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                    if column == 1 and level_color:
+                        item.setBackground(QColor(level_color))
+                        item.setForeground(QColor("#ffffff"))
+                    self.table.setItem(row, column, item)
+            self.table.resizeColumnsToContents()
+            if self.table.columnCount() >= 4:
+                self.table.setColumnWidth(3, 560)
+        finally:
+            self.table.setUpdatesEnabled(True)
         self.status.setText(f"Showing {len(entries)} event(s). Newest events are at the top.")
 
     def clear_log(self):
@@ -2751,12 +2804,12 @@ class ManagerWindow(QMainWindow):
 
         tabs = QTabWidget()
         tabs.setDocumentMode(True)
-        tabs.addTab(ConnectionTab(state), "Connection")
-        tabs.addTab(CurrentRMSTab(state), "Current RMS")
-        tabs.addTab(AlertsTab(state), "Alerts")
+        tabs.addTab(ConnectionTab(state), "Setup")
+        tabs.addTab(CurrentRMSTab(state), "Data Source")
+        tabs.addTab(AlertsTab(state), "Notifications")
         tabs.addTab(ManagerPiTab(state), "Manager Pi")
-        tabs.addTab(PiScreensTab(state), "Pi Screens")
-        tabs.addTab(ActivityConsoleTab(state), "Console")
+        tabs.addTab(PiScreensTab(state), "Dashboards")
+        tabs.addTab(ActivityConsoleTab(state), "Activity Log")
         self.setCentralWidget(tabs)
         self.tabs = tabs
         tabs.currentChanged.connect(self.on_tab_changed)
