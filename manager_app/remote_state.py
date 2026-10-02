@@ -198,6 +198,10 @@ class RemoteManagerState:
         self.admin_token = str(new_password or "").strip()
         return result.get("security", {})
 
+    def list_sound_files(self):
+        result = self._get("/api/sounds")
+        return result.get("sounds", []) if isinstance(result, dict) else []
+
     def upload_sound(self, source_path):
         source = Path(source_path)
         with source.open("rb") as handle:

@@ -744,6 +744,44 @@ class ManagerState:
             key=lambda item: (item.get("name", item.get("id", "")), item.get("id", "")),
         )
 
+    def list_sound_files(self):
+        sounds_dir = PROJECT_ROOT / "sounds"
+        sounds_dir.mkdir(parents=True, exist_ok=True)
+        return [
+            {
+                "name": path.name,
+                "size": path.stat().st_size,
+                "office_gift": path.name.lower().startswith("office-gift-"),
+            }
+            for path in sorted(sounds_dir.glob("*.wav"), key=lambda item: item.name.lower())
+            if path.is_file()
+        ]
+
+    def upload_sound(self, source_path):
+        source = Path(source_path)
+        if source.suffix.lower() != ".wav" or source.name != str(source.name):
+            raise ValueError("Upload a .wav sound file.")
+        target_dir = PROJECT_ROOT / "sounds"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / source.name
+        if source.resolve() != target.resolve():
+            shutil.copy2(source, target)
+        self.log_activity("Settings", f"Uploaded alert sound {target.name}.")
+        return target.name
+
+    def _office_gift_sound_files(self, gift):
+        configured = [str(value or "").strip() for value in (gift.get("sound_files") or [])]
+        if not configured:
+            configured = [item["name"] for item in self.list_sound_files() if item.get("office_gift")]
+        return [
+            sound_name
+            for sound_name in configured
+            if sound_name
+            and Path(sound_name).name == sound_name
+            and Path(sound_name).suffix.lower() == ".wav"
+            and (PROJECT_ROOT / "sounds" / sound_name).is_file()
+        ]
+
     def office_gift_config(self, sender_device_id):
         sender_device_id = str(sender_device_id or "").strip()
         with self.lock:
@@ -760,12 +798,7 @@ class ManagerState:
                 if str(device_id).strip() and str(device_id).strip() in self.devices
             ]
             registered = sender_device_id in self.devices
-            sounds_ready = any(
-                Path(str(sound_name or "").strip()).name == str(sound_name or "").strip()
-                and Path(str(sound_name or "").strip()).suffix.lower() == ".wav"
-                and (PROJECT_ROOT / "sounds" / str(sound_name or "").strip()).is_file()
-                for sound_name in (gift.get("sound_files") or [])
-            )
+            sounds_ready = bool(self._office_gift_sound_files(gift))
         enabled = bool(gift.get("enabled", True))
         return {
             "enabled": enabled,
@@ -810,16 +843,7 @@ class ManagerState:
             if not recipient_ids:
                 raise ValueError("No office recipient dashboards have been configured.")
 
-            sound_files = []
-            for value in gift.get("sound_files") or []:
-                sound_name = str(value or "").strip()
-                if (
-                    sound_name
-                    and Path(sound_name).name == sound_name
-                    and Path(sound_name).suffix.lower() == ".wav"
-                    and (PROJECT_ROOT / "sounds" / sound_name).is_file()
-                ):
-                    sound_files.append(sound_name)
+            sound_files = self._office_gift_sound_files(gift)
             if not sound_files:
                 raise ValueError("No office gift sound files are available on the Manager Pi.")
 

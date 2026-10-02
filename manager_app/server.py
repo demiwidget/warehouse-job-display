@@ -222,6 +222,10 @@ def create_app(state):
         success, message = state.test_email_alerts(payload.get("alerts"))
         return jsonify({"success": success, "message": message})
 
+    @app.get("/api/sounds")
+    def list_sounds():
+        return jsonify({"sounds": state.list_sound_files()})
+
     @app.post("/api/sounds/upload")
     def upload_sound():
         upload = request.files.get("file")

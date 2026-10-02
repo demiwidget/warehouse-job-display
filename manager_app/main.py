@@ -2384,19 +2384,33 @@ class PiScreensTab(QWidget):
         self.office_gift_cooldown_input.setValue(
             int(self.office_gift_settings.get("cooldown_seconds", 10) or 10)
         )
-        self.office_gift_sounds_input = QLineEdit(
-            ", ".join(str(item) for item in (self.office_gift_settings.get("sound_files") or []))
-        )
-        self.office_gift_sounds_input.setPlaceholderText("office-gift-01.wav, office-gift-02.wav")
         gift_form.addWidget(self.office_gift_enabled_input, 0, 0, 1, 3)
         gift_form.addWidget(QLabel("Button text"), 1, 0)
         gift_form.addWidget(self.office_gift_button_text_input, 1, 1, 1, 2)
         gift_form.addWidget(QLabel("Delay between gifts"), 2, 0)
         gift_form.addWidget(self.office_gift_cooldown_input, 2, 1)
-        gift_form.addWidget(QLabel("Random sound pool"), 3, 0)
-        gift_form.addWidget(self.office_gift_sounds_input, 3, 1, 1, 2)
         gift_form.setColumnStretch(2, 1)
         gift_panel_layout.addLayout(gift_form)
+
+        sound_heading = QLabel("Random Sound Pool")
+        sound_heading.setObjectName("SectionSubtitle")
+        gift_panel_layout.addWidget(sound_heading)
+        self.office_gift_sound_table = QTableWidget(0, 3)
+        self.office_gift_sound_table.setHorizontalHeaderLabels(["Use", "Sound file", "Size"])
+        self.office_gift_sound_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.office_gift_sound_table.setSelectionMode(QTableWidget.NoSelection)
+        self.office_gift_sound_table.setMinimumHeight(180)
+        tune_table(self.office_gift_sound_table)
+        gift_panel_layout.addWidget(self.office_gift_sound_table)
+        sound_actions = QHBoxLayout()
+        add_gift_sounds_btn = QPushButton("Add WAV Files")
+        refresh_gift_sounds_btn = QPushButton("Refresh Sound List")
+        add_gift_sounds_btn.clicked.connect(self.add_office_gift_sounds)
+        refresh_gift_sounds_btn.clicked.connect(self.refresh_office_gift_sounds)
+        sound_actions.addWidget(add_gift_sounds_btn)
+        sound_actions.addWidget(refresh_gift_sounds_btn)
+        sound_actions.addStretch(1)
+        gift_panel_layout.addLayout(sound_actions)
 
         gift_help = QLabel(
             "Can send: controls where the Fun tab appears. Office recipient: controls where the random sound plays. "
@@ -2544,6 +2558,7 @@ class PiScreensTab(QWidget):
 
         self.status = make_status_label("Waiting for Pi screens to register...")
         layout.addWidget(self.status)
+        self.refresh_office_gift_sounds()
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
@@ -2583,6 +2598,94 @@ class PiScreensTab(QWidget):
     def mark_office_gift_dirty(self, *_args):
         if not self.office_gift_table_loading:
             self.office_gift_dirty = True
+
+    def selected_office_gift_sounds(self):
+        selected = []
+        for row in range(self.office_gift_sound_table.rowCount()):
+            check_item = self.office_gift_sound_table.item(row, 0)
+            name_item = self.office_gift_sound_table.item(row, 1)
+            if check_item and name_item and check_item.checkState() == Qt.Checked:
+                selected.append(name_item.text().strip())
+        return [name for name in selected if name]
+
+    def refresh_office_gift_sounds(self, select_names=None):
+        if select_names is None:
+            selected = set(self.selected_office_gift_sounds())
+            if not selected:
+                selected = {
+                    str(name).strip()
+                    for name in (self.office_gift_settings.get("sound_files") or [])
+                    if str(name).strip()
+                }
+        else:
+            selected = {str(name).strip() for name in select_names if str(name).strip()}
+
+        try:
+            available = self.state.list_sound_files()
+        except Exception as error:
+            self.office_gift_sound_table.setRowCount(0)
+            self.status.setText(f"Could not read Manager Pi sound files: {error}")
+            return
+
+        if not selected:
+            selected = {
+                str(item.get("name") or "").strip()
+                for item in available
+                if item.get("office_gift") and str(item.get("name") or "").strip()
+            }
+
+        self.office_gift_sound_table.setUpdatesEnabled(False)
+        try:
+            self.office_gift_sound_table.setRowCount(len(available))
+            for row, sound in enumerate(available):
+                name = str(sound.get("name") or "").strip()
+                check_item = QTableWidgetItem("")
+                check_item.setFlags((check_item.flags() | Qt.ItemIsUserCheckable) & ~Qt.ItemIsEditable)
+                check_item.setCheckState(Qt.Checked if name in selected else Qt.Unchecked)
+                name_item = QTableWidgetItem(name)
+                name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
+                try:
+                    size_kb = max(1, round(int(sound.get("size", 0) or 0) / 1024))
+                except (TypeError, ValueError):
+                    size_kb = 0
+                size_item = QTableWidgetItem(f"{size_kb} KB" if size_kb else "")
+                size_item.setFlags(size_item.flags() & ~Qt.ItemIsEditable)
+                self.office_gift_sound_table.setItem(row, 0, check_item)
+                self.office_gift_sound_table.setItem(row, 1, name_item)
+                self.office_gift_sound_table.setItem(row, 2, size_item)
+            self.office_gift_sound_table.resizeColumnsToContents()
+            self.office_gift_sound_table.horizontalHeader().setStretchLastSection(True)
+        finally:
+            self.office_gift_sound_table.setUpdatesEnabled(True)
+
+        if not available:
+            self.status.setText("No WAV files were found on the Manager Pi. Use Add WAV Files to upload some.")
+
+    def add_office_gift_sounds(self):
+        source_paths, _selected_filter = QFileDialog.getOpenFileNames(
+            self,
+            "Add Office Gift WAV Files",
+            "",
+            "WAV sound files (*.wav)",
+        )
+        if not source_paths:
+            return
+
+        selected = set(self.selected_office_gift_sounds())
+        uploaded = []
+        errors = []
+        for source_path in source_paths:
+            try:
+                uploaded_name = self.state.upload_sound(Path(source_path))
+                uploaded.append(uploaded_name)
+                selected.add(uploaded_name)
+            except Exception as error:
+                errors.append(f"{Path(source_path).name}: {error}")
+        self.refresh_office_gift_sounds(select_names=selected)
+        if uploaded:
+            self.status.setText(f"Added {len(uploaded)} WAV sound file(s). Save Office Gift Settings to use them.")
+        if errors:
+            QMessageBox.warning(self, "Add WAV Files", "Some files could not be added:\n" + "\n".join(errors))
 
     def sync_office_gift_devices(self, devices, force=False):
         if self.office_gift_dirty and not force:
@@ -2637,27 +2740,13 @@ class PiScreensTab(QWidget):
 
     def save_office_gift_settings(self):
         button_text = self.office_gift_button_text_input.text().strip() or "Send a gift to the office"
-        sounds = list(
-            dict.fromkeys(
-                item.strip()
-                for item in self.office_gift_sounds_input.text().split(",")
-                if item.strip()
-            )
-        )
-        invalid_sounds = [
-            sound
-            for sound in sounds
-            if Path(sound).name != sound or Path(sound).suffix.lower() != ".wav"
-        ]
-        if invalid_sounds:
+        sounds = self.selected_office_gift_sounds()
+        if self.office_gift_enabled_input.isChecked() and not sounds:
             QMessageBox.warning(
                 self,
                 "Office Gift Sounds",
-                "Sound names must be simple .wav filenames. Check: " + ", ".join(invalid_sounds),
+                "Tick at least one WAV file in the Random Sound Pool, or use Add WAV Files.",
             )
-            return
-        if self.office_gift_enabled_input.isChecked() and not sounds:
-            QMessageBox.warning(self, "Office Gift Sounds", "Add at least one .wav sound to the random sound pool.")
             return
 
         sender_ids = []
