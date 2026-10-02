@@ -691,6 +691,89 @@ class CompactOverviewPage(QScrollArea):
             card.set_data(value, caption)
 
 
+class OfficeGiftPage(QWidget):
+    gift_requested = Signal()
+
+    def __init__(self, scale=1.0):
+        super().__init__()
+        self.ui_scale = scale
+        self.cooldown_remaining = 0
+        self.ready = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(
+            scaled(28, scale),
+            scaled(28, scale),
+            scaled(28, scale),
+            scaled(28, scale),
+        )
+        layout.setSpacing(scaled(18, scale))
+        layout.addStretch(1)
+
+        title = QLabel("Office Gift")
+        title.setObjectName("officeGiftHeading")
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+
+        description = QLabel("Press the button to send a randomly selected sound to the configured office screens.")
+        description.setObjectName("officeGiftDescription")
+        description.setAlignment(Qt.AlignCenter)
+        description.setWordWrap(True)
+        layout.addWidget(description)
+
+        self.send_button = QPushButton("Send a gift to the office")
+        self.send_button.setObjectName("officeGiftButton")
+        self.send_button.setMinimumHeight(scaled(150, scale))
+        self.send_button.clicked.connect(self.gift_requested.emit)
+        layout.addWidget(self.send_button)
+
+        self.status = QLabel("Ready")
+        self.status.setObjectName("officeGiftStatus")
+        self.status.setAlignment(Qt.AlignCenter)
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
+        layout.addStretch(1)
+
+        self.cooldown_timer = QTimer(self)
+        self.cooldown_timer.timeout.connect(self.tick_cooldown)
+
+    def apply_config(self, config):
+        self.ready = bool(config.get("ready"))
+        self.send_button.setText(str(config.get("button_text") or "Send a gift to the office"))
+        recipient_count = int(config.get("recipient_count", 0) or 0)
+        if recipient_count <= 0:
+            self.status.setText("The Manager app has not selected an office recipient yet.")
+        elif self.cooldown_remaining <= 0:
+            label = "screen" if recipient_count == 1 else "screens"
+            self.status.setText(f"Ready to send to {recipient_count} office {label}.")
+        self.send_button.setEnabled(self.ready and self.cooldown_remaining <= 0)
+
+    def set_sending(self):
+        self.send_button.setEnabled(False)
+        self.status.setText("Sending your gift...")
+
+    def show_error(self, message):
+        self.cooldown_remaining = 0
+        self.cooldown_timer.stop()
+        self.status.setText(str(message or "The gift could not be sent."))
+        self.send_button.setEnabled(self.ready)
+
+    def start_cooldown(self, seconds, message):
+        self.cooldown_remaining = max(1, int(seconds or 10))
+        self.status.setText(str(message or "Gift sent to the office!"))
+        self.send_button.setEnabled(False)
+        self.cooldown_timer.start(1000)
+
+    def tick_cooldown(self):
+        self.cooldown_remaining = max(0, self.cooldown_remaining - 1)
+        if self.cooldown_remaining <= 0:
+            self.cooldown_timer.stop()
+            self.status.setText("Ready for another gift.")
+            self.send_button.setEnabled(self.ready)
+            return
+        self.status.setText(f"Gift sent. Another can be sent in {self.cooldown_remaining} seconds.")
+
+
 def load_config():
     cfg = DEFAULT_CONFIG.copy()
     changed = False
@@ -741,6 +824,7 @@ class ViewerWindow(QMainWindow):
     refresh_result_ready = Signal(object)
     alert_result_ready = Signal(object)
     clear_alerts_result_ready = Signal(object)
+    office_gift_result_ready = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -763,6 +847,7 @@ class ViewerWindow(QMainWindow):
         self.refresh_in_progress = False
         self.refresh_queued = False
         self.alert_poll_in_progress = False
+        self.office_gift_in_progress = False
         self.register_in_progress = False
         self.setWindowTitle(self.config.get("device_name", "Warehouse Viewer"))
         self.resize(1600, 900)
@@ -774,6 +859,7 @@ class ViewerWindow(QMainWindow):
         self.refresh_result_ready.connect(self.handle_refresh_result)
         self.alert_result_ready.connect(self.handle_alert_result)
         self.clear_alerts_result_ready.connect(self.handle_clear_alerts_result)
+        self.office_gift_result_ready.connect(self.handle_office_gift_result)
 
         self.register_timer = QTimer(self)
         self.register_timer.timeout.connect(self.register)
@@ -926,6 +1012,13 @@ class ViewerWindow(QMainWindow):
             self.notifications_table,
             "Alerts" if self.compact_display else "Notification History",
         )
+        self.office_gift_page = OfficeGiftPage(scale=self.ui_scale)
+        self.office_gift_page.gift_requested.connect(self.send_office_gift)
+        self.screen_tab_indexes["office_gift"] = self.tabs.addTab(
+            self.office_gift_page,
+            "Fun" if self.compact_display else "Office Gift",
+        )
+        self.tabs.setTabVisible(self.screen_tab_indexes["office_gift"], False)
         self.prep_table.cellDoubleClicked.connect(self.open_unprepped_items_dialog)
         self.outstanding_table.cellDoubleClicked.connect(self.open_outstanding_items_dialog)
         self.tabs.currentChanged.connect(lambda _index: self.update_compact_header())
@@ -1113,6 +1206,37 @@ class ViewerWindow(QMainWindow):
                 padding: {scaled(8, scale)}px {scaled(14, scale)}px;
                 border-radius: {scaled(14, scale)}px;
                 border: 1px solid #a84a52;
+            }}
+            QLabel#officeGiftHeading {{
+                color: #ffffff;
+                font-size: {scaled(36, scale)}px;
+                font-weight: 900;
+            }}
+            QLabel#officeGiftDescription {{
+                color: #b8c2cc;
+                font-size: {scaled(18, scale)}px;
+                font-weight: 600;
+            }}
+            QPushButton#officeGiftButton {{
+                background-color: #f4c542;
+                color: #111315;
+                border: {scaled(3, scale)}px solid #fff0a6;
+                border-radius: {scaled(22, scale)}px;
+                font-size: {scaled(30, scale)}px;
+                font-weight: 900;
+                padding: {scaled(24, scale)}px;
+            }}
+            QPushButton#officeGiftButton:hover {{ background-color: #ffd95a; }}
+            QPushButton#officeGiftButton:pressed {{ background-color: #d9a91d; }}
+            QPushButton#officeGiftButton:disabled {{
+                background-color: #343a40;
+                color: #8e979f;
+                border-color: #4a525a;
+            }}
+            QLabel#officeGiftStatus {{
+                color: #80ed99;
+                font-size: {scaled(17, scale)}px;
+                font-weight: 700;
             }}
             QStatusBar {{ background-color: #15181b; font-size: {scaled(13, scale)}px; }}
             QTextBrowser {{ background-color: #171a1d; border: 1px solid #2a2f35; border-radius: {scaled(12, scale)}px; padding: {scaled(16, scale)}px; font-size: {scaled(18, scale)}px; }}
@@ -1480,6 +1604,50 @@ class ViewerWindow(QMainWindow):
         except Exception:
             return {}
 
+    def fetch_office_gift_config(self):
+        try:
+            device_id = registration_id(self.config)
+            response = requests.get(self.server_url(f"/office-gift/{quote(device_id, safe='')}"), timeout=5)
+            response.raise_for_status()
+            return response.json()
+        except Exception:
+            return {}
+
+    def send_office_gift(self):
+        if self.office_gift_in_progress:
+            return
+        self.office_gift_in_progress = True
+        self.office_gift_page.set_sending()
+        Thread(target=self._send_office_gift_worker, daemon=True).start()
+
+    def _send_office_gift_worker(self):
+        result = {"success": False, "message": "The gift could not be sent."}
+        try:
+            device_id = registration_id(self.config)
+            response = requests.post(
+                self.server_url(f"/office-gift/{quote(device_id, safe='')}"),
+                timeout=8,
+            )
+            payload = response.json() if response.content else {}
+            result = {
+                "success": bool(payload.get("success") and response.ok),
+                "message": str(payload.get("message") or "The gift could not be sent."),
+                "cooldown_seconds": int(payload.get("cooldown_seconds", 10) or 10),
+            }
+        except Exception as error:
+            result = {"success": False, "message": f"Could not contact the Manager Pi: {error}"}
+        self.office_gift_result_ready.emit(result)
+
+    def handle_office_gift_result(self, result):
+        self.office_gift_in_progress = False
+        if result.get("success"):
+            self.office_gift_page.start_cooldown(
+                result.get("cooldown_seconds", 10),
+                result.get("message", "Gift sent to the office!"),
+            )
+            return
+        self.office_gift_page.show_error(result.get("message", "The gift could not be sent."))
+
     def refresh_all(self):
         if self.refresh_in_progress:
             self.refresh_queued = True
@@ -1489,15 +1657,22 @@ class ViewerWindow(QMainWindow):
 
     def _refresh_worker(self):
         bundle = self.fetch_screen_bundle()
+        office_gift = self.fetch_office_gift_config()
         self.refresh_result_ready.emit(
             {
                 "ok": bool(bundle),
                 "bundle": bundle,
+                "office_gift": office_gift,
             }
         )
 
     def handle_refresh_result(self, result):
         self.refresh_in_progress = False
+        office_gift = result.get("office_gift") or {}
+        gift_visible = bool(office_gift.get("visible"))
+        self.tabs.setTabVisible(self.screen_tab_indexes["office_gift"], gift_visible)
+        if gift_visible:
+            self.office_gift_page.apply_config(office_gift)
         if result.get("ok"):
             self.apply_screen_bundle(result.get("bundle") or {})
         if self.refresh_queued:

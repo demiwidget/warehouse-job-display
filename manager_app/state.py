@@ -2,10 +2,12 @@ from copy import deepcopy
 from datetime import datetime
 from itertools import zip_longest
 import os
+import random
 import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 from threading import Lock, RLock, Thread
 from time import monotonic, sleep
 import traceback
@@ -103,6 +105,7 @@ class ManagerState:
         self.devices = self.store.load_devices()
         self.commands = {}
         self.alerts = {device_id: [] for device_id in self.devices}
+        self.office_gift_last_sent = {}
         self.dashboard = DashboardBuilder()
         self.night_sleep_active = None
         self.night_sleep_payload_signature = ""
@@ -740,6 +743,122 @@ class ManagerState:
             devices,
             key=lambda item: (item.get("name", item.get("id", "")), item.get("id", "")),
         )
+
+    def office_gift_config(self, sender_device_id):
+        sender_device_id = str(sender_device_id or "").strip()
+        with self.lock:
+            settings = self.store.load_settings()
+            gift = settings.get("office_gift", {}) or {}
+            senders = {
+                str(device_id).strip()
+                for device_id in (gift.get("sender_device_ids") or [])
+                if str(device_id).strip()
+            }
+            recipients = [
+                str(device_id).strip()
+                for device_id in (gift.get("recipient_device_ids") or [])
+                if str(device_id).strip() and str(device_id).strip() in self.devices
+            ]
+            registered = sender_device_id in self.devices
+            sounds_ready = any(
+                Path(str(sound_name or "").strip()).name == str(sound_name or "").strip()
+                and Path(str(sound_name or "").strip()).suffix.lower() == ".wav"
+                and (PROJECT_ROOT / "sounds" / str(sound_name or "").strip()).is_file()
+                for sound_name in (gift.get("sound_files") or [])
+            )
+        enabled = bool(gift.get("enabled", True))
+        return {
+            "enabled": enabled,
+            "visible": bool(enabled and registered and ("*" in senders or sender_device_id in senders)),
+            "button_text": str(gift.get("button_text") or "Send a gift to the office"),
+            "recipient_count": len(recipients),
+            "ready": bool(recipients and sounds_ready),
+            "cooldown_seconds": int(gift.get("cooldown_seconds", 10) or 10),
+        }
+
+    def send_office_gift(self, sender_device_id, remote_addr=""):
+        sender_device_id = str(sender_device_id or "").strip()
+        remote_addr = str(remote_addr or "").removeprefix("::ffff:").strip()
+        with self.lock:
+            settings = self.store.load_settings()
+            gift = settings.get("office_gift", {}) or {}
+            sender = self.devices.get(sender_device_id)
+            if not sender:
+                raise PermissionError("This dashboard is not registered with the Manager Pi.")
+
+            registered_ip = str(sender.get("ip") or "").removeprefix("::ffff:").strip()
+            if remote_addr not in {"127.0.0.1", "::1"} and registered_ip and remote_addr != registered_ip:
+                raise PermissionError("The sender identity did not match this dashboard.")
+            if not gift.get("enabled", True):
+                raise PermissionError("Office gifts are currently disabled.")
+
+            allowed_senders = {
+                str(device_id).strip()
+                for device_id in (gift.get("sender_device_ids") or [])
+                if str(device_id).strip()
+            }
+            if "*" not in allowed_senders and sender_device_id not in allowed_senders:
+                raise PermissionError("This dashboard is not allowed to send office gifts.")
+
+            recipient_ids = list(
+                dict.fromkeys(
+                    str(device_id).strip()
+                    for device_id in (gift.get("recipient_device_ids") or [])
+                    if str(device_id).strip() and str(device_id).strip() in self.devices
+                )
+            )
+            if not recipient_ids:
+                raise ValueError("No office recipient dashboards have been configured.")
+
+            sound_files = []
+            for value in gift.get("sound_files") or []:
+                sound_name = str(value or "").strip()
+                if (
+                    sound_name
+                    and Path(sound_name).name == sound_name
+                    and Path(sound_name).suffix.lower() == ".wav"
+                    and (PROJECT_ROOT / "sounds" / sound_name).is_file()
+                ):
+                    sound_files.append(sound_name)
+            if not sound_files:
+                raise ValueError("No office gift sound files are available on the Manager Pi.")
+
+            cooldown_seconds = max(3, min(300, int(gift.get("cooldown_seconds", 10) or 10)))
+            now = monotonic()
+            last_sent = float(self.office_gift_last_sent.get(sender_device_id, 0) or 0)
+            remaining = max(0, int(round(cooldown_seconds - (now - last_sent))))
+            if remaining > 0:
+                raise RuntimeError(f"Please wait {remaining} second(s) before sending another gift.")
+
+            sound_name = random.choice(sound_files)
+            alert = {
+                "type": "office_gift",
+                "title": "Office gift",
+                "html": "",
+                "show_popup": False,
+                "play_sound": True,
+                "sound": sound_name,
+            }
+            for device_id in recipient_ids:
+                self.alerts.setdefault(device_id, []).append(dict(alert))
+            self.office_gift_last_sent[sender_device_id] = now
+            sender_name = str(sender.get("name") or sender_device_id)
+
+        self.log_activity(
+            "Office Gift",
+            f"{sender_name} sent a gift to {len(recipient_ids)} office screen(s).",
+            details={
+                "sender_device_id": sender_device_id,
+                "recipient_device_ids": recipient_ids,
+                "sound": sound_name,
+            },
+        )
+        return {
+            "success": True,
+            "message": "Gift sent to the office!",
+            "recipient_count": len(recipient_ids),
+            "cooldown_seconds": cooldown_seconds,
+        }
 
     def queue_command(self, device_ids, action, **extra):
         command = {"action": action}

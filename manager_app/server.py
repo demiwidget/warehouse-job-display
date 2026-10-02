@@ -68,6 +68,21 @@ def create_app(state):
     def clear_alerts(device_id):
         return jsonify({"ok": True, "cleared": state.clear_device_alerts(device_id)})
 
+    @app.get("/office-gift/<device_id>")
+    def office_gift_config(device_id):
+        return jsonify(state.office_gift_config(device_id))
+
+    @app.post("/office-gift/<device_id>")
+    def send_office_gift(device_id):
+        try:
+            return jsonify(state.send_office_gift(device_id, request.remote_addr))
+        except PermissionError as error:
+            return jsonify({"success": False, "message": str(error)}), 403
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error)}), 400
+        except RuntimeError as error:
+            return jsonify({"success": False, "message": str(error)}), 429
+
     @app.get("/sounds/<path:filename>")
     def sounds(filename):
         safe_name = Path(str(filename or "").strip()).name

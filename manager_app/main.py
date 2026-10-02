@@ -2288,6 +2288,7 @@ class PiScreensTab(QWidget):
             ("Show Unreturned", "unreturned"),
             ("Show Quarantines", "quarantines"),
             ("Show Notification History", "notifications"),
+            ("Show Office Gift", "office_gift"),
         )
         for screen_action_group in (screen_actions[:4], screen_actions[4:]):
             screen_buttons = QHBoxLayout()
@@ -2362,6 +2363,68 @@ class PiScreensTab(QWidget):
         service_buttons.addWidget(remove_btn)
         controls_layout.addLayout(service_buttons)
         layout.addWidget(controls_panel)
+
+        self.office_gift_settings = self.state.get_settings(include_secret=True).get("office_gift", {}) or {}
+        self.office_gift_dirty = False
+        self.office_gift_table_loading = False
+        self.office_gift_device_signature = ""
+        gift_panel, gift_panel_layout = make_panel(
+            "Office Gift",
+            "Add a fun dashboard tab and choose which screens can send a random sound to selected office screens.",
+        )
+        gift_form = QGridLayout()
+        self.office_gift_enabled_input = QCheckBox("Enable the Office Gift tab")
+        self.office_gift_enabled_input.setChecked(bool(self.office_gift_settings.get("enabled", True)))
+        self.office_gift_button_text_input = QLineEdit(
+            str(self.office_gift_settings.get("button_text") or "Send a gift to the office")
+        )
+        self.office_gift_cooldown_input = QSpinBox()
+        self.office_gift_cooldown_input.setRange(3, 300)
+        self.office_gift_cooldown_input.setSuffix(" seconds")
+        self.office_gift_cooldown_input.setValue(
+            int(self.office_gift_settings.get("cooldown_seconds", 10) or 10)
+        )
+        self.office_gift_sounds_input = QLineEdit(
+            ", ".join(str(item) for item in (self.office_gift_settings.get("sound_files") or []))
+        )
+        self.office_gift_sounds_input.setPlaceholderText("office-gift-01.wav, office-gift-02.wav")
+        gift_form.addWidget(self.office_gift_enabled_input, 0, 0, 1, 3)
+        gift_form.addWidget(QLabel("Button text"), 1, 0)
+        gift_form.addWidget(self.office_gift_button_text_input, 1, 1, 1, 2)
+        gift_form.addWidget(QLabel("Delay between gifts"), 2, 0)
+        gift_form.addWidget(self.office_gift_cooldown_input, 2, 1)
+        gift_form.addWidget(QLabel("Random sound pool"), 3, 0)
+        gift_form.addWidget(self.office_gift_sounds_input, 3, 1, 1, 2)
+        gift_form.setColumnStretch(2, 1)
+        gift_panel_layout.addLayout(gift_form)
+
+        gift_help = QLabel(
+            "Can send: controls where the Fun tab appears. Office recipient: controls where the random sound plays. "
+            "Leave every Can send box ticked to allow all current and future dashboards."
+        )
+        gift_help.setObjectName("SectionSubtitle")
+        gift_help.setWordWrap(True)
+        gift_panel_layout.addWidget(gift_help)
+
+        self.office_gift_device_table = QTableWidget(0, 4)
+        self.office_gift_device_table.setHorizontalHeaderLabels(
+            ["Device ID", "Dashboard", "Can send", "Office recipient"]
+        )
+        self.office_gift_device_table.setColumnHidden(0, True)
+        self.office_gift_device_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.office_gift_device_table.setSelectionMode(QTableWidget.NoSelection)
+        self.office_gift_device_table.setMinimumHeight(190)
+        tune_table(self.office_gift_device_table)
+        self.office_gift_device_table.itemChanged.connect(self.mark_office_gift_dirty)
+        gift_panel_layout.addWidget(self.office_gift_device_table)
+
+        save_gift_btn = mark_primary(QPushButton("Save Office Gift Settings"))
+        save_gift_btn.clicked.connect(self.save_office_gift_settings)
+        gift_actions = QHBoxLayout()
+        gift_actions.addWidget(save_gift_btn)
+        gift_actions.addStretch(1)
+        gift_panel_layout.addLayout(gift_actions)
+        layout.addWidget(gift_panel)
 
         maintenance_settings = self.state.get_settings(include_secret=True).get("maintenance", {}) or {}
         maintenance_panel, maintenance_panel_layout = make_panel(
@@ -2517,6 +2580,137 @@ class PiScreensTab(QWidget):
             )
         return devices
 
+    def mark_office_gift_dirty(self, *_args):
+        if not self.office_gift_table_loading:
+            self.office_gift_dirty = True
+
+    def sync_office_gift_devices(self, devices, force=False):
+        if self.office_gift_dirty and not force:
+            return
+        signature = repr(
+            [
+                (str(device.get("id") or ""), str(device.get("name") or ""))
+                for device in devices
+            ]
+        ) + repr(self.office_gift_settings)
+        if not force and signature == self.office_gift_device_signature:
+            return
+
+        configured_senders = {
+            str(device_id).strip()
+            for device_id in (self.office_gift_settings.get("sender_device_ids") or [])
+            if str(device_id).strip()
+        }
+        configured_recipients = {
+            str(device_id).strip()
+            for device_id in (self.office_gift_settings.get("recipient_device_ids") or [])
+            if str(device_id).strip()
+        }
+        all_senders = "*" in configured_senders
+
+        self.office_gift_table_loading = True
+        self.office_gift_device_table.setUpdatesEnabled(False)
+        try:
+            self.office_gift_device_table.setRowCount(len(devices))
+            for row, device in enumerate(devices):
+                device_id = str(device.get("id") or "")
+                name = str(device.get("name") or device_id)
+                id_item = QTableWidgetItem(device_id)
+                name_item = QTableWidgetItem(name)
+                sender_item = QTableWidgetItem("")
+                sender_item.setFlags(sender_item.flags() | Qt.ItemIsUserCheckable)
+                sender_item.setCheckState(Qt.Checked if all_senders or device_id in configured_senders else Qt.Unchecked)
+                recipient_item = QTableWidgetItem("")
+                recipient_item.setFlags(recipient_item.flags() | Qt.ItemIsUserCheckable)
+                recipient_item.setCheckState(Qt.Checked if device_id in configured_recipients else Qt.Unchecked)
+                self.office_gift_device_table.setItem(row, 0, id_item)
+                self.office_gift_device_table.setItem(row, 1, name_item)
+                self.office_gift_device_table.setItem(row, 2, sender_item)
+                self.office_gift_device_table.setItem(row, 3, recipient_item)
+            self.office_gift_device_table.resizeColumnsToContents()
+            self.office_gift_device_table.horizontalHeader().setStretchLastSection(True)
+        finally:
+            self.office_gift_device_table.setUpdatesEnabled(True)
+            self.office_gift_table_loading = False
+        self.office_gift_dirty = False
+        self.office_gift_device_signature = signature
+
+    def save_office_gift_settings(self):
+        button_text = self.office_gift_button_text_input.text().strip() or "Send a gift to the office"
+        sounds = list(
+            dict.fromkeys(
+                item.strip()
+                for item in self.office_gift_sounds_input.text().split(",")
+                if item.strip()
+            )
+        )
+        invalid_sounds = [
+            sound
+            for sound in sounds
+            if Path(sound).name != sound or Path(sound).suffix.lower() != ".wav"
+        ]
+        if invalid_sounds:
+            QMessageBox.warning(
+                self,
+                "Office Gift Sounds",
+                "Sound names must be simple .wav filenames. Check: " + ", ".join(invalid_sounds),
+            )
+            return
+        if self.office_gift_enabled_input.isChecked() and not sounds:
+            QMessageBox.warning(self, "Office Gift Sounds", "Add at least one .wav sound to the random sound pool.")
+            return
+
+        sender_ids = []
+        recipient_ids = []
+        all_device_ids = []
+        for row in range(self.office_gift_device_table.rowCount()):
+            id_item = self.office_gift_device_table.item(row, 0)
+            sender_item = self.office_gift_device_table.item(row, 2)
+            recipient_item = self.office_gift_device_table.item(row, 3)
+            if not id_item:
+                continue
+            device_id = id_item.text().strip()
+            if not device_id:
+                continue
+            all_device_ids.append(device_id)
+            if sender_item and sender_item.checkState() == Qt.Checked:
+                sender_ids.append(device_id)
+            if recipient_item and recipient_item.checkState() == Qt.Checked:
+                recipient_ids.append(device_id)
+
+        if self.office_gift_enabled_input.isChecked() and not recipient_ids:
+            QMessageBox.warning(
+                self,
+                "Office Gift Recipients",
+                "Select at least one dashboard as an Office recipient before enabling this feature.",
+            )
+            return
+
+        if all_device_ids and set(sender_ids) == set(all_device_ids):
+            sender_ids = ["*"]
+
+        payload = {
+            "enabled": self.office_gift_enabled_input.isChecked(),
+            "button_text": button_text,
+            "sender_device_ids": sender_ids,
+            "recipient_device_ids": recipient_ids,
+            "cooldown_seconds": self.office_gift_cooldown_input.value(),
+            "sound_files": sounds,
+        }
+        try:
+            saved = self.state.save_settings({"office_gift": payload})
+        except Exception as error:
+            QMessageBox.warning(self, "Office Gift Settings", f"Could not save settings: {error}")
+            return
+
+        self.office_gift_settings = saved.get("office_gift", payload) or payload
+        self.office_gift_dirty = False
+        self.office_gift_device_signature = ""
+        self.status.setText(
+            f"Office Gift settings saved. {len(recipient_ids)} office recipient screen(s) selected."
+        )
+        self.refresh()
+
     def set_active(self, active):
         self.active = bool(active)
         if self.active:
@@ -2548,6 +2742,7 @@ class PiScreensTab(QWidget):
         self.apply_devices(result.get("devices", []) or [], result.get("update_status", {}) or {})
 
     def apply_devices(self, devices, update_status):
+        self.sync_office_gift_devices(devices)
         stable_devices = []
         for device in devices:
             stable_devices.append(
@@ -2925,7 +3120,19 @@ class ActivityConsoleTab(QWidget):
         controls = QHBoxLayout()
         self.category_filter = QComboBox()
         self.category_filter.addItems(
-            ["All", "Current RMS", "Pis", "Audio", "Notifications", "Updates", "Commands", "Settings", "Sleep", "Manager"]
+            [
+                "All",
+                "Current RMS",
+                "Pis",
+                "Audio",
+                "Notifications",
+                "Office Gift",
+                "Updates",
+                "Commands",
+                "Settings",
+                "Sleep",
+                "Manager",
+            ]
         )
         self.level_filter = QComboBox()
         self.level_filter.addItems(["All", "info", "warning", "error"])

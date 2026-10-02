@@ -32,6 +32,21 @@ DEFAULT_SETTINGS = {
         "failure_minutes": 10,
         "cooldown_minutes": 60,
     },
+    "office_gift": {
+        "enabled": True,
+        "button_text": "Send a gift to the office",
+        "sender_device_ids": ["*"],
+        "recipient_device_ids": [],
+        "cooldown_seconds": 10,
+        "sound_files": [
+            "office-gift-01.wav",
+            "office-gift-02.wav",
+            "office-gift-03.wav",
+            "office-gift-04.wav",
+            "office-gift-05.wav",
+            "office-gift-06.wav",
+        ],
+    },
     "current_rms": {
         "api_base": "https://api.current-rms.com/api/v1",
         "api_key": "",
@@ -224,6 +239,27 @@ def _route_key_lookup(value):
 
 
 def _migrate_settings(settings):
+    office_gift = settings.get("office_gift", {})
+    if not isinstance(office_gift, dict):
+        office_gift = {}
+    office_gift["enabled"] = bool(office_gift.get("enabled", True))
+    office_gift["button_text"] = (
+        str(office_gift.get("button_text") or "Send a gift to the office").strip()
+        or "Send a gift to the office"
+    )
+    for key in ("sender_device_ids", "recipient_device_ids", "sound_files"):
+        values = office_gift.get(key, [])
+        if isinstance(values, str):
+            values = [item.strip() for item in values.split(",") if item.strip()]
+        if not isinstance(values, list):
+            values = []
+        office_gift[key] = list(dict.fromkeys(str(item).strip() for item in values if str(item).strip()))
+    try:
+        office_gift["cooldown_seconds"] = max(3, min(300, int(office_gift.get("cooldown_seconds", 10))))
+    except (TypeError, ValueError):
+        office_gift["cooldown_seconds"] = 10
+    settings["office_gift"] = office_gift
+
     quarantine_settings = settings.get("current_rms", {}).get("quarantines", {})
     mappings = quarantine_settings.get("department_mappings", {})
     if not isinstance(mappings, dict):
