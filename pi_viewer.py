@@ -710,28 +710,11 @@ class OfficeGiftPage(QWidget):
         layout.setSpacing(scaled(18, scale))
         layout.addStretch(1)
 
-        title = QLabel("Office Gift")
-        title.setObjectName("officeGiftHeading")
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
-
-        description = QLabel("Press the button to send a randomly selected sound to the configured office screens.")
-        description.setObjectName("officeGiftDescription")
-        description.setAlignment(Qt.AlignCenter)
-        description.setWordWrap(True)
-        layout.addWidget(description)
-
         self.send_button = QPushButton("Send a gift to the office")
         self.send_button.setObjectName("officeGiftButton")
         self.send_button.setMinimumHeight(scaled(150, scale))
         self.send_button.clicked.connect(self.gift_requested.emit)
         layout.addWidget(self.send_button)
-
-        self.status = QLabel("Ready")
-        self.status.setObjectName("officeGiftStatus")
-        self.status.setAlignment(Qt.AlignCenter)
-        self.status.setWordWrap(True)
-        layout.addWidget(self.status)
         layout.addStretch(1)
 
         self.cooldown_timer = QTimer(self)
@@ -740,27 +723,18 @@ class OfficeGiftPage(QWidget):
     def apply_config(self, config):
         self.ready = bool(config.get("ready"))
         self.send_button.setText(str(config.get("button_text") or "Send a gift to the office"))
-        recipient_count = int(config.get("recipient_count", 0) or 0)
-        if recipient_count <= 0:
-            self.status.setText("The Manager app has not selected an office recipient yet.")
-        elif self.cooldown_remaining <= 0:
-            label = "screen" if recipient_count == 1 else "screens"
-            self.status.setText(f"Ready to send to {recipient_count} office {label}.")
         self.send_button.setEnabled(self.ready and self.cooldown_remaining <= 0)
 
     def set_sending(self):
         self.send_button.setEnabled(False)
-        self.status.setText("Sending your gift...")
 
-    def show_error(self, message):
+    def show_error(self, _message):
         self.cooldown_remaining = 0
         self.cooldown_timer.stop()
-        self.status.setText(str(message or "The gift could not be sent."))
         self.send_button.setEnabled(self.ready)
 
-    def start_cooldown(self, seconds, message):
+    def start_cooldown(self, seconds, _message):
         self.cooldown_remaining = max(1, int(seconds or 10))
-        self.status.setText(str(message or "Gift sent to the office!"))
         self.send_button.setEnabled(False)
         self.cooldown_timer.start(1000)
 
@@ -768,10 +742,7 @@ class OfficeGiftPage(QWidget):
         self.cooldown_remaining = max(0, self.cooldown_remaining - 1)
         if self.cooldown_remaining <= 0:
             self.cooldown_timer.stop()
-            self.status.setText("Ready for another gift.")
             self.send_button.setEnabled(self.ready)
-            return
-        self.status.setText(f"Gift sent. Another can be sent in {self.cooldown_remaining} seconds.")
 
 
 def load_config():
