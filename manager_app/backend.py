@@ -40,19 +40,36 @@ class UpdateMonitorThread(Thread):
             self.stop_event.wait(300)
 
 
+class DailyQuoteMonitorThread(Thread):
+    def __init__(self, state):
+        super().__init__(daemon=True)
+        self.state = state
+        self.stop_event = Event()
+
+    def run(self):
+        while not self.stop_event.is_set():
+            try:
+                self.state.refresh_daily_quote()
+            except Exception as error:
+                self.state.log_exception("Daily Quote", "Daily quote monitor failed", error)
+            self.stop_event.wait(300)
+
+
 def start_backend(state=None):
     state = state or ManagerState()
     server = ServerThread(state)
     monitor = DashboardMonitorThread(state)
     update_monitor = UpdateMonitorThread(state)
+    daily_quote_monitor = DailyQuoteMonitorThread(state)
     server.start()
     monitor.start()
     update_monitor.start()
-    return state, server, monitor, update_monitor
+    daily_quote_monitor.start()
+    return state, server, monitor, update_monitor, daily_quote_monitor
 
 
 def main():
-    state, _server, monitor, update_monitor = start_backend()
+    state, _server, monitor, update_monitor, daily_quote_monitor = start_backend()
     state.log_activity("Manager", "Headless Manager Pi backend started.")
     try:
         while True:
@@ -61,6 +78,7 @@ def main():
         state.log_activity("Manager", "Headless Manager Pi backend stopping.", level="warning")
         monitor.stop_event.set()
         update_monitor.stop_event.set()
+        daily_quote_monitor.stop_event.set()
         return 0
 
 

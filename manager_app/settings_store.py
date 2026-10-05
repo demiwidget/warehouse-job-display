@@ -47,6 +47,19 @@ DEFAULT_SETTINGS = {
             "office-gift-06.wav",
         ],
     },
+    "daily_quote": {
+        "enabled": True,
+        "api_key": "",
+        "model": "gpt-6-luna",
+        "company_name": "Limelite Lighting",
+        "management_names": "Dave, Ed and Matt",
+        "prompt": (
+            "Make it witty, dry, sarcastic, sassy and genuinely funny while staying safe for work. "
+            "Use affectionate management banter rather than insults. Reference lighting hire, live events, "
+            "warehouse life or behind-the-scenes production chaos when it fits. Keep it punchy and memorable."
+        ),
+        "signature": "— created by AI",
+    },
     "current_rms": {
         "api_base": "https://api.current-rms.com/api/v1",
         "api_key": "",
@@ -259,6 +272,16 @@ def _migrate_settings(settings):
     except (TypeError, ValueError):
         office_gift["cooldown_seconds"] = 10
     settings["office_gift"] = office_gift
+
+    daily_quote = settings.get("daily_quote", {})
+    if not isinstance(daily_quote, dict):
+        daily_quote = {}
+    quote_defaults = DEFAULT_SETTINGS["daily_quote"]
+    daily_quote["enabled"] = bool(daily_quote.get("enabled", True))
+    daily_quote["api_key"] = str(daily_quote.get("api_key") or "").strip()
+    for key in ("model", "company_name", "management_names", "prompt", "signature"):
+        daily_quote[key] = str(daily_quote.get(key) or quote_defaults[key]).strip() or quote_defaults[key]
+    settings["daily_quote"] = daily_quote
 
     quarantine_settings = settings.get("current_rms", {}).get("quarantines", {})
     mappings = quarantine_settings.get("department_mappings", {})

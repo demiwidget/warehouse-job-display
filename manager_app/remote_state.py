@@ -130,6 +130,12 @@ class RemoteManagerState:
         self._post("/api/dashboard/refresh")
         return None
 
+    def daily_quote_status(self):
+        return self._get("/api/daily-quote")
+
+    def generate_daily_quote(self):
+        return self._post("/api/daily-quote/generate")
+
     def list_devices(self):
         return self._get("/api/devices")
 

@@ -146,6 +146,14 @@ def create_app(state):
         state.refresh_dashboard()
         return jsonify({"ok": True})
 
+    @app.get("/api/daily-quote")
+    def daily_quote_status():
+        return jsonify(state.daily_quote_status())
+
+    @app.post("/api/daily-quote/generate")
+    def generate_daily_quote():
+        return jsonify(state.generate_daily_quote())
+
     @app.get("/api/manager/status")
     def manager_status():
         return jsonify(state.get_manager_status())

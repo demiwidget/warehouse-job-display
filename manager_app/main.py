@@ -173,6 +173,17 @@ QLabel#SectionSubtitle {
     color: #5c7082;
     font-weight: 600;
 }
+QLabel#QuotePreview {
+    background: #f4f8fb;
+    color: #17334b;
+    border: 1px solid #c9d7e2;
+    border-left: 5px solid #d49424;
+    border-radius: 10px;
+    padding: 18px;
+    font-size: 18px;
+    font-weight: 800;
+    font-style: italic;
+}
 QLabel#StatusStrip {
     background: #e6edf4;
     border: 1px solid #c9d5df;
@@ -490,6 +501,21 @@ class UpdateMonitorThread(Thread):
                 self.state.refresh_update_status(force=True)
             except Exception as error:
                 self.state.log_exception("Updates", "GitHub update monitor failed", error)
+            self.stop_event.wait(300)
+
+
+class DailyQuoteMonitorThread(Thread):
+    def __init__(self, state):
+        super().__init__(daemon=True)
+        self.state = state
+        self.stop_event = Event()
+
+    def run(self):
+        while not self.stop_event.is_set():
+            try:
+                self.state.refresh_daily_quote()
+            except Exception as error:
+                self.state.log_exception("Daily Quote", "Daily quote monitor failed", error)
             self.stop_event.wait(300)
 
 
@@ -881,6 +907,220 @@ class CurrentRMSTab(QWidget):
         self.state.save_settings({"current_rms": self.settings_payload()})
         self.state.refresh_dashboard()
         QMessageBox.information(self, "Refreshed", "The manager has refreshed the dashboard data and alert state.")
+
+
+class DailyQuoteTab(QWidget):
+    operation_finished = Signal(object)
+
+    def __init__(self, state):
+        super().__init__()
+        self.state = state
+        self.busy = False
+        try:
+            settings = self.state.get_settings(include_secret=True).get("daily_quote", {}) or {}
+        except Exception:
+            settings = {}
+
+        layout = make_scroll_page(self)
+        add_page_heading(
+            layout,
+            "Daily Quote",
+            "Generate one shared, workplace-safe management joke or quote each day using OpenAI.",
+        )
+
+        api_panel, api_layout = make_panel(
+            "OpenAI Connection",
+            "The API key is stored only on the Manager Pi and is never sent to dashboard Pis or GitHub.",
+        )
+        api_form = QFormLayout()
+        self.enabled_input = QCheckBox("Show the daily quote on dashboard screens")
+        self.enabled_input.setChecked(bool(settings.get("enabled", True)))
+        self.api_key_input = QLineEdit(str(settings.get("api_key") or ""))
+        self.api_key_input.setEchoMode(QLineEdit.Password)
+        self.api_key_input.setPlaceholderText("OpenAI API key")
+        self.show_api_key_input = QCheckBox("Show API key")
+        self.show_api_key_input.toggled.connect(
+            lambda checked: self.api_key_input.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)
+        )
+        self.model_input = QLineEdit(str(settings.get("model") or "gpt-6-luna"))
+        api_form.addRow("Enabled", self.enabled_input)
+        api_form.addRow("OpenAI API key", self.api_key_input)
+        api_form.addRow("", self.show_api_key_input)
+        api_form.addRow("Model", self.model_input)
+        api_layout.addLayout(api_form)
+        layout.addWidget(api_panel)
+
+        content_panel, content_layout = make_panel(
+            "Quote Style",
+            "These details shape the joke. The built-in safety rules remain active even when the wording is changed.",
+        )
+        content_form = QFormLayout()
+        self.company_input = QLineEdit(str(settings.get("company_name") or "Limelite Lighting"))
+        self.management_input = QLineEdit(str(settings.get("management_names") or "Dave, Ed and Matt"))
+        self.prompt_input = QTextEdit()
+        self.prompt_input.setMinimumHeight(120)
+        self.prompt_input.setPlainText(
+            str(
+                settings.get("prompt")
+                or (
+                    "Make it witty, dry, sarcastic, sassy and genuinely funny while staying safe for work. "
+                    "Use affectionate management banter rather than insults. Reference lighting hire, live events, "
+                    "warehouse life or behind-the-scenes production chaos when it fits. Keep it punchy and memorable."
+                )
+            )
+        )
+        self.signature_input = QLineEdit(str(settings.get("signature") or "— created by AI"))
+        content_form.addRow("Company", self.company_input)
+        content_form.addRow("Management names", self.management_input)
+        content_form.addRow("Tone and subject guidance", self.prompt_input)
+        content_form.addRow("Ending", self.signature_input)
+        content_layout.addLayout(content_form)
+        layout.addWidget(content_panel)
+
+        preview_panel, preview_layout = make_panel(
+            "Current Dashboard Quote",
+            "The Manager Pi keeps the successful quote through restarts and replaces it on the next day.",
+        )
+        self.preview = QLabel("No quote has been generated yet.")
+        self.preview.setObjectName("QuotePreview")
+        self.preview.setTextFormat(Qt.PlainText)
+        self.preview.setWordWrap(True)
+        self.preview.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        preview_layout.addWidget(self.preview)
+        self.preview_meta = QLabel("")
+        self.preview_meta.setObjectName("SectionSubtitle")
+        self.preview_meta.setWordWrap(True)
+        preview_layout.addWidget(self.preview_meta)
+        layout.addWidget(preview_panel)
+
+        actions_panel, actions_layout = make_panel(
+            "Actions",
+            "Saving does not spend API credit. Generate now creates and immediately publishes a fresh quote.",
+        )
+        action_row = QHBoxLayout()
+        self.save_button = mark_primary(QPushButton("Save Daily Quote Settings"))
+        self.generate_button = QPushButton("Generate New Quote Now")
+        self.refresh_button = QPushButton("Refresh Quote Status")
+        self.save_button.clicked.connect(lambda _checked=False: self.save())
+        self.generate_button.clicked.connect(self.generate_now)
+        self.refresh_button.clicked.connect(self.refresh_status)
+        action_row.addWidget(self.save_button)
+        action_row.addWidget(self.generate_button)
+        action_row.addWidget(self.refresh_button)
+        action_row.addStretch(1)
+        actions_layout.addLayout(action_row)
+        layout.addWidget(actions_panel)
+
+        self.status = make_status_label("Loading daily quote status...")
+        layout.addWidget(self.status)
+        layout.addStretch(1)
+        self.operation_finished.connect(self.handle_operation_finished)
+        QTimer.singleShot(0, self.refresh_status)
+
+    def settings_payload(self):
+        return {
+            "enabled": self.enabled_input.isChecked(),
+            "api_key": self.api_key_input.text().strip(),
+            "model": self.model_input.text().strip() or "gpt-6-luna",
+            "company_name": self.company_input.text().strip() or "Limelite Lighting",
+            "management_names": self.management_input.text().strip() or "management",
+            "prompt": self.prompt_input.toPlainText().strip(),
+            "signature": self.signature_input.text().strip() or "— created by AI",
+        }
+
+    def save(self, show_message=True):
+        try:
+            self.state.save_settings({"daily_quote": self.settings_payload()})
+        except Exception as error:
+            QMessageBox.warning(self, "Daily Quote Settings", f"Could not save the settings: {error}")
+            return False
+        self.status.setText("Daily quote settings saved securely on the Manager Pi.")
+        if show_message:
+            QMessageBox.information(self, "Saved", "Daily quote settings saved on the Manager Pi.")
+        return True
+
+    def set_busy(self, busy, message=""):
+        self.busy = bool(busy)
+        self.save_button.setEnabled(not self.busy)
+        self.generate_button.setEnabled(not self.busy)
+        self.refresh_button.setEnabled(not self.busy)
+        if message:
+            self.status.setText(message)
+
+    def generate_now(self):
+        if not self.enabled_input.isChecked():
+            QMessageBox.warning(self, "Daily Quote", "Enable the daily quote before generating one.")
+            return
+        if not self.api_key_input.text().strip():
+            QMessageBox.warning(self, "Daily Quote", "Enter an OpenAI API key first.")
+            return
+        if not self.save(show_message=False):
+            return
+        self.set_busy(True, "Generating a new workplace-safe quote with OpenAI...")
+        Thread(target=self._operation_worker, args=("generate",), daemon=True).start()
+
+    def refresh_status(self):
+        if self.busy:
+            return
+        self.set_busy(True, "Refreshing daily quote status...")
+        Thread(target=self._operation_worker, args=("status",), daemon=True).start()
+
+    def _operation_worker(self, action):
+        try:
+            if action == "generate":
+                result = self.state.generate_daily_quote()
+                status = result.get("status", {}) if isinstance(result, dict) else {}
+                payload = {
+                    "ok": bool(result.get("success")) if isinstance(result, dict) else False,
+                    "action": action,
+                    "message": str(result.get("message") or "") if isinstance(result, dict) else "",
+                    "status": status,
+                }
+            else:
+                payload = {
+                    "ok": True,
+                    "action": action,
+                    "message": "Daily quote status refreshed.",
+                    "status": self.state.daily_quote_status(),
+                }
+        except Exception as error:
+            payload = {"ok": False, "action": action, "message": str(error), "status": {}}
+        safe_emit(self.operation_finished, payload)
+
+    def handle_operation_finished(self, result):
+        self.set_busy(False)
+        status = result.get("status") or {}
+        if status:
+            self.apply_quote_status(status)
+        if result.get("ok"):
+            self.status.setText(result.get("message") or "Daily quote ready.")
+            return
+        self.status.setText(
+            "Daily quote action failed. Update the Manager Pi first if this page has just been added. "
+            + str(result.get("message") or "")
+        )
+        if result.get("action") == "generate":
+            QMessageBox.warning(self, "Daily Quote", str(result.get("message") or "Quote generation failed."))
+
+    def apply_quote_status(self, status):
+        quote_text = str(status.get("quote") or "").strip()
+        self.preview.setText(quote_text or "No quote has been generated yet.")
+        details = []
+        if status.get("generated_for"):
+            details.append(f"Quote date: {status.get('generated_for')}")
+        if status.get("generated_at"):
+            details.append(f"Generated: {status.get('generated_at')}")
+        if status.get("model"):
+            details.append(f"Model: {status.get('model')}")
+        if status.get("stale"):
+            details.append("Showing the previous successful quote until a new one is available")
+        if status.get("error"):
+            details.append(f"Status: {status.get('error')}")
+        self.preview_meta.setText(" | ".join(details))
+
+    def set_active(self, active):
+        if active and not self.busy:
+            self.refresh_status()
 
 
 class AlertsTab(QWidget):
@@ -3352,6 +3592,7 @@ class ManagerWindow(QMainWindow):
         ("overview", "Overview", "Live status and quick actions", OverviewPage),
         ("setup", "Setup", "Connection and install commands", ConnectionTab),
         ("data", "Data Source", "Current RMS views and API", CurrentRMSTab),
+        ("daily_quote", "Daily Quote", "OpenAI quote and joke settings", DailyQuoteTab),
         ("notifications", "Notifications", "Alerts, routing, email, sounds", AlertsTab),
         ("manager", "Manager Pi", "Backend services and security", ManagerPiTab),
         ("dashboards", "Dashboards", "Screen fleet controls", PiScreensTab),
@@ -3497,9 +3738,11 @@ def main():
     server = ServerThread(state)
     monitor = DashboardMonitorThread(state)
     update_monitor = UpdateMonitorThread(state)
+    daily_quote_monitor = DailyQuoteMonitorThread(state)
     server.start()
     monitor.start()
     update_monitor.start()
+    daily_quote_monitor.start()
 
     window = None
     try:
@@ -3518,6 +3761,7 @@ def main():
     finally:
         monitor.stop_event.set()
         update_monitor.stop_event.set()
+        daily_quote_monitor.stop_event.set()
 
 
 if __name__ == "__main__":

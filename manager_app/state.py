@@ -15,6 +15,7 @@ import traceback
 from app_version import CURRENT_VERSION
 from manager_app.activity_log import ActivityLog
 from manager_app.current_rms import ALL_DEPARTMENT_TARGET, NO_DEPARTMENT_TARGET, DashboardBuilder
+from manager_app.daily_quote import DailyQuoteService
 from manager_app.email_alerts import alert_email_enabled, send_alert_email, send_test_email
 from manager_app.security import security_status, set_admin_password
 from manager_app.settings_store import PROJECT_ROOT, SettingsStore
@@ -107,6 +108,7 @@ class ManagerState:
         self.alerts = {device_id: [] for device_id in self.devices}
         self.office_gift_last_sent = {}
         self.dashboard = DashboardBuilder()
+        self.daily_quote = DailyQuoteService()
         self.night_sleep_active = None
         self.night_sleep_payload_signature = ""
         self.update_status_checked_at = 0
@@ -400,9 +402,14 @@ class ManagerState:
             sanitized = {
                 "server": dict(settings.get("server", {})),
                 "current_rms": dict(settings.get("current_rms", {})),
+                "daily_quote": dict(settings.get("daily_quote", {})),
             }
             api_key = sanitized["current_rms"].get("api_key", "")
             sanitized["current_rms"]["api_key"] = "*" * min(len(api_key), 10) if api_key else ""
+            quote_api_key = sanitized["daily_quote"].get("api_key", "")
+            sanitized["daily_quote"]["api_key"] = (
+                "*" * min(len(quote_api_key), 10) if quote_api_key else ""
+            )
             return sanitized
 
     def save_settings(self, updates):
@@ -986,6 +993,7 @@ class ManagerState:
             return self.sleeping_screen_payload(screen, settings)
         with self.dashboard_lock:
             payload = deepcopy(self.dashboard.build(screen, settings))
+        payload["daily_quote"] = self._daily_quote_screen_payload(settings)
         return payload
 
     def all_screen_payloads(self):
@@ -998,10 +1006,60 @@ class ManagerState:
                 for screen in SCREEN_NAMES
             }
         with self.dashboard_lock:
-            return {
+            payloads = {
                 screen: deepcopy(self.dashboard.build(screen, settings))
                 for screen in SCREEN_NAMES
             }
+        payloads["daily_quote"] = self._daily_quote_screen_payload(settings)
+        return payloads
+
+    def _daily_quote_screen_payload(self, settings):
+        status = self.daily_quote.status(settings)
+        return {
+            "visible": bool(status.get("visible")),
+            "quote": str(status.get("quote") or ""),
+            "generated_for": str(status.get("generated_for") or ""),
+            "stale": bool(status.get("stale")),
+        }
+
+    def daily_quote_status(self):
+        with self.lock:
+            settings = self.store.load_settings()
+            self.settings = settings
+        return self.daily_quote.status(settings)
+
+    def refresh_daily_quote(self, force=False):
+        with self.lock:
+            settings = self.store.load_settings()
+            self.settings = settings
+        if not force and self.is_night_sleep_due(settings):
+            return self.daily_quote.status(settings)
+        result = self.daily_quote.ensure_current(settings, force=force)
+        if result.get("generated"):
+            self.log_activity(
+                "Daily Quote",
+                f"Generated the daily quote using {result.get('model') or 'OpenAI'}.",
+                details={"generated_for": result.get("generated_for", "")},
+            )
+        elif result.get("attempted") and result.get("error"):
+            self.log_activity(
+                "Daily Quote",
+                f"Could not generate the daily quote: {result.get('error')}",
+                level="warning",
+            )
+        return result
+
+    def generate_daily_quote(self):
+        result = self.refresh_daily_quote(force=True)
+        return {
+            "success": bool(result.get("generated")),
+            "message": (
+                "A new daily quote was generated."
+                if result.get("generated")
+                else str(result.get("error") or "The daily quote could not be generated.")
+            ),
+            "status": result,
+        }
 
     def _normalise_route_value(self, value):
         return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())

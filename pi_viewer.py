@@ -490,6 +490,60 @@ class SummaryCard(QWidget):
         self.caption.setText(caption)
 
 
+class DailyQuoteBanner(QWidget):
+    def __init__(self, scale=1.0, compact=False):
+        super().__init__()
+        self.ui_scale = float(scale or 1.0)
+        self.compact = bool(compact)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(
+            scaled(14 if compact else 18, self.ui_scale),
+            scaled(8 if compact else 10, self.ui_scale),
+            scaled(14 if compact else 18, self.ui_scale),
+            scaled(8 if compact else 10, self.ui_scale),
+        )
+        layout.setSpacing(scaled(12, self.ui_scale))
+
+        self.heading = QLabel("DAILY WISDOM")
+        self.heading.setAlignment(Qt.AlignCenter)
+        self.heading.setStyleSheet(
+            f"color:#f4c542; font-size:{scaled(11 if compact else 13, self.ui_scale)}px; "
+            "font-weight:1000; letter-spacing:1px;"
+        )
+        self.quote = QLabel("")
+        self.quote.setTextFormat(Qt.PlainText)
+        self.quote.setAlignment(Qt.AlignCenter)
+        self.quote.setWordWrap(True)
+        self.quote.setStyleSheet(
+            f"color:#f5f7f9; font-size:{scaled(14 if compact else 18, self.ui_scale)}px; "
+            "font-weight:800; font-style:italic;"
+        )
+        if compact:
+            content = QVBoxLayout()
+            content.setSpacing(scaled(4, self.ui_scale))
+            content.addWidget(self.heading)
+            content.addWidget(self.quote)
+            layout.addLayout(content, 1)
+        else:
+            layout.addWidget(self.heading)
+            layout.addWidget(self.quote, 1)
+
+        self.setMinimumHeight(scaled(68 if compact else 64, self.ui_scale))
+        self.setStyleSheet(
+            f"background:#172027; border:1px solid #35414a; "
+            f"border-left:{scaled(5, self.ui_scale)}px solid #f4c542; "
+            f"border-radius:{scaled(12, self.ui_scale)}px;"
+        )
+        self.hide()
+
+    def set_quote(self, status):
+        status = status if isinstance(status, dict) else {}
+        quote_text = str(status.get("quote") or "").strip()
+        visible = bool(status.get("visible") and quote_text)
+        self.quote.setText(quote_text)
+        self.setVisible(visible)
+
+
 class LeaderboardCard(QWidget):
     def __init__(self, title, accent="#ffb000"):
         super().__init__()
@@ -662,6 +716,9 @@ class CompactOverviewPage(QScrollArea):
         layout.addWidget(heading)
         layout.addWidget(subtitle)
 
+        self.daily_quote_banner = DailyQuoteBanner(scale=self.ui_scale, compact=True)
+        layout.addWidget(self.daily_quote_banner)
+
         grid_widget = QWidget()
         self.grid = QGridLayout(grid_widget)
         self.grid.setContentsMargins(0, 0, 0, 0)
@@ -689,6 +746,9 @@ class CompactOverviewPage(QScrollArea):
         for key, card in self.cards.items():
             value, caption = metrics.get(key, ("0", ""))
             card.set_data(value, caption)
+
+    def set_daily_quote(self, status):
+        self.daily_quote_banner.set_quote(status)
 
 
 class OfficeGiftPage(QWidget):
@@ -906,6 +966,11 @@ class ViewerWindow(QMainWindow):
         root.addWidget(self.cards_widget)
         if self.compact_display:
             self.cards_widget.hide()
+
+        self.daily_quote_banner = None
+        if not self.compact_display:
+            self.daily_quote_banner = DailyQuoteBanner(scale=self.ui_scale)
+            root.addWidget(self.daily_quote_banner)
 
         self.compact_header = QWidget()
         compact_header_layout = QHBoxLayout(self.compact_header)
@@ -1658,6 +1723,12 @@ class ViewerWindow(QMainWindow):
         unreturned = bundle.get("unreturned", {"title": "Unreturned Jobs", "summary": {}, "rows": []})
         notifications = bundle.get("notifications", {"title": "Notifications", "summary": {}, "rows": []})
         quarantines = bundle.get("quarantines", {"title": "Quarantines", "summary": {}, "rows": []})
+        daily_quote = bundle.get("daily_quote", {}) or today.get("daily_quote", {}) or {}
+
+        if self.daily_quote_banner is not None:
+            self.daily_quote_banner.set_quote(daily_quote)
+        if self.compact_overview_page is not None:
+            self.compact_overview_page.set_daily_quote(daily_quote)
 
         quarantine_summary = quarantines.get("summary", {}) or {}
         self.card_quarantines.set_data(
