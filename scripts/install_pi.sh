@@ -51,7 +51,7 @@ MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 DISABLE_LEGACY_KIOSK="${WAREHOUSE_DISABLE_LEGACY_KIOSK:-1}"
 DISABLE_LEGACY_STACK="${WAREHOUSE_DISABLE_LEGACY_STACK:-1}"
 SKIP_SERVICE_RESTART="${WAREHOUSE_SKIP_SERVICE_RESTART:-0}"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.4.1')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.4.2')"
 
 if [[ ! -f "$APP_DIR/pi_viewer.py" || ! -f "$APP_DIR/pi_agent.py" ]]; then
     fail "Cannot find pi_viewer.py and pi_agent.py. Run this from the repository scripts directory."
@@ -270,11 +270,11 @@ disable_user_service_if_present() {
 }
 
 kill_legacy_processes() {
-    run_as_app_user pkill -f "chromium|google-chrome|firefox|midori|matchbox" >/dev/null 2>&1 || true
+    run_as_app_user pkill -f "chromium|google-chrome|firefox|midori" >/dev/null 2>&1 || true
     run_as_app_user pkill -f "node-red|node_red" >/dev/null 2>&1 || true
     run_as_app_user pkill -f "homeassistant|home-assistant|hass" >/dev/null 2>&1 || true
     run_as_app_user pkill -f "warehouse_pi/pi_viewer.py|warehouse_env/.*/pi_viewer.py|warehouse_env/bin/python.*/warehouse_pi/pi_viewer.py" >/dev/null 2>&1 || true
-    "${SUDO[@]}" pkill -f "chromium|google-chrome|firefox|midori|matchbox" >/dev/null 2>&1 || true
+    "${SUDO[@]}" pkill -f "chromium|google-chrome|firefox|midori" >/dev/null 2>&1 || true
     "${SUDO[@]}" pkill -f "node-red|node_red" >/dev/null 2>&1 || true
     "${SUDO[@]}" pkill -f "homeassistant|home-assistant|hass" >/dev/null 2>&1 || true
     "${SUDO[@]}" pkill -f "warehouse_pi/pi_viewer.py|warehouse_env/.*/pi_viewer.py|warehouse_env/bin/python.*/warehouse_pi/pi_viewer.py" >/dev/null 2>&1 || true

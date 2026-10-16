@@ -17,6 +17,7 @@ MANAGER_IP="${WAREHOUSE_MANAGER_IP:-}"
 MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 OVERWRITE_OLD_SYSTEM="${WAREHOUSE_OVERWRITE_OLD_SYSTEM:-0}"
 REBOOT_AFTER_INSTALL="${WAREHOUSE_REBOOT_AFTER_INSTALL:-0}"
+BACKGROUND_INSTALL="${WAREHOUSE_BACKGROUND_INSTALL:-1}"
 
 if [[ -z "$MANAGER_IP" ]]; then
     fail "Set WAREHOUSE_MANAGER_IP before running this bootstrap command."
@@ -26,6 +27,14 @@ if [[ "$(id -u)" -eq 0 ]]; then
     SUDO=()
 else
     SUDO=(sudo)
+fi
+
+if [[ -n "${WAREHOUSE_APP_USER:-}" ]]; then
+    APP_USER="$WAREHOUSE_APP_USER"
+elif [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
+    APP_USER="$SUDO_USER"
+else
+    APP_USER="$(id -un)"
 fi
 
 repair_package_manager() {
@@ -112,8 +121,35 @@ sync_repo
 
 chmod +x "$APP_DIR/scripts/install_pi.sh" "$APP_DIR/scripts/update_pi.sh" 2>/dev/null || true
 
+if [[ "$BACKGROUND_INSTALL" == "1" ]] && command -v systemd-run >/dev/null 2>&1; then
+    if "${SUDO[@]}" systemctl is-active --quiet warehouse-dashboard-install.service; then
+        log "The Warehouse Dashboard installer is already running in the background."
+        log "Follow its progress with: sudo journalctl -fu warehouse-dashboard-install.service"
+        exit 0
+    fi
+
+    log "Starting the latest Pi installer as a background system job..."
+    "${SUDO[@]}" systemd-run \
+        --unit=warehouse-dashboard-install \
+        --description="Install Warehouse Dashboard" \
+        --collect \
+        --property=Type=oneshot \
+        --setenv=WAREHOUSE_APP_DIR="$APP_DIR" \
+        --setenv=WAREHOUSE_APP_USER="$APP_USER" \
+        --setenv=WAREHOUSE_MANAGER_IP="$MANAGER_IP" \
+        --setenv=WAREHOUSE_MANAGER_PORT="$MANAGER_PORT" \
+        --setenv=WAREHOUSE_DISABLE_LEGACY_KIOSK=1 \
+        --setenv=WAREHOUSE_DISABLE_LEGACY_STACK=1 \
+        --setenv=WAREHOUSE_REBOOT_AFTER_INSTALL="$REBOOT_AFTER_INSTALL" \
+        /bin/bash -c 'set -Eeuo pipefail; cd "$WAREHOUSE_APP_DIR/scripts"; ./install_pi.sh; if [[ "$WAREHOUSE_REBOOT_AFTER_INSTALL" == "1" ]]; then reboot; fi'
+    log "Installation is continuing independently of this terminal."
+    log "Follow its progress with: sudo journalctl -fu warehouse-dashboard-install.service"
+    exit 0
+fi
+
 log "Running latest Pi installer..."
 cd "$APP_DIR/scripts"
+WAREHOUSE_APP_USER="$APP_USER" \
 WAREHOUSE_MANAGER_IP="$MANAGER_IP" \
 WAREHOUSE_MANAGER_PORT="$MANAGER_PORT" \
 WAREHOUSE_DISABLE_LEGACY_KIOSK=1 \
