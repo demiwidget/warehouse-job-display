@@ -141,7 +141,7 @@ if [[ "$BACKGROUND_INSTALL" == "1" ]] && command -v systemd-run >/dev/null 2>&1;
         --setenv=WAREHOUSE_DISABLE_LEGACY_KIOSK=1 \
         --setenv=WAREHOUSE_DISABLE_LEGACY_STACK=1 \
         --setenv=WAREHOUSE_REBOOT_AFTER_INSTALL="$REBOOT_AFTER_INSTALL" \
-        /bin/bash -c 'set -Eeuo pipefail; cd "$WAREHOUSE_APP_DIR/scripts"; ./install_pi.sh; if [[ "$WAREHOUSE_REBOOT_AFTER_INSTALL" == "1" ]]; then reboot; fi'
+        /bin/bash -c 'set -Eeuo pipefail; sleep 8; cd "$WAREHOUSE_APP_DIR/scripts"; ./install_pi.sh; if [[ "$WAREHOUSE_REBOOT_AFTER_INSTALL" == "1" ]]; then reboot; fi'
     log "Installation is continuing independently of this terminal."
     log "Follow its progress with: sudo journalctl -fu warehouse-dashboard-install.service"
     exit 0

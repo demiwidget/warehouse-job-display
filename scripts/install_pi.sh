@@ -51,7 +51,7 @@ MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 DISABLE_LEGACY_KIOSK="${WAREHOUSE_DISABLE_LEGACY_KIOSK:-1}"
 DISABLE_LEGACY_STACK="${WAREHOUSE_DISABLE_LEGACY_STACK:-1}"
 SKIP_SERVICE_RESTART="${WAREHOUSE_SKIP_SERVICE_RESTART:-0}"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.4.2')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.4.3')"
 
 if [[ ! -f "$APP_DIR/pi_viewer.py" || ! -f "$APP_DIR/pi_agent.py" ]]; then
     fail "Cannot find pi_viewer.py and pi_agent.py. Run this from the repository scripts directory."
@@ -89,9 +89,23 @@ else
 fi
 
 repair_package_manager() {
+    local chromium_status=""
+
     update_status 56 "Repairing package manager" "Completing any interrupted Raspberry Pi OS package operation."
     log "Checking for interrupted Debian package operations..."
-    "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive dpkg --configure -a
+    if ! "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive dpkg --configure -a; then
+        chromium_status="$("${SUDO[@]}" dpkg-query -W -f='${Status}' rpi-chromium-mods 2>/dev/null || true)"
+        if [[ "$chromium_status" != "install ok installed" && -n "$chromium_status" ]]; then
+            log "Raspberry Pi OS left rpi-chromium-mods in a broken state; attempting a clean reinstall..."
+            if ! "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install --reinstall -y rpi-chromium-mods; then
+                log "The optional Chromium modifications package is still broken; removing it so OS repair can finish."
+                "${SUDO[@]}" dpkg --remove --force-remove-reinstreq rpi-chromium-mods
+            fi
+            "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive dpkg --configure -a
+        else
+            fail "Raspberry Pi OS package repair failed. Review the warehouse-dashboard-install journal for the failing package."
+        fi
+    fi
     "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get -f install -y
 }
 
@@ -270,11 +284,11 @@ disable_user_service_if_present() {
 }
 
 kill_legacy_processes() {
-    run_as_app_user pkill -f "chromium|google-chrome|firefox|midori" >/dev/null 2>&1 || true
+    run_as_app_user pkill -f "(chromium|google-chrome|firefox|midori).*--kiosk" >/dev/null 2>&1 || true
     run_as_app_user pkill -f "node-red|node_red" >/dev/null 2>&1 || true
     run_as_app_user pkill -f "homeassistant|home-assistant|hass" >/dev/null 2>&1 || true
     run_as_app_user pkill -f "warehouse_pi/pi_viewer.py|warehouse_env/.*/pi_viewer.py|warehouse_env/bin/python.*/warehouse_pi/pi_viewer.py" >/dev/null 2>&1 || true
-    "${SUDO[@]}" pkill -f "chromium|google-chrome|firefox|midori" >/dev/null 2>&1 || true
+    "${SUDO[@]}" pkill -f "(chromium|google-chrome|firefox|midori).*--kiosk" >/dev/null 2>&1 || true
     "${SUDO[@]}" pkill -f "node-red|node_red" >/dev/null 2>&1 || true
     "${SUDO[@]}" pkill -f "homeassistant|home-assistant|hass" >/dev/null 2>&1 || true
     "${SUDO[@]}" pkill -f "warehouse_pi/pi_viewer.py|warehouse_env/.*/pi_viewer.py|warehouse_env/bin/python.*/warehouse_pi/pi_viewer.py" >/dev/null 2>&1 || true
