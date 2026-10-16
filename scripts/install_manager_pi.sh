@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 VENV_DIR="$APP_DIR/.venv"
 PYTHON_BIN="/usr/bin/python3"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.4.0')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.4.1')"
 SYSTEMCTL_BIN="$(command -v systemctl 2>/dev/null || printf '/usr/bin/systemctl')"
 REBOOT_BIN="$(command -v reboot 2>/dev/null || printf '/usr/sbin/reboot')"
 
@@ -43,6 +43,12 @@ else
     SUDO=(sudo)
 fi
 
+repair_package_manager() {
+    log "Checking for interrupted Debian package operations..."
+    "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive dpkg --configure -a
+    "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get -f install -y
+}
+
 run_as_app_user() {
     if [[ "$(id -un)" == "$APP_USER" ]]; then
         "$@"
@@ -57,6 +63,8 @@ log "Installing Warehouse Manager Pi from: $APP_DIR"
 log "Services will run as user: $APP_USER"
 
 if [[ "${WAREHOUSE_SKIP_APT:-0}" != "1" ]]; then
+    repair_package_manager
+
     log "Installing system packages..."
     "${SUDO[@]}" apt-get update
     "${SUDO[@]}" apt-get install -y git python3 python3-venv python3-full curl unzip

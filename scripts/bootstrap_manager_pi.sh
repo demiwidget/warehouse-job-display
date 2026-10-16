@@ -16,8 +16,19 @@ else
     SUDO=(sudo)
 fi
 
+repair_package_manager() {
+    if ! command -v dpkg >/dev/null 2>&1; then
+        return 0
+    fi
+
+    log "Checking for interrupted Debian package operations..."
+    "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive dpkg --configure -a
+    "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get -f install -y
+}
+
 if ! command -v git >/dev/null 2>&1; then
     log "Installing Git..."
+    repair_package_manager
     "${SUDO[@]}" apt-get update
     "${SUDO[@]}" apt-get install -y git curl
 fi

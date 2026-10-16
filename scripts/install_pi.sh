@@ -51,7 +51,7 @@ MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 DISABLE_LEGACY_KIOSK="${WAREHOUSE_DISABLE_LEGACY_KIOSK:-1}"
 DISABLE_LEGACY_STACK="${WAREHOUSE_DISABLE_LEGACY_STACK:-1}"
 SKIP_SERVICE_RESTART="${WAREHOUSE_SKIP_SERVICE_RESTART:-0}"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.4.0')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.4.1')"
 
 if [[ ! -f "$APP_DIR/pi_viewer.py" || ! -f "$APP_DIR/pi_agent.py" ]]; then
     fail "Cannot find pi_viewer.py and pi_agent.py. Run this from the repository scripts directory."
@@ -87,6 +87,13 @@ if [[ "$(id -u)" -eq 0 ]]; then
 else
     SUDO=(sudo)
 fi
+
+repair_package_manager() {
+    update_status 56 "Repairing package manager" "Completing any interrupted Raspberry Pi OS package operation."
+    log "Checking for interrupted Debian package operations..."
+    "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive dpkg --configure -a
+    "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get -f install -y
+}
 
 run_as_app_user() {
     if [[ "$(id -un)" == "$APP_USER" ]]; then
@@ -362,6 +369,8 @@ disable_legacy_stack
 disable_manager_pi_stack
 
 if [[ "${WAREHOUSE_SKIP_APT:-0}" != "1" ]]; then
+    repair_package_manager
+
     update_status 60 "Updating Raspberry Pi packages" "Refreshing apt package lists."
     log "Updating package lists..."
     "${SUDO[@]}" apt-get update
