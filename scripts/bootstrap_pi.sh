@@ -18,6 +18,7 @@ MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 OVERWRITE_OLD_SYSTEM="${WAREHOUSE_OVERWRITE_OLD_SYSTEM:-0}"
 REBOOT_AFTER_INSTALL="${WAREHOUSE_REBOOT_AFTER_INSTALL:-0}"
 BACKGROUND_INSTALL="${WAREHOUSE_BACKGROUND_INSTALL:-1}"
+INSTALL_UNIT="warehouse-dashboard-install.service"
 
 if [[ -z "$MANAGER_IP" ]]; then
     fail "Set WAREHOUSE_MANAGER_IP before running this bootstrap command."
@@ -45,6 +46,41 @@ repair_package_manager() {
     log "Checking for interrupted Debian package operations..."
     "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive dpkg --configure -a
     "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get -f install -y
+}
+
+handle_existing_background_install() {
+    local load_state=""
+    local active_state=""
+    local attempt=0
+
+    if [[ "$BACKGROUND_INSTALL" != "1" ]] || ! command -v systemd-run >/dev/null 2>&1; then
+        return 0
+    fi
+
+    load_state="$("${SUDO[@]}" systemctl show -p LoadState --value "$INSTALL_UNIT" 2>/dev/null || true)"
+    active_state="$("${SUDO[@]}" systemctl show -p ActiveState --value "$INSTALL_UNIT" 2>/dev/null || true)"
+
+    case "$active_state" in
+        active|activating|reloading)
+            log "The Warehouse Dashboard installer is already running in the background."
+            log "Follow its progress with: sudo journalctl -fu $INSTALL_UNIT"
+            exit 0
+            ;;
+    esac
+
+    if [[ -n "$load_state" && "$load_state" != "not-found" ]]; then
+        log "Cleaning up the previous completed or failed installer job..."
+        "${SUDO[@]}" systemctl stop "$INSTALL_UNIT" >/dev/null 2>&1 || true
+        "${SUDO[@]}" systemctl reset-failed "$INSTALL_UNIT" >/dev/null 2>&1 || true
+        for attempt in {1..10}; do
+            load_state="$("${SUDO[@]}" systemctl show -p LoadState --value "$INSTALL_UNIT" 2>/dev/null || true)"
+            if [[ -z "$load_state" || "$load_state" == "not-found" ]]; then
+                return 0
+            fi
+            sleep 1
+        done
+        fail "The previous background installer job could not be cleared. Reboot the Pi once, then rerun this command."
+    fi
 }
 
 ensure_git() {
@@ -117,14 +153,15 @@ sync_repo() {
     git -C "$APP_DIR" config core.fileMode false || true
 }
 
+handle_existing_background_install
 sync_repo
 
 chmod +x "$APP_DIR/scripts/install_pi.sh" "$APP_DIR/scripts/update_pi.sh" 2>/dev/null || true
 
 if [[ "$BACKGROUND_INSTALL" == "1" ]] && command -v systemd-run >/dev/null 2>&1; then
-    if "${SUDO[@]}" systemctl is-active --quiet warehouse-dashboard-install.service; then
+    if "${SUDO[@]}" systemctl is-active --quiet "$INSTALL_UNIT"; then
         log "The Warehouse Dashboard installer is already running in the background."
-        log "Follow its progress with: sudo journalctl -fu warehouse-dashboard-install.service"
+        log "Follow its progress with: sudo journalctl -fu $INSTALL_UNIT"
         exit 0
     fi
 
@@ -132,6 +169,7 @@ if [[ "$BACKGROUND_INSTALL" == "1" ]] && command -v systemd-run >/dev/null 2>&1;
     "${SUDO[@]}" systemd-run \
         --unit=warehouse-dashboard-install \
         --description="Install Warehouse Dashboard" \
+        --no-block \
         --collect \
         --property=Type=oneshot \
         --setenv=WAREHOUSE_APP_DIR="$APP_DIR" \
@@ -143,7 +181,7 @@ if [[ "$BACKGROUND_INSTALL" == "1" ]] && command -v systemd-run >/dev/null 2>&1;
         --setenv=WAREHOUSE_REBOOT_AFTER_INSTALL="$REBOOT_AFTER_INSTALL" \
         /bin/bash -c 'set -Eeuo pipefail; sleep 8; cd "$WAREHOUSE_APP_DIR/scripts"; ./install_pi.sh; if [[ "$WAREHOUSE_REBOOT_AFTER_INSTALL" == "1" ]]; then reboot; fi'
     log "Installation is continuing independently of this terminal."
-    log "Follow its progress with: sudo journalctl -fu warehouse-dashboard-install.service"
+    log "Follow its progress with: sudo journalctl -fu $INSTALL_UNIT"
     exit 0
 fi
 
