@@ -1,4 +1,6 @@
 from datetime import date
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 from manager_app.inspection_metrics import (
@@ -96,6 +98,104 @@ class InspectionMetricTests(unittest.TestCase):
 
         self.assertEqual(latest["10:2"]["id"], "2")
         self.assertTrue(latest["10:2"]["passed"])
+
+    def test_grouped_payload_subtracts_only_current_passes(self):
+        state = {
+            "results_synced_at": "2026-01-20T08:30:00",
+            "inspections": {
+                "1": {"active": True, "schedule_type": 0, "schedule_interval": 10}
+            },
+            "groups": [
+                {
+                    "department_id": "power",
+                    "inspection_id": "1",
+                    "product_ids": ["100"],
+                    "total_assets": 4,
+                }
+            ],
+            "latest_results": {
+                "1:1": {
+                    "stock_level_id": "1",
+                    "product_id": "100",
+                    "inspection_id": "1",
+                    "inspection_at": "2026-01-18T10:00:00Z",
+                    "passed": True,
+                },
+                "2:1": {
+                    "stock_level_id": "2",
+                    "product_id": "100",
+                    "inspection_id": "1",
+                    "inspection_at": "2026-01-20T10:00:00Z",
+                    "passed": False,
+                },
+                "3:1": {
+                    "stock_level_id": "3",
+                    "product_id": "100",
+                    "inspection_id": "1",
+                    "inspection_at": "2026-01-05T10:00:00Z",
+                    "passed": True,
+                },
+            },
+        }
+        config = {
+            "due_within_days": 0,
+            "show_unassigned": True,
+            "department_mappings": {"power": "Power"},
+        }
+
+        payload = build_inspection_payload(state, config, today=date(2026, 1, 20))
+
+        self.assertEqual(payload["summary"]["Total"], 3)
+        self.assertEqual(payload["rows"][0]["Inspections"], 3)
+
+    def test_grouped_result_merge_uses_embedded_product(self):
+        latest = {}
+        products = {"100": {"department_id": "power", "inspection_ids": ["1"]}}
+
+        InspectionMetrics._merge_grouped_results(
+            latest,
+            [
+                {
+                    "id": 8,
+                    "stock_level_id": 20,
+                    "inspection_id": 1,
+                    "inspection_at": "2026-01-20T10:00:00Z",
+                    "passed": True,
+                    "stock_level": {"id": 20, "item_id": 100, "stock_category": 50},
+                }
+            ],
+            products,
+            {"1"},
+        )
+
+        self.assertEqual(latest["20:1"]["product_id"], "100")
+        self.assertTrue(latest["20:1"]["passed"])
+
+    def test_initial_failure_is_reported_instead_of_hidden_as_loading(self):
+        class Client:
+            api_base = "https://api.current-rms.com/api/v1"
+            subdomain = "example"
+
+        settings = {
+            "current_rms": {
+                "inspections": {
+                    "enabled": True,
+                    "department_field": "prep_department",
+                    "department_mappings": {"power": "Power"},
+                }
+            }
+        }
+        with TemporaryDirectory() as temp_dir:
+            metrics = InspectionMetrics(Path(temp_dir) / "inspection-cache.json")
+            metrics.state = {
+                "last_error": "Current RMS request failed",
+                "last_attempt_at": "2999-01-01T00:00:00",
+            }
+
+            payload = metrics.payload(Client(), settings)
+
+        self.assertIn("failed", payload["summary"]["Status"].lower())
+        self.assertEqual(payload["summary"]["Error"], "Current RMS request failed")
 
 
 if __name__ == "__main__":

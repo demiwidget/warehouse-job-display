@@ -115,7 +115,7 @@ DEFAULT_SETTINGS = {
                 "1000010": "Technology",
                 "1000011": "TV Lights",
             },
-            "request_gap_seconds": 5.0,
+            "request_gap_seconds": 1.5,
             "max_catalog_pages": 100,
             "product_batch_size": 40,
             "result_batch_size": 50,

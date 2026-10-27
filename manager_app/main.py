@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 from manager_app.server import ServerThread
-from manager_app.settings_store import DATA_DIR, PROJECT_ROOT
+from manager_app.settings_store import DATA_DIR, DEFAULT_SETTINGS, PROJECT_ROOT
 from manager_app.state import ManagerState
 
 
@@ -750,7 +750,11 @@ class CurrentRMSTab(QWidget):
         rms = self.state.get_settings(include_secret=True).get("current_rms", {})
         views = rms.get("views", {})
         quarantines = rms.get("quarantines", {}) or {}
-        inspections = rms.get("inspections", {}) or {}
+        inspection_defaults = DEFAULT_SETTINGS["current_rms"]["inspections"]
+        inspection_values = rms.get("inspections", {}) or {}
+        inspections = {**inspection_defaults, **inspection_values}
+        if not inspections.get("department_mappings"):
+            inspections["department_mappings"] = dict(inspection_defaults["department_mappings"])
         self.api_base_input = QLineEdit(rms.get("api_base", "https://api.current-rms.com/api/v1"))
         self.subdomain_input = QLineEdit(rms.get("subdomain", ""))
         self.api_key_input = QLineEdit(rms.get("api_key", ""))
