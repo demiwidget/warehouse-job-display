@@ -738,7 +738,7 @@ class CurrentRMSTab(QWidget):
         add_page_heading(
             layout,
             "Data Source",
-            "Current RMS API connection, job view IDs, excluded items, and quarantine leaderboard settings.",
+            "Current RMS API connection, job views, quarantine totals, and inspection counts.",
         )
 
         rms_panel, rms_layout = make_panel(
@@ -750,6 +750,7 @@ class CurrentRMSTab(QWidget):
         rms = self.state.get_settings(include_secret=True).get("current_rms", {})
         views = rms.get("views", {})
         quarantines = rms.get("quarantines", {}) or {}
+        inspections = rms.get("inspections", {}) or {}
         self.api_base_input = QLineEdit(rms.get("api_base", "https://api.current-rms.com/api/v1"))
         self.subdomain_input = QLineEdit(rms.get("subdomain", ""))
         self.api_key_input = QLineEdit(rms.get("api_key", ""))
@@ -798,6 +799,33 @@ class CurrentRMSTab(QWidget):
         self.quarantine_departments_input.setPlainText(
             self.format_department_mappings(quarantines.get("department_mappings", {}))
         )
+        self.inspection_enabled_input = QCheckBox()
+        self.inspection_enabled_input.setChecked(bool(inspections.get("enabled", True)))
+        self.inspection_field_input = QLineEdit(
+            str(inspections.get("department_field", "prep_department"))
+        )
+        self.inspection_due_days_input = QSpinBox()
+        self.inspection_due_days_input.setRange(0, 365)
+        self.inspection_due_days_input.setValue(int(inspections.get("due_within_days", 0)))
+        self.inspection_refresh_minutes_input = QSpinBox()
+        self.inspection_refresh_minutes_input.setRange(1, 1440)
+        self.inspection_refresh_minutes_input.setValue(int(inspections.get("refresh_minutes", 15)))
+        self.inspection_catalog_hours_input = QSpinBox()
+        self.inspection_catalog_hours_input.setRange(1, 168)
+        self.inspection_catalog_hours_input.setValue(int(inspections.get("catalog_refresh_hours", 24)))
+        self.inspection_show_unassigned_input = QCheckBox()
+        self.inspection_show_unassigned_input.setChecked(bool(inspections.get("show_unassigned", True)))
+        self.inspection_excluded_departments_input = QLineEdit(
+            ", ".join(str(item) for item in inspections.get("excluded_department_ids", []))
+        )
+        self.inspection_departments_input = QTextEdit()
+        self.inspection_departments_input.setMinimumHeight(90)
+        self.inspection_departments_input.setPlaceholderText(
+            "One per line, for example:\n1000083 = Power\n1000012 = Rigging"
+        )
+        self.inspection_departments_input.setPlainText(
+            self.format_department_mappings(inspections.get("department_mappings", {}))
+        )
 
         form.addRow("API base URL", self.api_base_input)
         form.addRow("Subdomain", self.subdomain_input)
@@ -838,6 +866,25 @@ class CurrentRMSTab(QWidget):
         quarantine_form.addRow("Quarantine department names", self.quarantine_departments_input)
         quarantine_layout.addLayout(quarantine_form)
         layout.addWidget(quarantine_panel)
+
+        inspection_panel, inspection_layout = make_panel(
+            "Inspection Counts",
+            (
+                "Counts inspection tasks due by department. The first catalogue build runs in the background; "
+                "later refreshes only collect changed inspection results."
+            ),
+        )
+        inspection_form = QFormLayout()
+        inspection_form.addRow("Show inspection counts", self.inspection_enabled_input)
+        inspection_form.addRow("Product group department field", self.inspection_field_input)
+        inspection_form.addRow("Include inspections due within (days)", self.inspection_due_days_input)
+        inspection_form.addRow("Refresh completed results every (min)", self.inspection_refresh_minutes_input)
+        inspection_form.addRow("Rebuild product / asset catalogue every (hours)", self.inspection_catalog_hours_input)
+        inspection_form.addRow("Show unassigned products", self.inspection_show_unassigned_input)
+        inspection_form.addRow("Ignored inspection department IDs", self.inspection_excluded_departments_input)
+        inspection_form.addRow("Inspection department names", self.inspection_departments_input)
+        inspection_layout.addLayout(inspection_form)
+        layout.addWidget(inspection_panel)
 
         actions_panel, actions_layout = make_panel(
             "Data Actions",
@@ -887,6 +934,20 @@ class CurrentRMSTab(QWidget):
                 ),
                 "department_mappings": self.parse_department_mappings(
                     self.quarantine_departments_input.toPlainText()
+                ),
+            },
+            "inspections": {
+                "enabled": self.inspection_enabled_input.isChecked(),
+                "department_field": self.inspection_field_input.text().strip() or "prep_department",
+                "due_within_days": self.inspection_due_days_input.value(),
+                "refresh_minutes": self.inspection_refresh_minutes_input.value(),
+                "catalog_refresh_hours": self.inspection_catalog_hours_input.value(),
+                "show_unassigned": self.inspection_show_unassigned_input.isChecked(),
+                "excluded_department_ids": self.parse_csv_ids(
+                    self.inspection_excluded_departments_input.text()
+                ),
+                "department_mappings": self.parse_department_mappings(
+                    self.inspection_departments_input.toPlainText()
                 ),
             },
             "excluded_item_ids": self.parse_csv_ids(self.excluded_items_input.text()),

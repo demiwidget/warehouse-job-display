@@ -11,6 +11,8 @@ from tempfile import NamedTemporaryFile
 
 import requests
 
+from manager_app.inspection_metrics import InspectionMetrics
+
 
 EVENT_META = {
     "new_job_today": {
@@ -364,6 +366,7 @@ class DashboardBuilder:
         self._last_excluded_item_ids = None
         self._sound_gate_started_at = datetime.now()
         self._prep_metric_state = self._load_prep_metric_state()
+        self._inspection_metrics = InspectionMetrics()
 
     def build(self, screen, settings):
         if not self._payloads:
@@ -495,6 +498,7 @@ class DashboardBuilder:
                 "outstanding": self._outstanding_payload(views.get("outstanding"), client, item_cache),
                 "unreturned": self._unreturned_payload(views.get("unreturned")),
                 "quarantines": self._quarantine_payload(quarantine_view, settings),
+                "inspections": self._inspection_metrics.payload(client, settings),
             }
 
             alerts = []
@@ -951,6 +955,7 @@ class DashboardBuilder:
             "outstanding": self._empty_payload("Outstanding Items"),
             "unreturned": self._empty_payload("Unreturned Jobs"),
             "quarantines": self._empty_payload("Quarantines"),
+            "inspections": self._empty_payload("Inspections"),
             "notifications": {
                 "title": "Notification History",
                 "summary": {"Notifications": len(rows)},

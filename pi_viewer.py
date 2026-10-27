@@ -550,11 +550,12 @@ class LeaderboardCard(QWidget):
         self.accent = accent
         self.ui_scale = 1.0
         self.rank_labels = []
+        self.inspection_labels = []
         layout = QHBoxLayout(self)
         layout.setSpacing(scaled(10, self.ui_scale))
 
         left = QVBoxLayout()
-        left.setSpacing(scaled(2, self.ui_scale))
+        left.setSpacing(0)
         self.title = QLabel(title)
         self.title.setAlignment(Qt.AlignCenter)
         self.value = QLabel("0")
@@ -562,30 +563,53 @@ class LeaderboardCard(QWidget):
         self.caption = QLabel("total quarantines")
         self.caption.setAlignment(Qt.AlignCenter)
         self.caption.setWordWrap(True)
+        self.inspection_title = QLabel("Inspections")
+        self.inspection_title.setAlignment(Qt.AlignCenter)
+        self.inspection_value = QLabel("0")
+        self.inspection_value.setAlignment(Qt.AlignCenter)
         left.addWidget(self.title)
         left.addWidget(self.value)
-        left.addWidget(self.caption)
+        left.addWidget(self.inspection_title)
+        left.addWidget(self.inspection_value)
+        left.addWidget(self.caption, 0)
 
         self.rows_widget = QWidget()
         self.rows_grid = QGridLayout(self.rows_widget)
         self.rows_grid.setContentsMargins(0, 0, 0, 0)
         self.rows_grid.setSpacing(scaled(6, self.ui_scale))
+        self.inspection_rows_widget = QWidget()
+        self.inspection_rows_grid = QGridLayout(self.inspection_rows_widget)
+        self.inspection_rows_grid.setContentsMargins(0, 0, 0, 0)
+        self.inspection_rows_grid.setSpacing(scaled(6, self.ui_scale))
+
+        rows = QVBoxLayout()
+        rows.setContentsMargins(0, 0, 0, 0)
+        rows.setSpacing(scaled(6, self.ui_scale))
+        rows.addWidget(self.rows_widget)
+        rows.addWidget(self.inspection_rows_widget)
 
         layout.addLayout(left, 1)
-        layout.addWidget(self.rows_widget, 5)
+        layout.addLayout(rows, 5)
         self.apply_scale(1.0)
 
     def apply_scale(self, scale=1.0):
         scale = float(scale or 1.0)
         self.ui_scale = scale
-        self.title.setStyleSheet(f"font-size:{scaled(14, scale)}px; font-weight:800; color:{self.accent};")
-        self.value.setStyleSheet(f"font-size:{scaled(30, scale)}px; font-weight:850; padding:{scaled(2, scale)}px;")
-        self.caption.setStyleSheet(f"font-size:{scaled(11, scale)}px; color:#9fa8ad;")
+        self.title.setStyleSheet(f"font-size:{scaled(11, scale)}px; font-weight:900; color:{self.accent};")
+        self.value.setStyleSheet(f"font-size:{scaled(23, scale)}px; font-weight:900;")
+        self.inspection_title.setStyleSheet(
+            f"font-size:{scaled(11, scale)}px; font-weight:900; color:#62d6e8;"
+        )
+        self.inspection_value.setStyleSheet(f"font-size:{scaled(23, scale)}px; font-weight:900;")
+        self.caption.setStyleSheet(f"font-size:{scaled(8, scale)}px; color:#9fa8ad;")
         self.layout().setSpacing(scaled(10, scale))
         self.rows_grid.setSpacing(scaled(6, scale))
+        self.inspection_rows_grid.setSpacing(scaled(6, scale))
         for index, label in enumerate(self.rank_labels):
             self._style_rank_label(label, rank_color(index, max(1, len(self.rank_labels))))
-        self.setMinimumHeight(scaled(88, scale))
+        for label in self.inspection_labels:
+            self._style_inspection_label(label)
+        self.setMinimumHeight(scaled(96, scale))
         self.setStyleSheet(
             f"background:#15181b; border:1px solid #2b2f23; "
             f"border-left:{scaled(4, scale)}px solid {self.accent}; "
@@ -600,10 +624,27 @@ class LeaderboardCard(QWidget):
             if widget is not None:
                 widget.deleteLater()
 
+    def _clear_inspection_labels(self):
+        self.inspection_labels = []
+        while self.inspection_rows_grid.count():
+            item = self.inspection_rows_grid.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
     def _style_rank_label(self, label, background):
-        label.setMinimumHeight(scaled(34, self.ui_scale))
+        label.setMinimumHeight(scaled(32, self.ui_scale))
         label.setStyleSheet(
             f"background:{background}; color:#000000; "
+            f"border:0; border-radius:{scaled(7, self.ui_scale)}px; "
+            f"padding:{scaled(3, self.ui_scale)}px {scaled(6, self.ui_scale)}px; "
+            f"font-size:{scaled(16, self.ui_scale)}px; font-weight:850;"
+        )
+
+    def _style_inspection_label(self, label):
+        label.setMinimumHeight(scaled(32, self.ui_scale))
+        label.setStyleSheet(
+            f"background:#72c8d4; color:#061014; "
             f"border:0; border-radius:{scaled(7, self.ui_scale)}px; "
             f"padding:{scaled(3, self.ui_scale)}px {scaled(6, self.ui_scale)}px; "
             f"font-size:{scaled(16, self.ui_scale)}px; font-weight:850;"
@@ -643,6 +684,38 @@ class LeaderboardCard(QWidget):
             self._style_rank_label(label, rank_color(index, total_rows))
             self.rank_labels.append(label)
             self.rows_grid.addWidget(label, index // column_count, index % column_count)
+
+    def set_inspection_data(self, total, rows, status=""):
+        self.inspection_value.setText(str(total))
+        if status:
+            self.caption.setText(str(status))
+        self._clear_inspection_labels()
+
+        display_rows = list(rows or [])[:8]
+        if not display_rows:
+            placeholder = QLabel("Inspection counts loading")
+            placeholder.setAlignment(Qt.AlignCenter)
+            placeholder.setWordWrap(False)
+            self._style_inspection_label(placeholder)
+            self.inspection_labels.append(placeholder)
+            self.inspection_rows_grid.addWidget(placeholder, 0, 0)
+            return
+
+        column_count = max(1, len(display_rows))
+        for index, row in enumerate(display_rows):
+            department = row.get("Department", "Unknown")
+            count = row.get("Inspections", 0)
+            count_style = f"font-size:{scaled(21, self.ui_scale)}px; font-weight:1000;"
+            label = QLabel(
+                f"{escape(str(department))}: "
+                f"<span style='{count_style}'>{escape(str(count))}</span>"
+            )
+            label.setTextFormat(Qt.RichText)
+            label.setAlignment(Qt.AlignCenter)
+            label.setWordWrap(False)
+            self._style_inspection_label(label)
+            self.inspection_labels.append(label)
+            self.inspection_rows_grid.addWidget(label, index // column_count, index % column_count)
 
 
 class CompactMetricCard(QWidget):
@@ -734,6 +807,7 @@ class CompactOverviewPage(QScrollArea):
             "outstanding": CompactMetricCard("Outstanding", "#ff5a5f", self.ui_scale),
             "unreturned": CompactMetricCard("Unreturned", "#ffb000", self.ui_scale),
             "quarantines": CompactMetricCard("Quarantines", "#80ed99", self.ui_scale),
+            "inspections": CompactMetricCard("Inspections", "#62d6e8", self.ui_scale),
         }
         for index, card in enumerate(self.cards.values()):
             self.grid.addWidget(card, index // 2, index % 2)
@@ -1723,6 +1797,7 @@ class ViewerWindow(QMainWindow):
         unreturned = bundle.get("unreturned", {"title": "Unreturned Jobs", "summary": {}, "rows": []})
         notifications = bundle.get("notifications", {"title": "Notifications", "summary": {}, "rows": []})
         quarantines = bundle.get("quarantines", {"title": "Quarantines", "summary": {}, "rows": []})
+        inspections = bundle.get("inspections", {"title": "Inspections", "summary": {}, "rows": []})
         daily_quote = bundle.get("daily_quote", {}) or today.get("daily_quote", {}) or {}
 
         if self.daily_quote_banner is not None:
@@ -1734,7 +1809,13 @@ class ViewerWindow(QMainWindow):
         self.card_quarantines.set_data(
             quarantine_summary.get("Total", 0),
             quarantines.get("rows", []),
-            quarantine_summary.get("Status", "total quarantines"),
+            quarantine_summary.get("Status", "current"),
+        )
+        inspection_summary = inspections.get("summary", {}) or {}
+        self.card_quarantines.set_inspection_data(
+            inspection_summary.get("Total", 0),
+            inspections.get("rows", []),
+            inspection_summary.get("Status", "calculating"),
         )
         self.card_today_out.set_data(today.get("summary", {}).get("Jobs Out", 0), "Jobs collecting / delivering today")
         self.card_today_in.set_data(today.get("summary", {}).get("Jobs In", 0), "Jobs returning today")
@@ -1796,6 +1877,10 @@ class ViewerWindow(QMainWindow):
                     "quarantines": (
                         quarantine_summary.get("Total", 0),
                         quarantine_summary.get("Status", "current"),
+                    ),
+                    "inspections": (
+                        inspection_summary.get("Total", 0),
+                        inspection_summary.get("Status", "calculating"),
                     ),
                 }
             )
