@@ -5,6 +5,7 @@ import os
 import random
 import re
 import shutil
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -19,6 +20,7 @@ from manager_app.daily_quote import DailyQuoteService
 from manager_app.email_alerts import alert_email_enabled, send_alert_email, send_test_email
 from manager_app.security import security_status, set_admin_password
 from manager_app.settings_store import PROJECT_ROOT, SettingsStore
+from pi_os_update import read_os_update_status
 
 OFFLINE_AFTER_SECONDS = 35
 TRANSITIONAL_STATUS_SECONDS = 180
@@ -60,6 +62,7 @@ TRANSITIONAL_STATES = {
 }
 UPDATE_ALL_MANAGER_DELAY_SECONDS = 30
 MAX_AUDIO_STATUS_AGE_SECONDS = 600
+MANAGER_OS_DEVICE_ID = "__manager_pi__"
 OS_UPDATE_START_TIMEOUT_SECONDS = 300
 OS_UPDATE_RUN_TIMEOUT_SECONDS = 4 * 60 * 60
 OS_UPDATE_ACTIVE_STATES = {"checking", "preparing", "updating", "finalising"}
@@ -316,15 +319,31 @@ class ManagerState:
         settings = self.store.load_settings()
         night_sleep = self.night_sleep_settings(settings)
         night_sleep["active"] = self.is_night_sleep_due(settings)
+        hostname = socket.gethostname().strip() or "Manager Pi"
+        manager_ip = ""
+        try:
+            manager_ip = next(
+                (
+                    info[4][0]
+                    for info in socket.getaddrinfo(hostname, None, socket.AF_INET)
+                    if info[4][0] and not info[4][0].startswith("127.")
+                ),
+                "",
+            )
+        except OSError:
+            pass
         return {
             "version": CURRENT_VERSION,
             "is_manager_pi": self._manager_pi_ready(),
+            "hostname": hostname,
+            "ip": manager_ip,
             "backend_service": self._service_state("warehouse-manager-backend.service"),
             "display_service": self._service_state("warehouse-manager-display.service"),
             "update_service": self._service_state("warehouse-manager-update.service"),
             "update_status": update_status,
             "manager_update_status": self._read_json_file(MANAGER_UPDATE_STATUS_FILE),
             "manager_update_log": self._read_log_tail(MANAGER_UPDATE_LOG_FILE),
+            "os_update_status": read_os_update_status(),
             "night_sleep": night_sleep,
             "security": security_status(),
         }
@@ -424,6 +443,14 @@ class ManagerState:
             "reboot": (
                 sudo + [reboot],
                 "Rebooting Manager Pi.",
+            ),
+            "os_update_check": (
+                sudo + [systemctl, "--no-block", "start", "warehouse-manager-os-update-check.service"],
+                "Started Manager Pi OS update check.",
+            ),
+            "os_update_install": (
+                sudo + [systemctl, "--no-block", "start", "warehouse-manager-os-update.service"],
+                "Started Manager Pi OS update. The Manager Pi will restart after package changes.",
             ),
         }
         if action not in commands:
@@ -1001,12 +1028,12 @@ class ManagerState:
             self.os_update_batch["updated_at"] = datetime.now().isoformat(timespec="seconds")
             return deepcopy(self.os_update_batch)
 
-    def start_os_update_batch(self, device_ids):
+    def _validate_screen_os_update_targets(self, device_ids):
         clean_ids = list(
             dict.fromkeys(
                 str(device_id).strip()
                 for device_id in (device_ids or [])
-                if str(device_id).strip()
+                if str(device_id).strip() and str(device_id).strip() != MANAGER_OS_DEVICE_ID
             )
         )
         if not clean_ids:
@@ -1041,6 +1068,63 @@ class ManagerState:
             raise ValueError("These dashboard Pis are offline: " + ", ".join(offline))
         if busy:
             raise ValueError("Wait for the current OS check or update to finish on: " + ", ".join(busy))
+        return clean_ids, names
+
+    def start_os_updates_at_once(self, device_ids, include_manager=False):
+        requested_ids = [
+            str(device_id).strip()
+            for device_id in (device_ids or [])
+            if str(device_id).strip() and str(device_id).strip() != MANAGER_OS_DEVICE_ID
+        ]
+        clean_ids = []
+        names = {}
+        if requested_ids:
+            clean_ids, names = self._validate_screen_os_update_targets(requested_ids)
+        if not clean_ids and not include_manager:
+            raise ValueError("Select at least one Raspberry Pi to update.")
+
+        with self.os_update_batch_lock:
+            if self.os_update_batch.get("state") == "running":
+                raise RuntimeError("Wait for the current sequential OS update rollout to finish.")
+
+        if include_manager:
+            manager_status = self.get_manager_status()
+            if not manager_status.get("is_manager_pi"):
+                raise RuntimeError("Manager Pi OS controls are unavailable until its app is updated.")
+            os_status = manager_status.get("os_update_status", {})
+            if not isinstance(os_status, dict) or not os_status.get("supported"):
+                raise RuntimeError("Manager Pi OS controls are not installed yet. Update the Manager Pi app first.")
+            if str(os_status.get("state") or "").strip().lower() in OS_UPDATE_ACTIVE_STATES:
+                raise RuntimeError("Wait for the current Manager Pi OS operation to finish.")
+
+        if clean_ids:
+            self.queue_command(clean_ids, "os_update_install")
+        if include_manager:
+            self.run_manager_command("os_update_install")
+
+        total = len(clean_ids) + (1 if include_manager else 0)
+        message = f"Started Raspberry Pi OS updates on {total} Pi(s) at the same time."
+        if include_manager:
+            message += " The Manager Pi may go offline briefly while it restarts."
+        self.log_activity(
+            "OS Updates",
+            message,
+            details={
+                "device_ids": clean_ids,
+                "device_names": names,
+                "include_manager": bool(include_manager),
+            },
+        )
+        return {
+            "ok": True,
+            "message": message,
+            "device_count": total,
+            "device_ids": clean_ids,
+            "include_manager": bool(include_manager),
+        }
+
+    def start_os_update_batch(self, device_ids):
+        clean_ids, names = self._validate_screen_os_update_targets(device_ids)
 
         started_at = datetime.now().isoformat(timespec="seconds")
         with self.os_update_batch_lock:

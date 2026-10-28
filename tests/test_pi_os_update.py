@@ -2,8 +2,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from threading import Lock
 from unittest.mock import patch
 
+from manager_app.state import ManagerState
 from pi_os_update import (
     parse_apt_simulation,
     read_os_update_status,
@@ -59,6 +61,28 @@ Remv obsolete-package [1.0]
         changed = reconcile_os_update_maintenance(cfg, {"state": "failed"})
         self.assertTrue(changed)
         self.assertFalse(cfg["maintenance"]["enabled"])
+
+    def test_all_at_once_dispatches_screens_and_manager(self):
+        state = ManagerState.__new__(ManagerState)
+        state.os_update_batch_lock = Lock()
+        state.os_update_batch = {"state": "idle"}
+        queued = []
+        manager_actions = []
+        state._validate_screen_os_update_targets = lambda ids: (list(ids), {"screen-1": "Screen 1"})
+        state.get_manager_status = lambda: {
+            "is_manager_pi": True,
+            "os_update_status": {"supported": True, "state": "current"},
+        }
+        state.queue_command = lambda ids, action: queued.append((list(ids), action))
+        state.run_manager_command = lambda action: manager_actions.append(action)
+        state.log_activity = lambda *_args, **_kwargs: None
+
+        result = state.start_os_updates_at_once(["screen-1"], include_manager=True)
+
+        self.assertEqual(queued, [(["screen-1"], "os_update_install")])
+        self.assertEqual(manager_actions, ["os_update_install"])
+        self.assertEqual(result["device_count"], 2)
+        self.assertTrue(result["include_manager"])
 
 
 if __name__ == "__main__":

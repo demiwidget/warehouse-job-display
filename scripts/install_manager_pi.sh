@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 VENV_DIR="$APP_DIR/.venv"
 PYTHON_BIN="/usr/bin/python3"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.4.12')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.4.13')"
 SYSTEMCTL_BIN="$(command -v systemctl 2>/dev/null || printf '/usr/bin/systemctl')"
 REBOOT_BIN="$(command -v reboot 2>/dev/null || printf '/usr/sbin/reboot')"
 
@@ -83,7 +83,7 @@ fi
 
 run_as_app_user "$VENV_DIR/bin/python" -m pip install --upgrade pip
 run_as_app_user "$VENV_DIR/bin/python" -m pip install -r "$APP_DIR/requirements.txt"
-chmod +x "$APP_DIR/scripts/update_manager_pi.sh" "$APP_DIR/scripts/reset_manager_password.sh" 2>/dev/null || true
+chmod +x "$APP_DIR/scripts/update_manager_pi.sh" "$APP_DIR/scripts/update_pi_os.py" "$APP_DIR/scripts/reset_manager_password.sh" 2>/dev/null || true
 
 log "Preparing manager settings..."
 run_as_app_user "$PYTHON_BIN" - "$APP_DIR" "$VERSION" <<'PY'
@@ -141,6 +141,8 @@ log "Writing limited manager control permissions..."
 "${SUDO[@]}" tee /etc/sudoers.d/warehouse-manager-pi >/dev/null <<SUDOERS
 # Allow the Warehouse Manager Pi backend to update, restart its own services, and reboot this Pi only.
 $APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL_BIN --no-block start warehouse-manager-update.service
+$APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL_BIN --no-block start warehouse-manager-os-update-check.service
+$APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL_BIN --no-block start warehouse-manager-os-update.service
 $APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL_BIN --no-block restart warehouse-manager-backend.service
 $APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL_BIN --no-block restart warehouse-manager-display.service
 $APP_USER ALL=(root) NOPASSWD: $REBOOT_BIN
@@ -151,6 +153,10 @@ if command -v visudo >/dev/null 2>&1; then
 fi
 
 log "Writing systemd services..."
+"${SUDO[@]}" install -d -o root -g root -m 0755 /usr/local/lib/warehouse-dashboard
+"${SUDO[@]}" install -o root -g root -m 0644 "$APP_DIR/pi_os_update.py" /usr/local/lib/warehouse-dashboard/pi_os_update.py
+"${SUDO[@]}" install -o root -g root -m 0755 "$APP_DIR/scripts/update_pi_os.py" /usr/local/lib/warehouse-dashboard/update_pi_os.py
+"${SUDO[@]}" install -d -o root -g root -m 0755 /var/lib/warehouse-dashboard
 "${SUDO[@]}" tee /etc/systemd/system/warehouse-manager-backend.service >/dev/null <<SERVICE
 [Unit]
 Description=Warehouse Manager Pi Backend
@@ -168,6 +174,38 @@ RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
+SERVICE
+
+"${SUDO[@]}" tee /etc/systemd/system/warehouse-manager-os-update-check.service >/dev/null <<SERVICE
+[Unit]
+Description=Warehouse Manager Pi OS Update Check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/usr/local/lib/warehouse-dashboard
+ExecStart=/usr/bin/python3 /usr/local/lib/warehouse-dashboard/update_pi_os.py check
+TimeoutStartSec=4h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+SERVICE
+
+"${SUDO[@]}" tee /etc/systemd/system/warehouse-manager-os-update.service >/dev/null <<SERVICE
+[Unit]
+Description=Warehouse Manager Pi OS Update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/usr/local/lib/warehouse-dashboard
+ExecStart=/usr/bin/python3 /usr/local/lib/warehouse-dashboard/update_pi_os.py install --reboot
+TimeoutStartSec=4h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
 SERVICE
 
 "${SUDO[@]}" tee /etc/systemd/system/warehouse-manager-display.service >/dev/null <<SERVICE

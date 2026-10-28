@@ -211,6 +211,19 @@ def create_app(state):
     def cancel_os_update_batch():
         return jsonify(state.cancel_os_update_batch())
 
+    @app.post("/api/os-updates/all-at-once")
+    def start_os_updates_at_once():
+        payload = request.get_json(silent=True) or {}
+        try:
+            return jsonify(
+                state.start_os_updates_at_once(
+                    payload.get("device_ids") or [],
+                    include_manager=bool(payload.get("include_manager")),
+                )
+            )
+        except (ValueError, RuntimeError) as error:
+            return jsonify({"ok": False, "message": str(error)}), 400
+
     @app.get("/api/settings")
     def get_settings():
         include_secret = str(request.args.get("include_secret", "")).strip().lower() in {"1", "true", "yes"}

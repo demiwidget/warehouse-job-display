@@ -153,6 +153,15 @@ class RemoteManagerState:
     def cancel_os_update_batch(self):
         return self._post("/api/os-updates/batch/cancel")
 
+    def start_os_updates_at_once(self, device_ids, include_manager=False):
+        return self._post(
+            "/api/os-updates/all-at-once",
+            {
+                "device_ids": list(device_ids or []),
+                "include_manager": bool(include_manager),
+            },
+        )
+
     def remove_devices(self, device_ids):
         return int(self._post("/api/devices/remove", {"device_ids": device_ids}).get("removed", 0) or 0)
 

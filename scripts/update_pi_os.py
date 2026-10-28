@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -232,6 +233,11 @@ def install_updates():
 def main():
     parser = argparse.ArgumentParser(description="Warehouse dashboard Raspberry Pi OS updater")
     parser.add_argument("mode", choices=("check", "install"))
+    parser.add_argument(
+        "--reboot",
+        action="store_true",
+        help="Reboot after a successful install that changed packages.",
+    )
     args = parser.parse_args()
 
     if os.geteuid() != 0:
@@ -267,7 +273,24 @@ def main():
             error="",
         )
         try:
-            return check_only() if args.mode == "check" else install_updates()
+            result = check_only() if args.mode == "check" else install_updates()
+            if args.mode == "install" and args.reboot and result == 0:
+                try:
+                    status = json.loads(STATUS_FILE.read_text(encoding="utf-8"))
+                except (OSError, ValueError, TypeError):
+                    status = {}
+                if int(status.get("updated_count", 0) or 0) > 0:
+                    write_status(
+                        state="complete",
+                        progress=100,
+                        title="OS update complete",
+                        detail="Package updates are installed. Restarting this Pi now.",
+                        reboot_required=True,
+                    )
+                    time.sleep(8)
+                    systemctl = shutil.which("systemctl") or "/usr/bin/systemctl"
+                    subprocess.run([systemctl, "reboot"], check=False, timeout=30)
+            return result
         except Exception as error:
             log(f"OS update failed: {error}")
             write_status(

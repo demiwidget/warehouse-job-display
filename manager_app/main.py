@@ -3488,10 +3488,12 @@ class PiScreensTab(QWidget):
 class OSUpdatesTab(QWidget):
     refresh_result_ready = Signal(object)
     action_finished = Signal(object)
+    MANAGER_DEVICE_ID = "__manager_pi__"
 
     COLUMNS = [
         "ID",
         "Dashboard",
+        "Role",
         "IP",
         "Raspberry Pi OS",
         "Kernel",
@@ -3528,7 +3530,7 @@ class OSUpdatesTab(QWidget):
         add_page_heading(
             layout,
             "OS Updates",
-            "Check and safely update Raspberry Pi OS across the dashboard fleet without opening a remote shell.",
+            "Check and safely update Raspberry Pi OS across the Manager Pi and dashboard fleet without opening a remote shell.",
         )
 
         status_grid = QGridLayout()
@@ -3549,25 +3551,28 @@ class OSUpdatesTab(QWidget):
 
         actions_panel, actions_layout = make_panel(
             "Safe Update Controls",
-            "Checks may run together. Installs run one Pi at a time and reboot each updated Pi before moving on.",
+            "Run all OS updates together, or use the slower sequential option for dashboard screens. Updated Pis restart automatically.",
         )
         buttons = QHBoxLayout()
         self.check_selected_btn = QPushButton("Check Selected")
         self.check_all_btn = QPushButton("Check All Online")
-        self.update_selected_btn = mark_primary(QPushButton("Update Selected Sequentially"))
-        self.update_all_btn = mark_primary(QPushButton("Update All Sequentially"))
+        self.update_selected_btn = QPushButton("Update Selected At Once")
+        self.update_all_btn = mark_primary(QPushButton("Update All At Once"))
+        self.sequential_btn = QPushButton("Update Dashboard Pis Sequentially")
         self.cancel_btn = mark_danger(QPushButton("Stop After Current Pi"))
         self.refresh_btn = QPushButton("Refresh")
         self.check_selected_btn.clicked.connect(self.check_selected)
         self.check_all_btn.clicked.connect(self.check_all)
         self.update_selected_btn.clicked.connect(self.update_selected)
         self.update_all_btn.clicked.connect(self.update_all)
+        self.sequential_btn.clicked.connect(self.update_dashboards_sequentially)
         self.cancel_btn.clicked.connect(self.cancel_batch)
         self.refresh_btn.clicked.connect(self.refresh)
         buttons.addWidget(self.check_selected_btn)
         buttons.addWidget(self.check_all_btn)
         buttons.addWidget(self.update_selected_btn)
         buttons.addWidget(self.update_all_btn)
+        buttons.addWidget(self.sequential_btn)
         buttons.addStretch(1)
         buttons.addWidget(self.cancel_btn)
         buttons.addWidget(self.refresh_btn)
@@ -3577,8 +3582,8 @@ class OSUpdatesTab(QWidget):
         layout.addWidget(actions_panel)
 
         fleet_panel, fleet_layout = make_panel(
-            "Dashboard Pi OS Status",
-            "Select rows for a targeted check or update. A dashboard app update is required once before OS controls become available.",
+            "Raspberry Pi OS Status",
+            "The Manager Pi appears first, followed by every dashboard Pi. Select rows for targeted checks or simultaneous updates.",
         )
         self.table = QTableWidget(0, len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels(self.COLUMNS)
@@ -3644,7 +3649,11 @@ class OSUpdatesTab(QWidget):
         try:
             devices = self.state.list_devices()
             batch = self.state.get_os_update_batch_status()
-            safe_emit(self.refresh_result_ready, {"ok": True, "devices": devices, "batch": batch})
+            manager_status = self.state.get_manager_status()
+            safe_emit(
+                self.refresh_result_ready,
+                {"ok": True, "devices": devices, "batch": batch, "manager_status": manager_status},
+            )
         except Exception as error:
             safe_emit(self.refresh_result_ready, {"ok": False, "error": str(error)})
 
@@ -3653,7 +3662,11 @@ class OSUpdatesTab(QWidget):
         if not result.get("ok"):
             self.batch_status.setText(f"Could not refresh OS update status: {result.get('error', 'unknown error')}")
             return
-        self.apply_status(result.get("devices", []) or [], result.get("batch", {}) or {})
+        self.apply_status(
+            result.get("devices", []) or [],
+            result.get("batch", {}) or {},
+            result.get("manager_status", {}) or {},
+        )
 
     @staticmethod
     def format_bytes(value):
@@ -3669,9 +3682,25 @@ class OSUpdatesTab(QWidget):
             amount /= 1024
         return "Unknown"
 
-    def apply_status(self, devices, batch):
+    def apply_status(self, devices, batch, manager_status):
         selected_ids = set(self.selected_device_ids())
-        self.devices = list(devices)
+        manager_os_status = (
+            manager_status.get("os_update_status", {})
+            if isinstance(manager_status.get("os_update_status"), dict)
+            else {}
+        )
+        manager_backend_state = str(manager_status.get("backend_service") or "").strip().lower()
+        manager_device = {
+            "id": self.MANAGER_DEVICE_ID,
+            "name": str(manager_status.get("hostname") or "Manager Pi"),
+            "role": "Manager Pi",
+            "ip": str(manager_status.get("ip") or ""),
+            "state": "Online" if manager_backend_state == "active" else "Attention",
+            "os_update_status": manager_os_status,
+        }
+        screen_devices = [dict(device, role="Dashboard") for device in devices]
+        all_devices = [manager_device, *screen_devices]
+        self.devices = all_devices
         signature = repr(
             [
                 {
@@ -3680,7 +3709,7 @@ class OSUpdatesTab(QWidget):
                     "state": device.get("state"),
                     "os": device.get("os_update_status"),
                 }
-                for device in devices
+                for device in all_devices
             ]
         ) + repr(batch)
 
@@ -3688,20 +3717,20 @@ class OSUpdatesTab(QWidget):
         pending_total = 0
         active_count = 0
         attention_count = 0
-        for device in devices:
+        for device in all_devices:
             status = device.get("os_update_status", {}) if isinstance(device.get("os_update_status"), dict) else {}
             if status.get("supported"):
                 supported += 1
             pending_total += int(status.get("pending_count", 0) or 0)
             if str(status.get("state") or "") in {"checking", "preparing", "updating", "finalising"}:
                 active_count += 1
-            if str(status.get("state") or "") in {"attention", "failed"} or device.get("state") == "Offline":
+            if str(status.get("state") or "") in {"attention", "failed"} or device.get("state") in {"Offline", "Attention"}:
                 attention_count += 1
 
         self.ready_card.set_content(
-            f"{supported}/{len(devices)} ready",
-            "Update dashboard apps first where support is missing.",
-            "good" if supported == len(devices) and devices else "warn",
+            f"{supported}/{len(all_devices)} ready",
+            "Update Manager and dashboard apps first where support is missing.",
+            "good" if supported == len(all_devices) and all_devices else "warn",
         )
         self.pending_card.set_content(
             str(pending_total),
@@ -3709,10 +3738,16 @@ class OSUpdatesTab(QWidget):
             "warn" if pending_total else "good",
         )
         batch_state = str(batch.get("state") or "idle")
+        rollout_value = f"{active_count} running" if active_count else "Running" if batch_state == "running" else batch_state.title()
+        rollout_detail = (
+            "OS maintenance is active across the fleet."
+            if active_count
+            else f"{batch.get('completed', 0)}/{batch.get('total', 0)} sequential updates completed."
+        )
         self.active_card.set_content(
-            "Running" if batch_state == "running" else batch_state.title(),
-            f"{batch.get('completed', 0)}/{batch.get('total', 0)} Pis completed.",
-            "warn" if batch_state == "running" else "bad" if batch_state == "failed" else "good",
+            rollout_value,
+            rollout_detail,
+            "warn" if active_count or batch_state == "running" else "bad" if batch_state == "failed" else "good",
         )
         self.attention_card.set_content(
             str(attention_count),
@@ -3720,20 +3755,25 @@ class OSUpdatesTab(QWidget):
             "bad" if attention_count else "good",
         )
 
-        self.batch_status.setText(str(batch.get("message") or "No OS update rollout is running."))
+        self.batch_status.setText(
+            f"{active_count} Raspberry Pi OS operation(s) currently running."
+            if active_count
+            else str(batch.get("message") or "No OS update rollout is running.")
+        )
         self.cancel_btn.setEnabled(batch_state == "running")
         self.check_selected_btn.setEnabled(batch_state != "running")
         self.check_all_btn.setEnabled(batch_state != "running")
         self.update_selected_btn.setEnabled(batch_state != "running")
         self.update_all_btn.setEnabled(batch_state != "running")
+        self.sequential_btn.setEnabled(batch_state != "running")
 
         if signature == self.last_refresh_signature:
             return
         self.last_refresh_signature = signature
         self.table.setUpdatesEnabled(False)
         try:
-            self.table.setRowCount(len(devices))
-            for row, device in enumerate(devices):
+            self.table.setRowCount(len(all_devices))
+            for row, device in enumerate(all_devices):
                 status = device.get("os_update_status", {}) if isinstance(device.get("os_update_status"), dict) else {}
                 supported_status = bool(status.get("supported"))
                 state = str(status.get("state") or "not_checked") if supported_status else "unsupported"
@@ -3743,6 +3783,7 @@ class OSUpdatesTab(QWidget):
                 values = [
                     device.get("id", ""),
                     device.get("name", ""),
+                    device.get("role", "Dashboard"),
                     device.get("ip", ""),
                     os_label,
                     status.get("kernel", ""),
@@ -3777,10 +3818,26 @@ class OSUpdatesTab(QWidget):
         def worker():
             try:
                 if action == "check":
-                    self.state.queue_command(device_ids or [], "os_update_check")
-                    result = {"ok": True, "message": f"Queued OS update checks for {len(device_ids or [])} Pi(s)."}
-                elif action == "update":
-                    batch = self.state.start_os_update_batch(device_ids or [])
+                    selected_ids = list(device_ids or [])
+                    include_manager = self.MANAGER_DEVICE_ID in selected_ids
+                    screen_ids = [device_id for device_id in selected_ids if device_id != self.MANAGER_DEVICE_ID]
+                    if screen_ids:
+                        self.state.queue_command(screen_ids, "os_update_check")
+                    if include_manager:
+                        self.state.run_manager_command("os_update_check")
+                    result = {"ok": True, "message": f"Queued OS update checks for {len(selected_ids)} Pi(s)."}
+                elif action == "update_at_once":
+                    selected_ids = list(device_ids or [])
+                    include_manager = self.MANAGER_DEVICE_ID in selected_ids
+                    screen_ids = [device_id for device_id in selected_ids if device_id != self.MANAGER_DEVICE_ID]
+                    result = self.state.start_os_updates_at_once(
+                        screen_ids,
+                        include_manager=include_manager,
+                    )
+                elif action == "update_sequential":
+                    batch = self.state.start_os_update_batch(
+                        [device_id for device_id in (device_ids or []) if device_id != self.MANAGER_DEVICE_ID]
+                    )
                     result = {"ok": True, "message": batch.get("message", "OS update rollout started.")}
                 elif action == "cancel":
                     batch = self.state.cancel_os_update_batch()
@@ -3804,27 +3861,28 @@ class OSUpdatesTab(QWidget):
     def check_selected(self):
         device_ids = self.selected_device_ids()
         if not device_ids:
-            QMessageBox.warning(self, "OS Update Check", "Select one or more dashboard Pis first.")
+            QMessageBox.warning(self, "OS Update Check", "Select one or more Raspberry Pis first.")
             return
         self.run_action("check", device_ids)
 
     def check_all(self):
         device_ids = self.online_supported_ids()
         if not device_ids:
-            QMessageBox.warning(self, "OS Update Check", "No online dashboard Pis currently support OS update checks.")
+            QMessageBox.warning(self, "OS Update Check", "No online Raspberry Pis currently support OS update checks.")
             return
         self.run_action("check", device_ids)
 
-    def confirm_update(self, device_ids):
+    def confirm_update(self, device_ids, simultaneous=True):
         if not device_ids:
-            QMessageBox.warning(self, "OS Update", "Select at least one online dashboard Pi first.")
+            QMessageBox.warning(self, "OS Update", "Select at least one online Raspberry Pi first.")
             return False
         choice = QMessageBox.warning(
             self,
             "Start Raspberry Pi OS Updates?",
             (
-                f"Update {len(device_ids)} dashboard Pi(s) one at a time?\n\n"
-                "Each Pi may be unavailable for a while and will restart automatically after installing updates. "
+                f"Update {len(device_ids)} Raspberry Pi(s) {'at the same time' if simultaneous else 'one at a time'}?\n\n"
+                "Each selected Pi may be unavailable for a while and will restart automatically after installing updates. "
+                "If the Manager Pi is included, this app will temporarily disconnect while it restarts. "
                 "Do not switch off a Pi while its update screen is visible."
             ),
             QMessageBox.Yes | QMessageBox.No,
@@ -3835,12 +3893,21 @@ class OSUpdatesTab(QWidget):
     def update_selected(self):
         device_ids = self.selected_device_ids()
         if self.confirm_update(device_ids):
-            self.run_action("update", device_ids)
+            self.run_action("update_at_once", device_ids)
 
     def update_all(self):
         device_ids = self.online_supported_ids()
         if self.confirm_update(device_ids):
-            self.run_action("update", device_ids)
+            self.run_action("update_at_once", device_ids)
+
+    def update_dashboards_sequentially(self):
+        device_ids = [
+            device_id
+            for device_id in self.online_supported_ids()
+            if device_id != self.MANAGER_DEVICE_ID
+        ]
+        if self.confirm_update(device_ids, simultaneous=False):
+            self.run_action("update_sequential", device_ids)
 
     def cancel_batch(self):
         choice = QMessageBox.question(
@@ -3890,6 +3957,7 @@ class ActivityConsoleTab(QWidget):
                 "Notifications",
                 "Office Gift",
                 "Updates",
+                "OS Updates",
                 "Commands",
                 "Settings",
                 "Sleep",
