@@ -144,6 +144,15 @@ class RemoteManagerState:
         payload.update({key: value for key, value in extra.items() if value not in (None, "")})
         return self._post("/api/devices/command", payload).get("command", {})
 
+    def get_os_update_batch_status(self):
+        return self._get("/api/os-updates/batch")
+
+    def start_os_update_batch(self, device_ids):
+        return self._post("/api/os-updates/batch", {"device_ids": list(device_ids or [])})
+
+    def cancel_os_update_batch(self):
+        return self._post("/api/os-updates/batch/cancel")
+
     def remove_devices(self, device_ids):
         return int(self._post("/api/devices/remove", {"device_ids": device_ids}).get("removed", 0) or 0)
 

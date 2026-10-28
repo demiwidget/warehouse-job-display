@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from threading import Lock, RLock, Thread
+from threading import Event, Lock, RLock, Thread
 from time import monotonic, sleep
 import traceback
 
@@ -44,10 +44,26 @@ STATUS_LABELS = {
     "viewer_starting": "Display Starting",
     "updating": "Updating",
     "update_failed": "Update Failed",
+    "os_checking": "OS Update Check",
+    "os_updating": "OS Updating",
+    "os_update_failed": "OS Update Attention",
 }
-TRANSITIONAL_STATES = {"display_restarting", "rebooting", "renaming", "switching_screen", "viewer_starting", "updating"}
+TRANSITIONAL_STATES = {
+    "display_restarting",
+    "rebooting",
+    "renaming",
+    "switching_screen",
+    "viewer_starting",
+    "updating",
+    "os_checking",
+    "os_updating",
+}
 UPDATE_ALL_MANAGER_DELAY_SECONDS = 30
 MAX_AUDIO_STATUS_AGE_SECONDS = 600
+OS_UPDATE_START_TIMEOUT_SECONDS = 300
+OS_UPDATE_RUN_TIMEOUT_SECONDS = 4 * 60 * 60
+OS_UPDATE_ACTIVE_STATES = {"checking", "preparing", "updating", "finalising"}
+OS_UPDATE_TERMINAL_STATES = {"available", "current", "complete", "attention", "failed"}
 
 
 def parse_iso(ts):
@@ -116,6 +132,21 @@ class ManagerState:
         self.commands = {}
         self.alerts = {device_id: [] for device_id in self.devices}
         self.office_gift_last_sent = {}
+        self.os_update_batch_lock = Lock()
+        self.os_update_batch_cancel = Event()
+        self.os_update_batch = {
+            "state": "idle",
+            "device_ids": [],
+            "total": 0,
+            "completed": 0,
+            "current_device_id": "",
+            "current_device_name": "",
+            "results": {},
+            "message": "No OS update rollout is running.",
+            "started_at": "",
+            "updated_at": "",
+            "finished_at": "",
+        }
         self.dashboard = DashboardBuilder()
         self.daily_quote = DailyQuoteService()
         self.night_sleep_active = None
@@ -561,6 +592,10 @@ class ManagerState:
         if isinstance(audio_status, dict):
             existing["audio_status"] = audio_status
             existing["audio_checked_at"] = now
+        os_update_status = payload.get("os_update_status")
+        if isinstance(os_update_status, dict):
+            existing["os_update_status"] = os_update_status
+            existing["os_update_checked_at"] = now
 
     def _apply_status_update(self, existing, payload, now):
         state = str(payload.get("state", "")).strip()
@@ -639,7 +674,7 @@ class ManagerState:
             result = dict(existing)
 
         if event_only:
-            category = "Audio" if source == "audio" else "Pis"
+            category = "Audio" if source == "audio" else "OS Updates" if source == "os_update" else "Pis"
             level = str(payload.get("level", "")).strip().lower() or "info"
             if level not in {"info", "warning", "error"}:
                 level = "info"
@@ -647,14 +682,19 @@ class ManagerState:
                 category,
                 f"{result.get('name') or device_id}: {message or 'Event received.'}",
                 level=level,
-                details={"device_id": device_id, "source": source, "audio_status": payload.get("audio_status")},
+                details={
+                    "device_id": device_id,
+                    "source": source,
+                    "audio_status": payload.get("audio_status"),
+                    "os_update_status": payload.get("os_update_status"),
+                },
             )
             return result
 
         state = str(result.get("status_state", "")).strip()
         message = str(result.get("status_message", "")).strip()
         if state and (state != previous_state or message != previous_message):
-            category = "Updates" if state == "updating" else "Pis"
+            category = "OS Updates" if source == "os_update" else "Updates" if state == "updating" else "Pis"
             self.log_activity(
                 category,
                 f"{result.get('name') or device_id}: {STATUS_LABELS.get(state, state.replace('_', ' ').title())}.",
@@ -950,6 +990,223 @@ class ManagerState:
                 details={"device_id": str(device_id), "command": command},
             )
         return command
+
+    def get_os_update_batch_status(self):
+        with self.os_update_batch_lock:
+            return deepcopy(self.os_update_batch)
+
+    def _set_os_update_batch(self, **updates):
+        with self.os_update_batch_lock:
+            self.os_update_batch.update(updates)
+            self.os_update_batch["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            return deepcopy(self.os_update_batch)
+
+    def start_os_update_batch(self, device_ids):
+        clean_ids = list(
+            dict.fromkeys(
+                str(device_id).strip()
+                for device_id in (device_ids or [])
+                if str(device_id).strip()
+            )
+        )
+        if not clean_ids:
+            raise ValueError("Select at least one dashboard Pi to update.")
+
+        now = datetime.now()
+        unsupported = []
+        offline = []
+        busy = []
+        names = {}
+        with self.lock:
+            for device_id in clean_ids:
+                device = self.devices.get(device_id)
+                if not device:
+                    unsupported.append(device_id)
+                    continue
+                names[device_id] = str(device.get("name") or device_id)
+                status = device.get("os_update_status", {})
+                if not isinstance(status, dict) or not status.get("supported"):
+                    unsupported.append(names[device_id])
+                elif str(status.get("state") or "").strip().lower() in OS_UPDATE_ACTIVE_STATES:
+                    busy.append(names[device_id])
+                last_seen = parse_iso(device.get("last_seen"))
+                if not last_seen or (now - last_seen).total_seconds() > OFFLINE_AFTER_SECONDS:
+                    offline.append(names[device_id])
+
+        if unsupported:
+            raise ValueError(
+                "Update the dashboard app from GitHub first on: " + ", ".join(unsupported)
+            )
+        if offline:
+            raise ValueError("These dashboard Pis are offline: " + ", ".join(offline))
+        if busy:
+            raise ValueError("Wait for the current OS check or update to finish on: " + ", ".join(busy))
+
+        started_at = datetime.now().isoformat(timespec="seconds")
+        with self.os_update_batch_lock:
+            if self.os_update_batch.get("state") == "running":
+                raise RuntimeError("An OS update rollout is already running.")
+            self.os_update_batch_cancel.clear()
+            self.os_update_batch.update(
+                {
+                    "state": "running",
+                    "device_ids": clean_ids,
+                    "total": len(clean_ids),
+                    "completed": 0,
+                    "current_device_id": "",
+                    "current_device_name": "",
+                    "results": {},
+                    "message": f"Preparing a sequential OS update for {len(clean_ids)} dashboard Pi(s).",
+                    "started_at": started_at,
+                    "updated_at": started_at,
+                    "finished_at": "",
+                }
+            )
+        Thread(
+            target=self._os_update_batch_worker,
+            args=(clean_ids, names),
+            daemon=True,
+            name="os-update-batch",
+        ).start()
+        self.log_activity(
+            "OS Updates",
+            f"Started sequential Raspberry Pi OS update for {len(clean_ids)} dashboard Pi(s).",
+            details={"device_ids": clean_ids},
+        )
+        return self.get_os_update_batch_status()
+
+    def cancel_os_update_batch(self):
+        status = self.get_os_update_batch_status()
+        if status.get("state") != "running":
+            return status
+        self.os_update_batch_cancel.set()
+        self._set_os_update_batch(
+            message="Cancellation requested. The current Pi will finish safely; remaining Pis will be skipped."
+        )
+        self.log_activity(
+            "OS Updates",
+            "OS update rollout cancellation requested. The current Pi will not be interrupted.",
+            level="warning",
+        )
+        return self.get_os_update_batch_status()
+
+    def _device_os_update_status(self, device_id):
+        with self.lock:
+            device = self.devices.get(str(device_id), {})
+            status = device.get("os_update_status", {})
+            return dict(status) if isinstance(status, dict) else {}
+
+    def _os_update_batch_worker(self, device_ids, names):
+        results = {}
+        completed = 0
+        cancelled = False
+        try:
+            for position, device_id in enumerate(device_ids, start=1):
+                if self.os_update_batch_cancel.is_set():
+                    cancelled = True
+                    break
+
+                device_name = names.get(device_id, device_id)
+                baseline = self._device_os_update_status(device_id)
+                baseline_signature = (
+                    str(baseline.get("updated_at") or ""),
+                    str(baseline.get("started_at") or ""),
+                    str(baseline.get("mode") or ""),
+                    str(baseline.get("state") or ""),
+                )
+                self._set_os_update_batch(
+                    current_device_id=device_id,
+                    current_device_name=device_name,
+                    message=f"Updating {device_name} ({position} of {len(device_ids)}).",
+                )
+                self.queue_command([device_id], "os_update_install")
+
+                started = False
+                start_deadline = monotonic() + OS_UPDATE_START_TIMEOUT_SECONDS
+                run_deadline = monotonic() + OS_UPDATE_RUN_TIMEOUT_SECONDS
+                final_status = {}
+                while monotonic() < run_deadline:
+                    status = self._device_os_update_status(device_id)
+                    signature = (
+                        str(status.get("updated_at") or ""),
+                        str(status.get("started_at") or ""),
+                        str(status.get("mode") or ""),
+                        str(status.get("state") or ""),
+                    )
+                    state = str(status.get("state") or "").strip().lower()
+                    if str(status.get("mode") or "") == "install" and signature != baseline_signature:
+                        started = True
+                    if started and state in OS_UPDATE_TERMINAL_STATES:
+                        final_status = status
+                        break
+                    if not started and monotonic() > start_deadline:
+                        final_status = {
+                            "state": "failed",
+                            "detail": "The dashboard Pi did not start the OS update command within five minutes.",
+                        }
+                        break
+                    sleep(3)
+                else:
+                    final_status = {
+                        "state": "failed",
+                        "detail": "The dashboard Pi OS update exceeded four hours.",
+                    }
+
+                final_state = str(final_status.get("state") or "failed").strip().lower()
+                success = final_state in {"complete", "current"}
+                message = str(final_status.get("detail") or final_status.get("title") or final_state.title())
+                results[device_id] = {
+                    "name": device_name,
+                    "state": final_state,
+                    "success": success,
+                    "message": message,
+                }
+                completed += 1
+                self._set_os_update_batch(
+                    completed=completed,
+                    results=deepcopy(results),
+                    message=f"{device_name}: {message}",
+                )
+                self.log_activity(
+                    "OS Updates",
+                    f"{device_name}: {message}",
+                    level="info" if success else "error",
+                    details={"device_id": device_id, "os_update_status": final_status},
+                )
+
+            if self.os_update_batch_cancel.is_set() and completed < len(device_ids):
+                cancelled = True
+            failures = sum(1 for result in results.values() if not result.get("success"))
+            final_state = "cancelled" if cancelled else "complete"
+            if cancelled:
+                final_message = f"Rollout stopped after {completed} of {len(device_ids)} dashboard Pi(s)."
+            elif failures:
+                final_message = f"Rollout finished with {failures} dashboard Pi(s) needing attention."
+            else:
+                final_message = f"All {completed} dashboard Pi OS update(s) completed successfully."
+            self._set_os_update_batch(
+                state=final_state,
+                completed=completed,
+                current_device_id="",
+                current_device_name="",
+                results=deepcopy(results),
+                message=final_message,
+                finished_at=datetime.now().isoformat(timespec="seconds"),
+            )
+            self.log_activity(
+                "OS Updates",
+                final_message,
+                level="warning" if cancelled or failures else "info",
+            )
+        except Exception as error:
+            self._set_os_update_batch(
+                state="failed",
+                current_device_id="",
+                current_device_name="",
+                message=f"OS update rollout failed: {error}",
+                finished_at=datetime.now().isoformat(timespec="seconds"),
+            )
+            self.log_exception("OS Updates", "OS update rollout failed", error)
 
     def poll_alert(self, device_id):
         with self.lock:

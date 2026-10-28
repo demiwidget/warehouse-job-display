@@ -51,7 +51,7 @@ MANAGER_PORT="${WAREHOUSE_MANAGER_PORT:-8765}"
 DISABLE_LEGACY_KIOSK="${WAREHOUSE_DISABLE_LEGACY_KIOSK:-1}"
 DISABLE_LEGACY_STACK="${WAREHOUSE_DISABLE_LEGACY_STACK:-1}"
 SKIP_SERVICE_RESTART="${WAREHOUSE_SKIP_SERVICE_RESTART:-0}"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.4.11')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.4.12')"
 
 if [[ ! -f "$APP_DIR/pi_viewer.py" || ! -f "$APP_DIR/pi_agent.py" ]]; then
     fail "Cannot find pi_viewer.py and pi_agent.py. Run this from the repository scripts directory."
@@ -65,7 +65,7 @@ if [[ -z "$REBOOT_BIN" ]]; then
     fail "Could not find reboot on this Raspberry Pi."
 fi
 
-chmod +x "$SCRIPT_DIR/update_pi.sh" "$SCRIPT_DIR/launch_pi_gui.sh"
+chmod +x "$SCRIPT_DIR/update_pi.sh" "$SCRIPT_DIR/update_pi_os.py" "$SCRIPT_DIR/launch_pi_gui.sh"
 
 if [[ -n "${WAREHOUSE_APP_USER:-}" ]]; then
     APP_USER="$WAREHOUSE_APP_USER"
@@ -514,6 +514,8 @@ log "Writing limited restart and reboot permissions for the agent..."
 $APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL_BIN restart warehouse-viewer.service
 $APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL_BIN start warehouse-update.service
 $APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL_BIN --no-block start warehouse-update.service
+$APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL_BIN --no-block start warehouse-os-update-check.service
+$APP_USER ALL=(root) NOPASSWD: $SYSTEMCTL_BIN --no-block start warehouse-os-update.service
 $APP_USER ALL=(root) NOPASSWD: $REBOOT_BIN
 SUDOERS
 "${SUDO[@]}" chmod 440 /etc/sudoers.d/warehouse-dashboard
@@ -523,6 +525,10 @@ fi
 
 update_status 93 "Updating services" "Writing the latest system services."
 log "Writing systemd services..."
+"${SUDO[@]}" install -d -o root -g root -m 0755 /usr/local/lib/warehouse-dashboard
+"${SUDO[@]}" install -o root -g root -m 0644 "$APP_DIR/pi_os_update.py" /usr/local/lib/warehouse-dashboard/pi_os_update.py
+"${SUDO[@]}" install -o root -g root -m 0755 "$SCRIPT_DIR/update_pi_os.py" /usr/local/lib/warehouse-dashboard/update_pi_os.py
+"${SUDO[@]}" install -d -o root -g root -m 0755 /var/lib/warehouse-dashboard
 if [[ -f /etc/systemd/system/warehouse-refresh.service ]]; then
     log "Removing legacy warehouse-refresh.service..."
     "${SUDO[@]}" systemctl disable --now warehouse-refresh.service >/dev/null 2>&1 || true
@@ -626,6 +632,38 @@ Unit=warehouse-update.service
 
 [Install]
 WantedBy=timers.target
+SERVICE
+
+"${SUDO[@]}" tee /etc/systemd/system/warehouse-os-update-check.service >/dev/null <<SERVICE
+[Unit]
+Description=Warehouse Dashboard Raspberry Pi OS Update Check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/usr/local/lib/warehouse-dashboard
+ExecStart=/usr/bin/python3 /usr/local/lib/warehouse-dashboard/update_pi_os.py check
+TimeoutStartSec=4h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+SERVICE
+
+"${SUDO[@]}" tee /etc/systemd/system/warehouse-os-update.service >/dev/null <<SERVICE
+[Unit]
+Description=Warehouse Dashboard Raspberry Pi OS Update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/usr/local/lib/warehouse-dashboard
+ExecStart=/usr/bin/python3 /usr/local/lib/warehouse-dashboard/update_pi_os.py install
+TimeoutStartSec=4h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
 SERVICE
 
 update_status 97 "Restarting services" "Reloading system services and restarting the dashboard."

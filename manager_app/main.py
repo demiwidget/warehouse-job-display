@@ -3485,6 +3485,373 @@ class PiScreensTab(QWidget):
         self.status.setText(f"Queued {action} for {len(device_ids)} Pi screen(s).")
 
 
+class OSUpdatesTab(QWidget):
+    refresh_result_ready = Signal(object)
+    action_finished = Signal(object)
+
+    COLUMNS = [
+        "ID",
+        "Dashboard",
+        "IP",
+        "Raspberry Pi OS",
+        "Kernel",
+        "Updates",
+        "Status",
+        "Progress",
+        "Free Space",
+        "Last Check",
+    ]
+    STATE_COLORS = {
+        "not_checked": "#607d8b",
+        "checking": "#1e88e5",
+        "preparing": "#00897b",
+        "updating": "#00897b",
+        "finalising": "#00897b",
+        "available": "#d48b12",
+        "current": "#2e7d32",
+        "complete": "#2e7d32",
+        "attention": "#ef6c00",
+        "failed": "#b71c1c",
+        "unsupported": "#616161",
+    }
+
+    def __init__(self, state):
+        super().__init__()
+        self.state = state
+        self.active = False
+        self.refresh_in_progress = False
+        self.action_in_progress = False
+        self.devices = []
+        self.last_refresh_signature = ""
+
+        layout = make_scroll_page(self, margins=(12, 12, 12, 18), spacing=10)
+        add_page_heading(
+            layout,
+            "OS Updates",
+            "Check and safely update Raspberry Pi OS across the dashboard fleet without opening a remote shell.",
+        )
+
+        status_grid = QGridLayout()
+        status_grid.setSpacing(10)
+        status_grid.setColumnStretch(0, 1)
+        status_grid.setColumnStretch(1, 1)
+        status_grid.setColumnStretch(2, 1)
+        status_grid.setColumnStretch(3, 1)
+        self.ready_card = ManagerInfoCard("Supported Pis")
+        self.pending_card = ManagerInfoCard("Package Updates")
+        self.active_card = ManagerInfoCard("Rollout")
+        self.attention_card = ManagerInfoCard("Needs Attention")
+        status_grid.addWidget(self.ready_card, 0, 0)
+        status_grid.addWidget(self.pending_card, 0, 1)
+        status_grid.addWidget(self.active_card, 0, 2)
+        status_grid.addWidget(self.attention_card, 0, 3)
+        layout.addLayout(status_grid)
+
+        actions_panel, actions_layout = make_panel(
+            "Safe Update Controls",
+            "Checks may run together. Installs run one Pi at a time and reboot each updated Pi before moving on.",
+        )
+        buttons = QHBoxLayout()
+        self.check_selected_btn = QPushButton("Check Selected")
+        self.check_all_btn = QPushButton("Check All Online")
+        self.update_selected_btn = mark_primary(QPushButton("Update Selected Sequentially"))
+        self.update_all_btn = mark_primary(QPushButton("Update All Sequentially"))
+        self.cancel_btn = mark_danger(QPushButton("Stop After Current Pi"))
+        self.refresh_btn = QPushButton("Refresh")
+        self.check_selected_btn.clicked.connect(self.check_selected)
+        self.check_all_btn.clicked.connect(self.check_all)
+        self.update_selected_btn.clicked.connect(self.update_selected)
+        self.update_all_btn.clicked.connect(self.update_all)
+        self.cancel_btn.clicked.connect(self.cancel_batch)
+        self.refresh_btn.clicked.connect(self.refresh)
+        buttons.addWidget(self.check_selected_btn)
+        buttons.addWidget(self.check_all_btn)
+        buttons.addWidget(self.update_selected_btn)
+        buttons.addWidget(self.update_all_btn)
+        buttons.addStretch(1)
+        buttons.addWidget(self.cancel_btn)
+        buttons.addWidget(self.refresh_btn)
+        actions_layout.addLayout(buttons)
+        self.batch_status = make_status_label("No OS update rollout is running.")
+        actions_layout.addWidget(self.batch_status)
+        layout.addWidget(actions_panel)
+
+        fleet_panel, fleet_layout = make_panel(
+            "Dashboard Pi OS Status",
+            "Select rows for a targeted check or update. A dashboard app update is required once before OS controls become available.",
+        )
+        self.table = QTableWidget(0, len(self.COLUMNS))
+        self.table.setHorizontalHeaderLabels(self.COLUMNS)
+        self.table.setColumnHidden(0, True)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.MultiSelection)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setMinimumHeight(360)
+        tune_table(self.table)
+        fleet_layout.addWidget(self.table)
+        layout.addWidget(fleet_panel, 1)
+
+        safety_panel, safety_layout = make_panel(
+            "Safety Rules",
+            "Remote OS updates use the Pi's configured Raspberry Pi OS repositories only. They never run rpi-update, never change release sources, and stop if package removals or low disk space need manual review.",
+        )
+        safety_layout.addWidget(
+            make_status_label(
+                "For a major Raspberry Pi OS release change, back up the Pi and install a fresh Raspberry Pi OS image instead."
+            )
+        )
+        layout.addWidget(safety_panel)
+        layout.addStretch(1)
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.refresh)
+        self.refresh_result_ready.connect(self.handle_refresh_result)
+        self.action_finished.connect(self.handle_action_finished)
+
+    def set_active(self, active):
+        self.active = bool(active)
+        if self.active:
+            self.timer.start(5000)
+            self.refresh()
+        else:
+            self.timer.stop()
+
+    def selected_device_ids(self):
+        rows = {index.row() for index in self.table.selectedIndexes()}
+        result = []
+        for row in sorted(rows):
+            item = self.table.item(row, 0)
+            if item and item.text().strip():
+                result.append(item.text().strip())
+        return result
+
+    def online_supported_ids(self):
+        return [
+            str(device.get("id") or "")
+            for device in self.devices
+            if device.get("state") != "Offline"
+            and isinstance(device.get("os_update_status"), dict)
+            and device.get("os_update_status", {}).get("supported")
+        ]
+
+    def refresh(self):
+        if self.refresh_in_progress:
+            return
+        self.refresh_in_progress = True
+        Thread(target=self._refresh_worker, daemon=True).start()
+
+    def _refresh_worker(self):
+        try:
+            devices = self.state.list_devices()
+            batch = self.state.get_os_update_batch_status()
+            safe_emit(self.refresh_result_ready, {"ok": True, "devices": devices, "batch": batch})
+        except Exception as error:
+            safe_emit(self.refresh_result_ready, {"ok": False, "error": str(error)})
+
+    def handle_refresh_result(self, result):
+        self.refresh_in_progress = False
+        if not result.get("ok"):
+            self.batch_status.setText(f"Could not refresh OS update status: {result.get('error', 'unknown error')}")
+            return
+        self.apply_status(result.get("devices", []) or [], result.get("batch", {}) or {})
+
+    @staticmethod
+    def format_bytes(value):
+        try:
+            amount = float(value or 0)
+        except (TypeError, ValueError):
+            return "Unknown"
+        if amount <= 0:
+            return "Unknown"
+        for suffix in ("B", "KB", "MB", "GB", "TB"):
+            if amount < 1024 or suffix == "TB":
+                return f"{amount:.1f} {suffix}"
+            amount /= 1024
+        return "Unknown"
+
+    def apply_status(self, devices, batch):
+        selected_ids = set(self.selected_device_ids())
+        self.devices = list(devices)
+        signature = repr(
+            [
+                {
+                    "id": device.get("id"),
+                    "ip": device.get("ip"),
+                    "state": device.get("state"),
+                    "os": device.get("os_update_status"),
+                }
+                for device in devices
+            ]
+        ) + repr(batch)
+
+        supported = 0
+        pending_total = 0
+        active_count = 0
+        attention_count = 0
+        for device in devices:
+            status = device.get("os_update_status", {}) if isinstance(device.get("os_update_status"), dict) else {}
+            if status.get("supported"):
+                supported += 1
+            pending_total += int(status.get("pending_count", 0) or 0)
+            if str(status.get("state") or "") in {"checking", "preparing", "updating", "finalising"}:
+                active_count += 1
+            if str(status.get("state") or "") in {"attention", "failed"} or device.get("state") == "Offline":
+                attention_count += 1
+
+        self.ready_card.set_content(
+            f"{supported}/{len(devices)} ready",
+            "Update dashboard apps first where support is missing.",
+            "good" if supported == len(devices) and devices else "warn",
+        )
+        self.pending_card.set_content(
+            str(pending_total),
+            "Known package updates across checked Pis.",
+            "warn" if pending_total else "good",
+        )
+        batch_state = str(batch.get("state") or "idle")
+        self.active_card.set_content(
+            "Running" if batch_state == "running" else batch_state.title(),
+            f"{batch.get('completed', 0)}/{batch.get('total', 0)} Pis completed.",
+            "warn" if batch_state == "running" else "bad" if batch_state == "failed" else "good",
+        )
+        self.attention_card.set_content(
+            str(attention_count),
+            "Offline Pis or OS updates needing review.",
+            "bad" if attention_count else "good",
+        )
+
+        self.batch_status.setText(str(batch.get("message") or "No OS update rollout is running."))
+        self.cancel_btn.setEnabled(batch_state == "running")
+        self.check_selected_btn.setEnabled(batch_state != "running")
+        self.check_all_btn.setEnabled(batch_state != "running")
+        self.update_selected_btn.setEnabled(batch_state != "running")
+        self.update_all_btn.setEnabled(batch_state != "running")
+
+        if signature == self.last_refresh_signature:
+            return
+        self.last_refresh_signature = signature
+        self.table.setUpdatesEnabled(False)
+        try:
+            self.table.setRowCount(len(devices))
+            for row, device in enumerate(devices):
+                status = device.get("os_update_status", {}) if isinstance(device.get("os_update_status"), dict) else {}
+                supported_status = bool(status.get("supported"))
+                state = str(status.get("state") or "not_checked") if supported_status else "unsupported"
+                os_label = str(status.get("os_name") or "Agent update required")
+                updates = str(status.get("pending_count", 0)) if supported_status and state != "not_checked" else "Not checked"
+                status_label = str(status.get("title") or state.replace("_", " ").title())
+                values = [
+                    device.get("id", ""),
+                    device.get("name", ""),
+                    device.get("ip", ""),
+                    os_label,
+                    status.get("kernel", ""),
+                    updates,
+                    status_label,
+                    f"{int(status.get('progress', 0) or 0)}%" if supported_status else "-",
+                    self.format_bytes(status.get("free_bytes")),
+                    status.get("updated_at", ""),
+                ]
+                for column, value in enumerate(values):
+                    item = QTableWidgetItem(str(value))
+                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                    if self.COLUMNS[column] == "Status":
+                        color = self.STATE_COLORS.get(state, "")
+                        if color:
+                            item.setBackground(QColor(color))
+                            item.setForeground(QColor("#ffffff"))
+                        item.setToolTip(str(status.get("detail") or status.get("error") or ""))
+                    self.table.setItem(row, column, item)
+                if str(device.get("id") or "") in selected_ids:
+                    self.table.selectRow(row)
+            self.table.resizeColumnsToContents()
+            self.table.horizontalHeader().setStretchLastSection(True)
+        finally:
+            self.table.setUpdatesEnabled(True)
+
+    def run_action(self, action, device_ids=None):
+        if self.action_in_progress:
+            return
+        self.action_in_progress = True
+
+        def worker():
+            try:
+                if action == "check":
+                    self.state.queue_command(device_ids or [], "os_update_check")
+                    result = {"ok": True, "message": f"Queued OS update checks for {len(device_ids or [])} Pi(s)."}
+                elif action == "update":
+                    batch = self.state.start_os_update_batch(device_ids or [])
+                    result = {"ok": True, "message": batch.get("message", "OS update rollout started.")}
+                elif action == "cancel":
+                    batch = self.state.cancel_os_update_batch()
+                    result = {"ok": True, "message": batch.get("message", "Cancellation requested.")}
+                else:
+                    raise ValueError("Unknown OS update action.")
+            except Exception as error:
+                result = {"ok": False, "message": str(error)}
+            safe_emit(self.action_finished, result)
+
+        Thread(target=worker, daemon=True).start()
+
+    def handle_action_finished(self, result):
+        self.action_in_progress = False
+        message = str(result.get("message") or "OS update action completed.")
+        self.batch_status.setText(message)
+        if not result.get("ok"):
+            QMessageBox.warning(self, "OS Updates", message)
+        self.refresh()
+
+    def check_selected(self):
+        device_ids = self.selected_device_ids()
+        if not device_ids:
+            QMessageBox.warning(self, "OS Update Check", "Select one or more dashboard Pis first.")
+            return
+        self.run_action("check", device_ids)
+
+    def check_all(self):
+        device_ids = self.online_supported_ids()
+        if not device_ids:
+            QMessageBox.warning(self, "OS Update Check", "No online dashboard Pis currently support OS update checks.")
+            return
+        self.run_action("check", device_ids)
+
+    def confirm_update(self, device_ids):
+        if not device_ids:
+            QMessageBox.warning(self, "OS Update", "Select at least one online dashboard Pi first.")
+            return False
+        choice = QMessageBox.warning(
+            self,
+            "Start Raspberry Pi OS Updates?",
+            (
+                f"Update {len(device_ids)} dashboard Pi(s) one at a time?\n\n"
+                "Each Pi may be unavailable for a while and will restart automatically after installing updates. "
+                "Do not switch off a Pi while its update screen is visible."
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        return choice == QMessageBox.Yes
+
+    def update_selected(self):
+        device_ids = self.selected_device_ids()
+        if self.confirm_update(device_ids):
+            self.run_action("update", device_ids)
+
+    def update_all(self):
+        device_ids = self.online_supported_ids()
+        if self.confirm_update(device_ids):
+            self.run_action("update", device_ids)
+
+    def cancel_batch(self):
+        choice = QMessageBox.question(
+            self,
+            "Stop OS Update Rollout?",
+            "Stop after the currently updating Pi finishes? The current package update will not be interrupted.",
+        )
+        if choice == QMessageBox.Yes:
+            self.run_action("cancel")
+
+
 class ActivityConsoleTab(QWidget):
     refresh_result_ready = Signal(object)
 
@@ -3662,6 +4029,7 @@ class ManagerWindow(QMainWindow):
         ("notifications", "Notifications", "Alerts, routing, email, sounds", AlertsTab),
         ("manager", "Manager Pi", "Backend services and security", ManagerPiTab),
         ("dashboards", "Dashboards", "Screen fleet controls", PiScreensTab),
+        ("os_updates", "OS Updates", "Raspberry Pi OS fleet maintenance", OSUpdatesTab),
         ("activity", "Activity Log", "Diagnostics and event history", ActivityConsoleTab),
     ]
 

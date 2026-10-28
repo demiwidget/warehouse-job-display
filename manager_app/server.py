@@ -195,6 +195,22 @@ def create_app(state):
         command_payload = state.queue_command(device_ids, action, **extras)
         return jsonify({"ok": True, "command": command_payload})
 
+    @app.get("/api/os-updates/batch")
+    def os_update_batch_status():
+        return jsonify(state.get_os_update_batch_status())
+
+    @app.post("/api/os-updates/batch")
+    def start_os_update_batch():
+        payload = request.get_json(silent=True) or {}
+        try:
+            return jsonify(state.start_os_update_batch(payload.get("device_ids") or []))
+        except (ValueError, RuntimeError) as error:
+            return jsonify({"ok": False, "message": str(error)}), 400
+
+    @app.post("/api/os-updates/batch/cancel")
+    def cancel_os_update_batch():
+        return jsonify(state.cancel_os_update_batch())
+
     @app.get("/api/settings")
     def get_settings():
         include_secret = str(request.args.get("include_secret", "")).strip().lower() in {"1", "true", "yes"}

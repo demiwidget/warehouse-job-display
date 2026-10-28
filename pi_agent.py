@@ -15,6 +15,12 @@ from app_version import sync_config_version
 from pi_audio import audio_health_report, audio_runtime_environment, normalize_audio_volume, sync_audio_config
 from pi_identity import normalize_compact_layout, normalize_display_scale, registration_id, registration_payload
 from pi_maintenance import reconcile_night_sleep_config
+from pi_os_update import (
+    OS_UPDATE_ACTIVE_STATES,
+    os_update_is_terminal,
+    read_os_update_status,
+    reconcile_os_update_maintenance,
+)
 from pi_status import post_status
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -22,6 +28,8 @@ CONFIG_FILE = BASE_DIR / "viewer_config.json"
 SOUND_LOOP_PID_FILE = Path("/tmp/warehouse-dashboard-sound-loop.pid")
 CONNECTION_WATCHDOG_STATE_FILE = Path.home() / ".warehouse-dashboard-connection-watchdog.json"
 DEFAULT_LOOP_SOUND = "job-changes.wav"
+OS_UPDATE_CHECK_SERVICE = "warehouse-os-update-check.service"
+OS_UPDATE_INSTALL_SERVICE = "warehouse-os-update.service"
 CONNECTION_WATCHDOG_DEFAULTS = {
     "enabled": False,
     "failure_reboot_seconds": 600,
@@ -77,6 +85,7 @@ def load_config():
     changed = sync_audio_config(cfg) or changed
     changed = sync_connection_watchdog_config(cfg) or changed
     changed = reconcile_night_sleep_config(cfg) or changed
+    changed = reconcile_os_update_maintenance(cfg) or changed
     cfg, identity_changed, _payload = registration_payload(cfg)
     if changed or identity_changed:
         save_config(cfg)
@@ -94,6 +103,7 @@ def url(cfg, path):
 def register(cfg):
     try:
         _cfg, _changed, payload = registration_payload(dict(cfg))
+        payload["os_update_status"] = read_os_update_status()
         requests.post(
             url(cfg, "/register"),
             json=payload,
@@ -564,6 +574,229 @@ def monitor_update_service(cfg, service_name):
     )
 
 
+def os_update_display_state(status):
+    state = str((status or {}).get("state") or "").strip().lower()
+    if state == "checking":
+        return "os_checking"
+    if state in OS_UPDATE_ACTIVE_STATES:
+        return "os_updating"
+    if state in {"failed", "attention"}:
+        return "os_update_failed"
+    return "online"
+
+
+def update_os_maintenance(cfg, status, enabled=True):
+    maintenance = cfg.get("maintenance", {}) if isinstance(cfg.get("maintenance", {}), dict) else {}
+    if enabled:
+        progress = max(0, min(100, safe_int(status.get("progress"), 0)))
+        title = str(status.get("title") or "Raspberry Pi OS update")
+        detail = str(status.get("detail") or "Please do not switch off this Pi.")
+        maintenance.update(
+            {
+                "enabled": True,
+                "mode": "os_update",
+                "text": f"{title}\n\n{progress}%\n{detail}",
+                "background": "#07141f",
+                "foreground": "#dff9eb",
+                "clear_notifications": False,
+            }
+        )
+    else:
+        maintenance["enabled"] = False
+    cfg["maintenance"] = maintenance
+    save_config(cfg)
+
+
+def post_os_update_status(cfg, status, event_only=False):
+    state = os_update_display_state(status)
+    message = str(status.get("detail") or status.get("title") or "OS update status changed.")
+    level = "error" if status.get("state") == "failed" else "warning" if status.get("state") == "attention" else "info"
+    post_status(
+        cfg,
+        state,
+        message,
+        source="os_update",
+        timeout=5,
+        event_only=event_only,
+        level=level,
+        os_update_status=status,
+    )
+
+
+def monitor_os_update_service(cfg, service_name, mode, previous_marker):
+    deadline = time.time() + (4 * 60 * 60)
+    start_deadline = time.time() + 90
+    last_signature = ""
+    observed_new_status = False
+    while time.time() < deadline:
+        status = read_os_update_status()
+        signature = json.dumps(status, sort_keys=True, default=str)
+        marker = (
+            str(status.get("updated_at") or ""),
+            str(status.get("started_at") or ""),
+            str(status.get("mode") or ""),
+            str(status.get("state") or ""),
+        )
+        if marker != previous_marker and str(status.get("mode") or "") == mode:
+            observed_new_status = True
+
+        if observed_new_status and signature != last_signature:
+            last_signature = signature
+            if mode == "install" and not os_update_is_terminal(status):
+                update_os_maintenance(cfg, status, enabled=True)
+            post_os_update_status(cfg, status)
+
+        active = systemctl_is_active(service_name)
+        if observed_new_status and os_update_is_terminal(status) and not active:
+            state = str(status.get("state") or "").strip().lower()
+            updated_count = safe_int(status.get("updated_count"), 0)
+            if mode == "install" and state == "complete" and updated_count > 0:
+                status["reboot_required"] = True
+                post_status(
+                    cfg,
+                    "rebooting",
+                    "Raspberry Pi OS update complete. Restarting the Pi.",
+                    source="os_update",
+                    timeout=5,
+                    os_update_status=status,
+                )
+                time.sleep(3)
+                reboot_pi()
+                return
+            if mode == "install":
+                update_os_maintenance(cfg, status, enabled=False)
+            post_os_update_status(cfg, status, event_only=True)
+            return
+
+        if not active and not observed_new_status and time.time() > start_deadline:
+            details = systemctl_service_details(service_name)
+            result = str(details.get("Result") or "unknown")
+            status.update(
+                {
+                    "state": "failed",
+                    "progress": 100,
+                    "title": "OS update service did not start",
+                    "detail": f"Service result: {result}.",
+                    "error": f"Service result: {result}.",
+                }
+            )
+            if mode == "install":
+                update_os_maintenance(cfg, status, enabled=False)
+            post_os_update_status(cfg, status)
+            return
+        time.sleep(2)
+
+    status = read_os_update_status()
+    status.update(
+        {
+            "state": "failed",
+            "progress": 100,
+            "title": "OS update timed out",
+            "detail": "The OS update exceeded four hours and needs local inspection.",
+        }
+    )
+    if mode == "install":
+        update_os_maintenance(cfg, status, enabled=False)
+    post_os_update_status(cfg, status)
+
+
+def start_os_update_process(cfg, mode):
+    mode = str(mode or "").strip().lower()
+    if mode not in {"check", "install"}:
+        return
+    service_name = OS_UPDATE_CHECK_SERVICE if mode == "check" else OS_UPDATE_INSTALL_SERVICE
+    check_active = systemctl_is_active(OS_UPDATE_CHECK_SERVICE)
+    install_active = systemctl_is_active(OS_UPDATE_INSTALL_SERVICE)
+    if mode == "install" and check_active and not install_active:
+        post_status(
+            cfg,
+            "os_checking",
+            "Waiting for the current OS update check to finish before installing.",
+            source="os_update",
+            timeout=5,
+            event_only=True,
+            os_update_status=read_os_update_status(),
+        )
+
+        def wait_then_install():
+            deadline = time.time() + 1800
+            while systemctl_is_active(OS_UPDATE_CHECK_SERVICE) and time.time() < deadline:
+                time.sleep(3)
+            if not systemctl_is_active(OS_UPDATE_CHECK_SERVICE):
+                start_os_update_process(cfg, "install")
+
+        Thread(target=wait_then_install, daemon=True).start()
+        return
+    if check_active or install_active:
+        post_status(
+            cfg,
+            "os_updating" if install_active else "os_checking",
+            "An OS maintenance operation is already running on this Pi.",
+            source="os_update",
+            timeout=5,
+            event_only=True,
+            os_update_status=read_os_update_status(),
+        )
+        return
+    if not systemd_unit_exists(service_name):
+        status = read_os_update_status()
+        status.update(
+            {
+                "state": "failed",
+                "title": "OS updater is not installed",
+                "detail": "Update this dashboard app from GitHub before using OS maintenance.",
+            }
+        )
+        post_os_update_status(cfg, status)
+        return
+
+    current_status = read_os_update_status()
+    previous_marker = (
+        str(current_status.get("updated_at") or ""),
+        str(current_status.get("started_at") or ""),
+        str(current_status.get("mode") or ""),
+        str(current_status.get("state") or ""),
+    )
+    if mode == "install":
+        pending_status = dict(current_status)
+        pending_status.update(
+            {
+                "state": "preparing",
+                "progress": 0,
+                "title": "Preparing Raspberry Pi OS update",
+                "detail": "Please do not switch off this Pi.",
+            }
+        )
+        update_os_maintenance(cfg, pending_status, enabled=True)
+    post_status(
+        cfg,
+        "os_checking" if mode == "check" else "os_updating",
+        "Starting Raspberry Pi OS update check." if mode == "check" else "Starting Raspberry Pi OS update.",
+        source="os_update",
+        timeout=5,
+        os_update_status=current_status,
+    )
+
+    if not run_systemctl("--no-block", "start", service_name):
+        if mode == "install":
+            update_os_maintenance(cfg, current_status, enabled=False)
+        current_status.update(
+            {
+                "state": "failed",
+                "title": "Could not start OS updater",
+                "detail": "Re-run the dashboard Pi installer to refresh updater permissions.",
+            }
+        )
+        post_os_update_status(cfg, current_status)
+        return
+
+    Thread(
+        target=monitor_os_update_service,
+        args=(dict(cfg), service_name, mode, previous_marker),
+        daemon=True,
+    ).start()
+
+
 def start_update_process(cfg):
     post_status(cfg, "updating", "Checking GitHub for Pi updates.", source="agent", timeout=3)
 
@@ -609,6 +842,10 @@ def handle_command(cfg, cmd):
         restart_viewer(cfg, "Restarting display app.")
     elif action == "update":
         start_update_process(cfg)
+    elif action == "os_update_check":
+        start_os_update_process(cfg, "check")
+    elif action == "os_update_install":
+        start_os_update_process(cfg, "install")
     elif action == "sound_check":
         post_audio_status(cfg, apply_preferences=True, source="audio")
     elif action == "sound_loop_start":
