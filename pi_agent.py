@@ -14,6 +14,7 @@ import requests
 from app_version import sync_config_version
 from pi_audio import audio_health_report, audio_runtime_environment, normalize_audio_volume, sync_audio_config
 from pi_identity import normalize_compact_layout, normalize_display_scale, registration_id, registration_payload
+from pi_maintenance import reconcile_night_sleep_config
 from pi_status import post_status
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -75,6 +76,7 @@ def load_config():
     changed = sync_config_version(cfg)
     changed = sync_audio_config(cfg) or changed
     changed = sync_connection_watchdog_config(cfg) or changed
+    changed = reconcile_night_sleep_config(cfg) or changed
     cfg, identity_changed, _payload = registration_payload(cfg)
     if changed or identity_changed:
         save_config(cfg)
@@ -624,6 +626,7 @@ def handle_command(cfg, cmd):
     elif action == "maintenance_show":
         cfg["maintenance"] = {
             "enabled": True,
+            "mode": str(cmd.get("mode") or "manual").strip().lower() or "manual",
             "text": str(cmd.get("text", "Maintenance in progress\nPlease wait")),
             "background": str(cmd.get("background", "#050505")),
             "foreground": str(cmd.get("foreground", "#ffffff")),

@@ -461,6 +461,7 @@ class ManagerState:
     def night_sleep_payload(self, settings=None):
         sleep_settings = self.night_sleep_settings(settings)
         return {
+            "mode": "night_sleep",
             "text": sleep_settings["text"],
             "background": sleep_settings["background"],
             "foreground": sleep_settings["foreground"],

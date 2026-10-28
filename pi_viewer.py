@@ -50,6 +50,7 @@ except Exception:
 from app_version import CURRENT_VERSION, sync_config_version
 from pi_audio import apply_audio_preferences, audio_health_report, sync_audio_config
 from pi_identity import normalize_compact_layout, normalize_display_scale, registration_id, registration_payload
+from pi_maintenance import reconcile_night_sleep_config
 from pi_status import post_status
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -889,6 +890,7 @@ def load_config():
             pass
     changed = sync_config_version(cfg) or changed
     changed = sync_audio_config(cfg) or changed
+    changed = reconcile_night_sleep_config(cfg) or changed
     compact_layout = normalize_compact_layout(cfg.get("compact_layout", "auto"))
     if cfg.get("compact_layout") != compact_layout:
         cfg["compact_layout"] = compact_layout
