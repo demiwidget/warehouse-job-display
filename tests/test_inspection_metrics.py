@@ -161,7 +161,13 @@ class InspectionMetricTests(unittest.TestCase):
                     "inspection_id": 1,
                     "inspection_at": "2026-01-20T10:00:00Z",
                     "passed": True,
-                    "stock_level": {"id": 20, "item_id": 100, "stock_category": 50},
+                    "stock_level": {
+                        "id": 20,
+                        "item_id": 100,
+                        "stock_category": 50,
+                        "quantity_held": "1.0",
+                        "container_stock_level_id": None,
+                    },
                 }
             ],
             products,
@@ -170,6 +176,49 @@ class InspectionMetricTests(unittest.TestCase):
 
         self.assertEqual(latest["20:1"]["product_id"], "100")
         self.assertTrue(latest["20:1"]["passed"])
+
+    def test_grouped_result_merge_ignores_retired_and_container_component_assets(self):
+        latest = {}
+        products = {"100": {"department_id": "power", "inspection_ids": ["1"]}}
+        common = {
+            "inspection_id": 1,
+            "inspection_at": "2026-01-20T10:00:00Z",
+            "passed": True,
+        }
+
+        InspectionMetrics._merge_grouped_results(
+            latest,
+            [
+                {
+                    **common,
+                    "id": 1,
+                    "stock_level_id": 20,
+                    "stock_level": {
+                        "id": 20,
+                        "item_id": 100,
+                        "stock_category": 50,
+                        "quantity_held": "0.0",
+                        "container_stock_level_id": None,
+                    },
+                },
+                {
+                    **common,
+                    "id": 2,
+                    "stock_level_id": 21,
+                    "stock_level": {
+                        "id": 21,
+                        "item_id": 100,
+                        "stock_category": 50,
+                        "quantity_held": "1.0",
+                        "container_stock_level_id": 900,
+                    },
+                },
+            ],
+            products,
+            {"1"},
+        )
+
+        self.assertEqual(latest, {})
 
     def test_initial_failure_is_reported_instead_of_hidden_as_loading(self):
         class Client:

@@ -15,7 +15,7 @@ import requests
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 INSPECTION_CACHE_FILE = PROJECT_ROOT / "manager_data" / "inspection_metrics.json"
-CACHE_SCHEMA_VERSION = 2
+CACHE_SCHEMA_VERSION = 3
 SERIALISED_STOCK_CATEGORY = 50
 FAILED_RETRY_MINUTES = 5
 
@@ -530,6 +530,8 @@ class InspectionMetrics:
                 batch = product_ids[offset : offset + product_batch_size]
                 query = [
                     ("q[stock_category_eq]", SERIALISED_STOCK_CATEGORY),
+                    ("q[quantity_held_gt]", 0),
+                    ("q[container_stock_level_id_null]", 1),
                     *[("q[item_id_in][]", product_id) for product_id in batch],
                 ]
                 total_assets += self._count_rows(client, "stock_levels", query, config)
@@ -580,6 +582,8 @@ class InspectionMetrics:
             query = [
                 ("q[inspection_id_eq]", inspection_id),
                 ("q[inspection_at_gteq]", cutoff),
+                ("q[stock_level_quantity_held_gt]", 0),
+                ("q[stock_level_container_stock_level_id_null]", 1),
                 ("q[s]", "inspection_at asc"),
             ]
             self._fetch_pages(
@@ -651,6 +655,8 @@ class InspectionMetrics:
                 or not product
                 or inspection_id not in product.get("inspection_ids", [])
                 or safe_int(stock_level.get("stock_category"), 0) != SERIALISED_STOCK_CATEGORY
+                or safe_int(stock_level.get("quantity_held"), 0) <= 0
+                or stock_level.get("container_stock_level_id") not in (None, "")
             ):
                 continue
             key = f"{stock_id}:{inspection_id}"
