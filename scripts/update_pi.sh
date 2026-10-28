@@ -56,13 +56,13 @@ start_update_window() {
     local python_bin="$APP_DIR/.venv/bin/python"
     local app_home=""
     local app_uid=""
-    local _attempt=0
+    local gui_launcher="$APP_DIR/scripts/launch_pi_gui.sh"
 
     if [[ "$UPDATE_WINDOW_STARTED" -eq 1 ]]; then
         return 0
     fi
 
-    if [[ ! -x "$python_bin" || ! -f "$UPDATE_WINDOW_SCRIPT" ]]; then
+    if [[ ! -x "$python_bin" || ! -f "$UPDATE_WINDOW_SCRIPT" || ! -f "$gui_launcher" ]]; then
         return 0
     fi
 
@@ -72,31 +72,22 @@ start_update_window() {
         return 0
     fi
 
-    for _attempt in $(seq 1 30); do
-        if [[ -f "$app_home/.Xauthority" || -S "/run/user/$app_uid/wayland-0" ]]; then
-            break
-        fi
-        sleep 1
-    done
-
     if [[ "$(id -u)" -eq 0 ]]; then
         runuser -u "$APP_USER" -- \
             env \
             DISPLAY=:0 \
             XAUTHORITY="$app_home/.Xauthority" \
             XDG_RUNTIME_DIR="/run/user/$app_uid" \
-            WAYLAND_DISPLAY=wayland-0 \
-            QT_QPA_PLATFORM="wayland;xcb" \
-            "$python_bin" "$UPDATE_WINDOW_SCRIPT" "$STATUS_FILE" \
+            WAREHOUSE_GUI_WAIT_SECONDS=30 \
+            /usr/bin/env bash "$gui_launcher" -- "$python_bin" "$UPDATE_WINDOW_SCRIPT" "$STATUS_FILE" \
             >/tmp/warehouse-dashboard-update-ui.log 2>&1 &
     else
         env \
             DISPLAY=:0 \
             XAUTHORITY="$app_home/.Xauthority" \
             XDG_RUNTIME_DIR="/run/user/$app_uid" \
-            WAYLAND_DISPLAY=wayland-0 \
-            QT_QPA_PLATFORM="wayland;xcb" \
-            "$python_bin" "$UPDATE_WINDOW_SCRIPT" "$STATUS_FILE" \
+            WAREHOUSE_GUI_WAIT_SECONDS=30 \
+            /usr/bin/env bash "$gui_launcher" -- "$python_bin" "$UPDATE_WINDOW_SCRIPT" "$STATUS_FILE" \
             >/tmp/warehouse-dashboard-update-ui.log 2>&1 &
     fi
 
