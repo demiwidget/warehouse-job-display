@@ -15,6 +15,7 @@ import requests
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 INSPECTION_CACHE_FILE = PROJECT_ROOT / "manager_data" / "inspection_metrics.json"
+INSPECTION_BASELINE_FILE = PROJECT_ROOT / "manager_data" / "inspection_daily_baseline.json"
 CACHE_SCHEMA_VERSION = 3
 SERIALISED_STOCK_CATEGORY = 50
 FAILED_RETRY_MINUTES = 5
@@ -199,12 +200,64 @@ def build_inspection_payload(state, config, today=None):
     }
 
 
+def apply_daily_inspection_changes(payload, baseline=None, today=None, now=None):
+    today = today or date.today()
+    now = now or datetime.now()
+    baseline = deepcopy(baseline) if isinstance(baseline, dict) else {}
+    rows = payload.get("rows", []) if isinstance(payload, dict) else []
+    counts = {
+        str(row.get("Tag") or "").strip(): safe_int(row.get("Inspections"), 0)
+        for row in rows
+        if str(row.get("Tag") or "").strip()
+    }
+    if not counts:
+        return payload, baseline, False
+
+    day_key = today.isoformat()
+    changed = False
+    if str(baseline.get("date") or "") != day_key:
+        baseline = {
+            "date": day_key,
+            "started_at": now.isoformat(timespec="seconds"),
+            "counts": dict(counts),
+        }
+        changed = True
+    else:
+        counts_are_valid = isinstance(baseline.get("counts"), dict)
+        baseline_counts = baseline.get("counts") if counts_are_valid else {}
+        baseline["counts"] = baseline_counts
+        changed = changed or not counts_are_valid
+        for department_id, current_count in counts.items():
+            if department_id not in baseline_counts:
+                baseline_counts[department_id] = current_count
+                changed = True
+
+    baseline_counts = baseline.get("counts", {})
+    total_change = 0
+    for row in rows:
+        department_id = str(row.get("Tag") or "").strip()
+        current_count = safe_int(row.get("Inspections"), 0)
+        start_count = safe_int(baseline_counts.get(department_id), current_count)
+        daily_change = current_count - start_count
+        row["Day Start"] = start_count
+        row["Daily Change"] = daily_change
+        total_change += daily_change
+
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    payload["summary"] = summary
+    summary["Daily Change"] = total_change
+    summary["Baseline Date"] = day_key
+    return payload, baseline, changed
+
+
 class InspectionMetrics:
-    def __init__(self, cache_file=INSPECTION_CACHE_FILE):
+    def __init__(self, cache_file=INSPECTION_CACHE_FILE, baseline_file=None):
         self.cache_file = Path(cache_file)
+        self.baseline_file = Path(baseline_file or self.cache_file.with_name(INSPECTION_BASELINE_FILE.name))
         self.lock = Lock()
         self.worker = None
         self.state = self._load_state()
+        self.daily_baseline = self._load_daily_baseline()
         self.progress = {}
         self.last_request_at = 0.0
 
@@ -225,6 +278,13 @@ class InspectionMetrics:
     def _load_state(self):
         try:
             data = json.loads(self.cache_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _load_daily_baseline(self):
+        try:
+            data = json.loads(self.baseline_file.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
             return {}
         return data if isinstance(data, dict) else {}
@@ -252,6 +312,41 @@ class InspectionMetrics:
                     Path(temp_name).unlink(missing_ok=True)
                 except OSError:
                     pass
+
+    def _save_daily_baseline(self, baseline):
+        self.baseline_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_name = None
+        try:
+            with NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=self.baseline_file.parent,
+                prefix=f".{self.baseline_file.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temp_name = handle.name
+                json.dump(baseline, handle, separators=(",", ":"))
+                handle.flush()
+                os.fsync(handle.fileno())
+            Path(temp_name).replace(self.baseline_file)
+        finally:
+            if temp_name:
+                try:
+                    Path(temp_name).unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def _apply_daily_changes(self, payload):
+        with self.lock:
+            payload, baseline, changed = apply_daily_inspection_changes(
+                payload,
+                self.daily_baseline,
+            )
+            if changed:
+                self.daily_baseline = baseline
+                self._save_daily_baseline(baseline)
+        return payload
 
     @staticmethod
     def _config(settings):
@@ -340,6 +435,7 @@ class InspectionMetrics:
             return self.empty_payload(status)
 
         payload = build_inspection_payload(state, config)
+        payload = self._apply_daily_changes(payload)
         if worker_running:
             payload["summary"]["Status"] = self._progress_status(progress)
         if state.get("last_error"):

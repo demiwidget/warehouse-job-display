@@ -643,7 +643,7 @@ class LeaderboardCard(QWidget):
         )
 
     def _style_inspection_label(self, label):
-        label.setMinimumHeight(scaled(32, self.ui_scale))
+        label.setMinimumHeight(scaled(42, self.ui_scale))
         label.setStyleSheet(
             f"background:#72c8d4; color:#061014; "
             f"border:0; border-radius:{scaled(7, self.ui_scale)}px; "
@@ -706,10 +706,17 @@ class LeaderboardCard(QWidget):
         for index, row in enumerate(display_rows):
             department = row.get("Department", "Unknown")
             count = row.get("Inspections", 0)
+            daily_change = safe_int(row.get("Daily Change"), 0)
+            change_text = f"+{daily_change}" if daily_change > 0 else str(daily_change)
+            change_color = "#a31313" if daily_change > 0 else "#075c2e" if daily_change < 0 else "#34535b"
             count_style = f"font-size:{scaled(21, self.ui_scale)}px; font-weight:1000;"
+            change_style = (
+                f"font-size:{scaled(11, self.ui_scale)}px; font-weight:950; color:{change_color};"
+            )
             label = QLabel(
                 f"{escape(str(department))}: "
-                f"<span style='{count_style}'>{escape(str(count))}</span>"
+                f"<span style='{count_style}'>{escape(str(count))}</span><br>"
+                f"<span style='{change_style}'>{escape(change_text)}</span>"
             )
             label.setTextFormat(Qt.RichText)
             label.setAlignment(Qt.AlignCenter)

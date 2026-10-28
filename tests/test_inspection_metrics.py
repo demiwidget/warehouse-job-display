@@ -6,11 +6,84 @@ import unittest
 from manager_app.inspection_metrics import (
     InspectionMetrics,
     add_inspection_interval,
+    apply_daily_inspection_changes,
     build_inspection_payload,
 )
 
 
 class InspectionMetricTests(unittest.TestCase):
+    def test_daily_changes_compare_current_counts_with_start_of_day(self):
+        baseline_payload = {
+            "summary": {},
+            "rows": [
+                {"Tag": "power", "Department": "Power", "Inspections": 100},
+                {"Tag": "rigging", "Department": "Rigging", "Inspections": 50},
+            ],
+        }
+        _, baseline, changed = apply_daily_inspection_changes(
+            baseline_payload,
+            today=date(2026, 10, 28),
+        )
+
+        current_payload = {
+            "summary": {},
+            "rows": [
+                {"Tag": "power", "Department": "Power", "Inspections": 85},
+                {"Tag": "rigging", "Department": "Rigging", "Inspections": 54},
+            ],
+        }
+        result, unchanged_baseline, baseline_changed = apply_daily_inspection_changes(
+            current_payload,
+            baseline,
+            today=date(2026, 10, 28),
+        )
+
+        self.assertTrue(changed)
+        self.assertFalse(baseline_changed)
+        self.assertEqual(unchanged_baseline, baseline)
+        self.assertEqual(result["rows"][0]["Daily Change"], -15)
+        self.assertEqual(result["rows"][0]["Day Start"], 100)
+        self.assertEqual(result["rows"][1]["Daily Change"], 4)
+        self.assertEqual(result["summary"]["Daily Change"], -11)
+
+    def test_daily_changes_reset_on_the_next_day(self):
+        payload = {
+            "summary": {},
+            "rows": [{"Tag": "power", "Department": "Power", "Inspections": 85}],
+        }
+        old_baseline = {"date": "2026-10-27", "counts": {"power": 100}}
+
+        result, baseline, changed = apply_daily_inspection_changes(
+            payload,
+            old_baseline,
+            today=date(2026, 10, 28),
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(baseline["date"], "2026-10-28")
+        self.assertEqual(baseline["counts"]["power"], 85)
+        self.assertEqual(result["rows"][0]["Daily Change"], 0)
+
+    def test_daily_baseline_survives_manager_restart(self):
+        with TemporaryDirectory() as temp_dir:
+            cache_file = Path(temp_dir) / "inspection-cache.json"
+            first_metrics = InspectionMetrics(cache_file)
+            first_payload = {
+                "summary": {},
+                "rows": [{"Tag": "power", "Department": "Power", "Inspections": 100}],
+            }
+            first_metrics._apply_daily_changes(first_payload)
+
+            restarted_metrics = InspectionMetrics(cache_file)
+            current_payload = {
+                "summary": {},
+                "rows": [{"Tag": "power", "Department": "Power", "Inspections": 85}],
+            }
+            result = restarted_metrics._apply_daily_changes(current_payload)
+
+        self.assertEqual(result["rows"][0]["Day Start"], 100)
+        self.assertEqual(result["rows"][0]["Daily Change"], -15)
+
     def test_add_inspection_interval_handles_calendar_boundaries(self):
         self.assertEqual(
             add_inspection_interval(date(2026, 1, 31), 2, 1),

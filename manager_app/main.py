@@ -875,7 +875,8 @@ class CurrentRMSTab(QWidget):
             "Inspection Counts",
             (
                 "Counts inspection tasks due by department. The first catalogue build runs in the background; "
-                "later refreshes only collect changed inspection results."
+                "later refreshes only collect changed inspection results. Dashboard +/- figures compare each "
+                "department with its first valid count of the day and reset automatically each day."
             ),
         )
         inspection_form = QFormLayout()
