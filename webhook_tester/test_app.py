@@ -37,16 +37,30 @@ class WebhookTesterTests(unittest.TestCase):
         self.assertEqual(summary["source"], "Cable Loom")
         self.assertEqual(summary["action_id"], "1364")
 
-    def test_action_id_is_used_for_deduplication(self):
+    def test_action_id_and_payload_are_used_for_deduplication(self):
         payload = self.sample()
         raw = json.dumps(payload).encode()
-        self.assertEqual(event_identity(payload, raw), "action:1364")
+        identity = event_identity(payload, raw)
+        self.assertTrue(identity.startswith("action:1364:payload:"))
+        self.assertEqual(identity, event_identity(payload, raw))
+
+    def test_reused_action_id_with_changed_quantity_is_not_a_duplicate(self):
+        first = self.sample()
+        second = json.loads(json.dumps(first))
+        second["action"]["source"]["quantity"] = 3
+
+        first_identity = event_identity(first, json.dumps(first).encode())
+        second_identity = event_identity(second, json.dumps(second).encode())
+
+        self.assertNotEqual(first_identity, second_identity)
 
     def test_event_store_marks_second_delivery_duplicate(self):
         with TemporaryDirectory() as directory:
             store = EventStore(Path(directory) / "events.jsonl")
-            first_duplicate, _first = store.append("action:1364", self.sample())
-            second_duplicate, _second = store.append("action:1364", self.sample())
+            payload = self.sample()
+            identity = event_identity(payload, json.dumps(payload).encode())
+            first_duplicate, _first = store.append(identity, payload)
+            second_duplicate, _second = store.append(identity, payload)
         self.assertFalse(first_duplicate)
         self.assertTrue(second_duplicate)
 

@@ -242,11 +242,24 @@ def masked_key(value: str) -> str:
 
 
 def event_identity(payload: dict[str, Any], raw_body: bytes) -> str:
+    try:
+        canonical_body = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    except (TypeError, ValueError):
+        canonical_body = raw_body
+    payload_hash = hashlib.sha256(canonical_body).hexdigest()
     action = payload.get("action", {}) if isinstance(payload, dict) else {}
     action_id = action.get("id") if isinstance(action, dict) else None
     if action_id not in (None, ""):
-        return f"action:{action_id}"
-    return "body:" + hashlib.sha256(raw_body).hexdigest()
+        # Current RMS can reuse an action ID when the same item is changed
+        # again. Pair it with the payload so exact retries are ignored while
+        # later, materially different changes are still forwarded.
+        return f"action:{action_id}:payload:{payload_hash}"
+    return "body:" + payload_hash
 
 
 def event_name(payload: dict[str, Any]) -> str:

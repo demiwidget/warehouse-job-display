@@ -3,7 +3,7 @@ import unittest
 
 from manager_app.current_rms import DashboardBuilder
 from manager_app.settings_store import DEFAULT_SETTINGS, _migrate_settings
-from manager_app.state import ManagerState
+from manager_app.state import ManagerState, webhook_payload_identity
 
 
 def opportunity(opportunity_id="123", days=0, returned="No"):
@@ -126,6 +126,27 @@ class WebhookNotificationTests(unittest.TestCase):
             {"alerts": {"webhooks": {"enabled": True, "target_device_ids": ["one", "two"]}}}
         )
         self.assertEqual(migrated["alerts"]["webhooks"]["target_device_ids"], ["one"])
+
+    def test_manager_accepts_changed_payload_when_current_reuses_action_id(self):
+        first = {
+            "action": {
+                "id": "same-action",
+                "subject_type": "Opportunity",
+                "action_type": "update_item",
+                "source": {"id": 500, "quantity": "2.0"},
+            }
+        }
+        second = {
+            "action": {
+                "id": "same-action",
+                "subject_type": "Opportunity",
+                "action_type": "update_item",
+                "source": {"id": 500, "quantity": "1.0"},
+            }
+        }
+
+        self.assertNotEqual(webhook_payload_identity(first), webhook_payload_identity(second))
+        self.assertEqual(webhook_payload_identity(first), webhook_payload_identity(first))
 
 
 if __name__ == "__main__":

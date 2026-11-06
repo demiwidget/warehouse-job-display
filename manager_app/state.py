@@ -108,6 +108,18 @@ def version_is_newer(candidate, current):
     return False
 
 
+def webhook_payload_identity(payload):
+    """Identify an exact Current RMS delivery without dropping later changes."""
+    payload_hash = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+    action = payload.get("action", {}) if isinstance(payload, dict) else {}
+    action_id = str(action.get("id") or "").strip() if isinstance(action, dict) else ""
+    if action_id:
+        return f"action:{action_id}:payload:{payload_hash}"
+    return f"body:{payload_hash}"
+
+
 def parse_time_minutes(value, default="00:00"):
     match = re.match(r"^\s*(\d{1,2})[:.](\d{2})\s*$", str(value or default))
     if not match:
@@ -1406,10 +1418,7 @@ class ManagerState:
         if not isinstance(payload, dict) or not isinstance(payload.get("action"), dict):
             raise ValueError("A Current RMS action payload is required.")
 
-        action_id = str(payload.get("action", {}).get("id") or "").strip()
-        identity = action_id or hashlib.sha256(
-            json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
-        ).hexdigest()
+        identity = webhook_payload_identity(payload)
         now = monotonic()
         with self.lock:
             self.webhook_events = {
