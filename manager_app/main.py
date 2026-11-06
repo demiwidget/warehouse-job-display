@@ -1,4 +1,5 @@
 import shutil
+import secrets
 import socket
 import sys
 import threading
@@ -1382,11 +1383,63 @@ class AlertsTab(QWidget):
         event_types = settings.get("event_types", {})
         event_routes = settings.get("event_routes", {}) if isinstance(settings.get("event_routes", {}), dict) else {}
         routing = settings.get("department_routing", {}) or {}
+        webhooks = settings.get("webhooks", {}) if isinstance(settings.get("webhooks", {}), dict) else {}
         email = settings.get("email", {}) or {}
         self.routing_devices = self.state.list_devices()
         self.original_event_routes = dict(event_routes)
         self.original_department_routes = dict(routing.get("routes", {}) if isinstance(routing.get("routes", {}), dict) else {})
         self.original_unknown_all = bool(routing.get("send_unknown_to_all", True))
+
+        webhook_panel, webhook_layout = make_panel(
+            "Webhook Notification Pilot",
+            (
+                "Use webhooks for one test screen first. That screen will stop receiving the old scheduled-refresh "
+                "notifications, while its dashboard data and popup appearance stay unchanged."
+            ),
+        )
+        webhook_form = QFormLayout()
+        self.webhook_enabled = QCheckBox("Enable webhook notifications for the selected test screen")
+        self.webhook_enabled.setChecked(bool(webhooks.get("enabled", False)))
+        self.webhook_target = QComboBox()
+        self.webhook_target.addItem("Select one test screen…", "")
+        configured_targets = webhooks.get("target_device_ids", [])
+        if isinstance(configured_targets, str):
+            configured_targets = [configured_targets]
+        configured_target = str(next(iter(configured_targets or []), ""))
+        for device in self.routing_devices:
+            device_id = str(device.get("id") or "").strip()
+            self.webhook_target.addItem(self.device_label(device).replace("\n", " — "), device_id)
+        target_index = self.webhook_target.findData(configured_target)
+        self.webhook_target.setCurrentIndex(target_index if target_index >= 0 else 0)
+
+        secret_value = str(webhooks.get("receiver_secret") or "").strip() or secrets.token_urlsafe(32)
+        self.webhook_secret = QLineEdit(secret_value)
+        self.webhook_secret.setReadOnly(True)
+        regenerate_secret = QPushButton("Generate New Secret")
+        regenerate_secret.clicked.connect(self.regenerate_webhook_secret)
+        secret_row = QHBoxLayout()
+        secret_row.addWidget(self.webhook_secret, 1)
+        secret_row.addWidget(regenerate_secret)
+
+        self.webhook_receiver_url = QLineEdit()
+        self.webhook_receiver_url.setReadOnly(True)
+        self.webhook_receiver_url.setText(self._webhook_receiver_url(secret_value))
+        self.webhook_secret.textChanged.connect(
+            lambda value: self.webhook_receiver_url.setText(self._webhook_receiver_url(value))
+        )
+        webhook_form.addRow("", self.webhook_enabled)
+        webhook_form.addRow("Test screen", self.webhook_target)
+        webhook_form.addRow("Receiver secret", secret_row)
+        webhook_form.addRow("Tester forwarding URL", self.webhook_receiver_url)
+        webhook_layout.addLayout(webhook_form)
+        webhook_note = QLabel(
+            "Paste the forwarding URL into the PC webhook tester. Current RMS still sends to the tester's public "
+            "HTTPS address; the tester relays warehouse events over your local network to the Manager Pi."
+        )
+        webhook_note.setWordWrap(True)
+        webhook_note.setObjectName("SectionSubtitle")
+        webhook_layout.addWidget(webhook_note)
+        layout.addWidget(webhook_panel)
 
         rules_panel, rules_layout = make_panel(
             "Live Alert Rules",
@@ -1729,6 +1782,15 @@ class AlertsTab(QWidget):
             "quiet_hours_end": self.quiet_end_input.value(),
             "history_limit": self.history_limit_input.value(),
             "event_routes": event_routes,
+            "webhooks": {
+                "enabled": self.webhook_enabled.isChecked(),
+                "receiver_secret": self.webhook_secret.text().strip(),
+                "target_device_ids": (
+                    [str(self.webhook_target.currentData()).strip()]
+                    if str(self.webhook_target.currentData() or "").strip()
+                    else []
+                ),
+            },
             "email": {
                 "enabled": self.email_enabled.isChecked(),
                 "smtp_host": self.smtp_host_input.text().strip(),
@@ -1751,11 +1813,30 @@ class AlertsTab(QWidget):
             "event_types": event_types,
         }
 
+    def _webhook_receiver_url(self, secret_value):
+        base_url = str(getattr(self.state, "base_url", "") or "").strip().rstrip("/")
+        if not base_url:
+            try:
+                host = socket.gethostbyname(socket.gethostname())
+            except OSError:
+                host = "MANAGER_PI_IP"
+            base_url = f"http://{host}:8765"
+        return f"{base_url}/webhooks/current-rms/{str(secret_value or '').strip()}"
+
+    def regenerate_webhook_secret(self):
+        self.webhook_secret.setText(secrets.token_urlsafe(32))
+
     def save(self):
+        if self.webhook_enabled.isChecked() and not str(self.webhook_target.currentData() or "").strip():
+            QMessageBox.warning(self, "Select Test Screen", "Select one test screen before enabling webhook notifications.")
+            return
         self.state.save_settings({"alerts": self.settings_payload()})
         QMessageBox.information(self, "Saved", "Alert settings saved on the manager.")
 
     def apply_and_refresh(self):
+        if self.webhook_enabled.isChecked() and not str(self.webhook_target.currentData() or "").strip():
+            QMessageBox.warning(self, "Select Test Screen", "Select one test screen before enabling webhook notifications.")
+            return
         self.state.save_settings({"alerts": self.settings_payload()})
         self.state.refresh_dashboard()
         QMessageBox.information(self, "Applied", "Alert settings were saved and the manager refreshed immediately.")
@@ -2128,6 +2209,7 @@ class OverviewPage(QWidget):
                     "backend_service": manager_status.get("backend_service"),
                     "display_service": manager_status.get("display_service"),
                     "night_sleep": (manager_status.get("night_sleep") or {}).get("active"),
+                    "api_calls": manager_status.get("api_calls", {}),
                 },
                 "activity": activity,
             }
@@ -2146,6 +2228,7 @@ class OverviewPage(QWidget):
         latest_notification = next((entry for entry in activity if entry.get("category") == "Notifications"), {})
         latest_version = str(update_status.get("latest_version") or "unknown")
         local_version = str(update_status.get("local_version") or manager_status.get("version") or "unknown")
+        api_calls = manager_status.get("api_calls", {}) if isinstance(manager_status.get("api_calls"), dict) else {}
         manager_problem = str(manager_status.get("backend_service", "")).lower() in {"failed", "inactive"}
         sleep_active = bool((manager_status.get("night_sleep") or {}).get("active"))
 
@@ -2171,7 +2254,10 @@ class OverviewPage(QWidget):
         )
         self.update_card.set_content(
             "Update Available" if update_status.get("manager_update_available") else "Current",
-            f"GitHub v{latest_version} | Manager v{local_version}",
+            (
+                f"GitHub v{latest_version} | Manager v{local_version}\n"
+                f"Current RMS API: {int(api_calls.get('today', 0) or 0)} calls today"
+            ),
             "warn" if update_status.get("manager_update_available") else "good",
         )
         self.audio_card.set_content(
@@ -2442,7 +2528,10 @@ class ManagerPiTab(QWidget):
 
         self.version_card.set_content(
             f"v{local}",
-            f"GitHub latest: v{latest}",
+            (
+                f"GitHub latest: v{latest}\n"
+                f"Current RMS API: {int((status.get('api_calls') or {}).get('today', 0) or 0)} calls today"
+            ),
             "warn" if update_status.get("manager_update_available") else "good",
         )
 

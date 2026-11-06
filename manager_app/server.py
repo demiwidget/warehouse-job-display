@@ -68,6 +68,16 @@ def create_app(state):
     def clear_alerts(device_id):
         return jsonify({"ok": True, "cleared": state.clear_device_alerts(device_id)})
 
+    @app.post("/webhooks/current-rms/<provided_secret>")
+    def current_rms_webhook(provided_secret):
+        payload = request.get_json(silent=True)
+        try:
+            return jsonify(state.enqueue_current_rms_webhook(payload, provided_secret)), 202
+        except PermissionError as error:
+            return jsonify({"ok": False, "error": str(error)}), 404
+        except ValueError as error:
+            return jsonify({"ok": False, "error": str(error)}), 400
+
     @app.get("/office-gift/<device_id>")
     def office_gift_config(device_id):
         return jsonify(state.office_gift_config(device_id))

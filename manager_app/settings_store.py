@@ -138,6 +138,11 @@ DEFAULT_SETTINGS = {
         "quiet_hours_end": 7,
         "history_limit": 500,
         "event_routes": {},
+        "webhooks": {
+            "enabled": False,
+            "receiver_secret": "",
+            "target_device_ids": [],
+        },
         "email": {
             "enabled": False,
             "smtp_host": "",
@@ -378,6 +383,20 @@ def _migrate_settings(settings):
             if target not in clean_event_routes[event_name]:
                 clean_event_routes[event_name].append(target)
     alerts["event_routes"] = clean_event_routes
+
+    webhooks = alerts.get("webhooks", {})
+    if not isinstance(webhooks, dict):
+        webhooks = {}
+    targets = webhooks.get("target_device_ids", [])
+    if isinstance(targets, str):
+        targets = [targets]
+    if not isinstance(targets, list):
+        targets = []
+    clean_targets = list(dict.fromkeys(str(item).strip() for item in targets if str(item).strip()))
+    webhooks["enabled"] = bool(webhooks.get("enabled", False))
+    webhooks["receiver_secret"] = str(webhooks.get("receiver_secret") or "").strip()
+    webhooks["target_device_ids"] = clean_targets[:1]
+    alerts["webhooks"] = webhooks
     return settings
 
 

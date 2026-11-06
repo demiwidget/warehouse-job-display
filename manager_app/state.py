@@ -1,9 +1,12 @@
 from copy import deepcopy
 from datetime import datetime
+import hashlib
+import hmac
 from itertools import zip_longest
 import os
 import random
 import re
+import json
 import shutil
 import socket
 import subprocess
@@ -16,6 +19,7 @@ import traceback
 from app_version import CURRENT_VERSION
 from manager_app.activity_log import ActivityLog
 from manager_app.current_rms import ALL_DEPARTMENT_TARGET, NO_DEPARTMENT_TARGET, DashboardBuilder
+from manager_app.api_metrics import CURRENT_RMS_API_COUNTER
 from manager_app.daily_quote import DailyQuoteService
 from manager_app.email_alerts import alert_email_enabled, send_alert_email, send_test_email
 from manager_app.security import security_status, set_admin_password
@@ -134,6 +138,7 @@ class ManagerState:
         self.devices = self.store.load_devices()
         self.commands = {}
         self.alerts = {device_id: [] for device_id in self.devices}
+        self.webhook_events = {}
         self.office_gift_last_sent = {}
         self.os_update_batch_lock = Lock()
         self.os_update_batch_cancel = Event()
@@ -346,6 +351,7 @@ class ManagerState:
             "os_update_status": read_os_update_status(),
             "night_sleep": night_sleep,
             "security": security_status(),
+            "api_calls": CURRENT_RMS_API_COUNTER.snapshot(),
         }
 
     def change_admin_password(self, current_password, new_password):
@@ -1341,10 +1347,13 @@ class ManagerState:
             settings = self.store.load_settings()
             self.settings = settings
         if self.sync_night_sleep(settings):
-            return self.sleeping_screen_payload(screen, settings)
+            payload = self.sleeping_screen_payload(screen, settings)
+            payload["api_calls"] = CURRENT_RMS_API_COUNTER.snapshot()
+            return payload
         with self.dashboard_lock:
             payload = deepcopy(self.dashboard.build(screen, settings))
         payload["daily_quote"] = self._daily_quote_screen_payload(settings)
+        payload["api_calls"] = CURRENT_RMS_API_COUNTER.snapshot()
         return payload
 
     def all_screen_payloads(self):
@@ -1352,17 +1361,121 @@ class ManagerState:
             settings = self.store.load_settings()
             self.settings = settings
         if self.sync_night_sleep(settings):
-            return {
+            payloads = {
                 screen: self.sleeping_screen_payload(screen, settings)
                 for screen in SCREEN_NAMES
             }
+            payloads["api_calls"] = CURRENT_RMS_API_COUNTER.snapshot()
+            return payloads
         with self.dashboard_lock:
             payloads = {
                 screen: deepcopy(self.dashboard.build(screen, settings))
                 for screen in SCREEN_NAMES
             }
         payloads["daily_quote"] = self._daily_quote_screen_payload(settings)
+        payloads["api_calls"] = CURRENT_RMS_API_COUNTER.snapshot()
         return payloads
+
+    def _webhook_settings(self, settings):
+        values = settings.get("alerts", {}).get("webhooks", {})
+        return values if isinstance(values, dict) else {}
+
+    def _webhook_target_ids(self, settings):
+        webhook_settings = self._webhook_settings(settings)
+        if not webhook_settings.get("enabled", False):
+            return set()
+        configured = webhook_settings.get("target_device_ids", [])
+        if isinstance(configured, str):
+            configured = [configured]
+        return {
+            str(device_id).strip()
+            for device_id in (configured or [])
+            if str(device_id).strip()
+        }
+
+    def enqueue_current_rms_webhook(self, payload, provided_secret):
+        with self.lock:
+            settings = self.store.load_settings()
+            self.settings = settings
+        config = self._webhook_settings(settings)
+        expected_secret = str(config.get("receiver_secret") or "").strip()
+        if not config.get("enabled") or not expected_secret:
+            raise PermissionError("Current RMS webhook notifications are not enabled.")
+        if not hmac.compare_digest(str(provided_secret or ""), expected_secret):
+            raise PermissionError("Invalid webhook receiver secret.")
+        if not isinstance(payload, dict) or not isinstance(payload.get("action"), dict):
+            raise ValueError("A Current RMS action payload is required.")
+
+        action_id = str(payload.get("action", {}).get("id") or "").strip()
+        identity = action_id or hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        ).hexdigest()
+        now = monotonic()
+        with self.lock:
+            self.webhook_events = {
+                key: seen_at
+                for key, seen_at in self.webhook_events.items()
+                if now - seen_at < 24 * 60 * 60
+            }
+            duplicate = identity in self.webhook_events
+            if not duplicate:
+                self.webhook_events[identity] = now
+        if duplicate:
+            return {"ok": True, "accepted": False, "duplicate": True}
+
+        Thread(
+            target=self._process_current_rms_webhook,
+            args=(deepcopy(payload),),
+            daemon=True,
+            name=f"current-rms-webhook-{identity[:12]}",
+        ).start()
+        return {"ok": True, "accepted": True, "duplicate": False}
+
+    def _process_current_rms_webhook(self, payload):
+        action = payload.get("action", {}) if isinstance(payload, dict) else {}
+        action_label = str(action.get("action_type") or "unknown")
+        action_id = str(action.get("id") or "")
+        try:
+            with self.lock:
+                settings = self.store.load_settings()
+                self.settings = settings
+                selected_targets = self._webhook_target_ids(settings)
+                known_targets = set(str(device_id) for device_id in self.devices)
+            selected_targets &= known_targets
+            if not selected_targets:
+                self.log_activity(
+                    "Webhooks",
+                    f"Received Current RMS {action_label}, but no test screen is selected.",
+                    level="warning",
+                    details={"action_id": action_id},
+                )
+                return
+
+            with self.dashboard_lock:
+                alerts = self.dashboard.process_webhook(payload, settings)
+            deliverable = [
+                alert for alert in alerts if alert and (alert.get("show_popup") or alert.get("play_sound"))
+            ]
+            queued_count = 0
+            with self.lock:
+                for alert in deliverable:
+                    routed = set(self._alert_target_device_ids(alert, self.devices, settings))
+                    for device_id in sorted(selected_targets & routed):
+                        queued = dict(alert)
+                        queued["notification_source"] = "webhook"
+                        self.alerts.setdefault(device_id, []).append(queued)
+                        queued_count += 1
+            self.log_activity(
+                "Webhooks",
+                f"Processed Current RMS {action_label}; queued {queued_count} test-screen notification(s).",
+                details={
+                    "action_id": action_id,
+                    "alerts_detected": len(alerts),
+                    "target_ids": sorted(selected_targets),
+                },
+            )
+        except Exception as error:
+            self.log_exception("Webhooks", f"Current RMS {action_label} processing failed", error)
 
     def _daily_quote_screen_payload(self, settings):
         status = self.daily_quote.status(settings)
@@ -1562,8 +1675,10 @@ class ManagerState:
         target_ids = set()
         delivery_details = []
         with self.lock:
+            webhook_targets = self._webhook_target_ids(settings)
             for alert in deliverable:
                 device_ids = self._alert_target_device_ids(alert, self.devices, settings)
+                device_ids = [device_id for device_id in device_ids if device_id not in webhook_targets]
                 delivery_details.append(
                     {
                         "type": alert.get("type"),

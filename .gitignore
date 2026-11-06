@@ -5,6 +5,7 @@ __pycache__/
 venv/
 warehouse_env/
 manager_data/
+webhook_test_data/
 
 # Device-local configuration and runtime output
 viewer_config.json

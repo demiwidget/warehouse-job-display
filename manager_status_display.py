@@ -869,9 +869,10 @@ class ManagerStatusWindow(QMainWindow):
         )
 
         latest_version = clean_text(update_status.get("latest_version"), CURRENT_VERSION)
+        api_calls = manager_status.get("api_calls", {}) if isinstance(manager_status.get("api_calls"), dict) else {}
         self.version_metric.set_content(
             f"v{CURRENT_VERSION}",
-            f"GitHub latest: v{latest_version}",
+            f"GitHub latest: v{latest_version}  |  API calls today: {int(api_calls.get('today', 0) or 0)}",
             "warn" if latest_version != CURRENT_VERSION else "good",
         )
 

@@ -11,6 +11,8 @@ from tempfile import NamedTemporaryFile
 
 import requests
 
+from manager_app.api_metrics import CURRENT_RMS_API_COUNTER
+
 from manager_app.inspection_metrics import InspectionMetrics
 
 
@@ -160,12 +162,20 @@ class CurrentRMSClient:
             "Accept": "application/json",
         }
 
+    def get(self, path, **kwargs):
+        CURRENT_RMS_API_COUNTER.record()
+        return requests.get(
+            f"{self.api_base}/{str(path or '').lstrip('/')}",
+            headers=self.headers(),
+            **kwargs,
+        )
+
     def test_connection(self):
         if not self.configured:
             return False, "API key and subdomain are required."
 
         try:
-            response = requests.get(f"{self.api_base}/members/1", headers=self.headers(), timeout=8)
+            response = self.get("members/1", timeout=8)
             if response.status_code in (200, 404):
                 return True, "Connection successful."
             if response.status_code == 401:
@@ -182,9 +192,8 @@ class CurrentRMSClient:
         meta = {"total_row_count": 0}
 
         for page in range(1, self.max_pages + 1):
-            response = requests.get(
-                f"{self.api_base}/opportunities",
-                headers=self.headers(),
+            response = self.get(
+                "opportunities",
                 params={
                     "page": page,
                     "per_page": self.per_page,
@@ -215,9 +224,8 @@ class CurrentRMSClient:
         for include in self.opportunity_includes:
             params.append(("include[]", include))
 
-        response = requests.get(
-            f"{self.api_base}/opportunities/{opportunity_id}",
-            headers=self.headers(),
+        response = self.get(
+            f"opportunities/{opportunity_id}",
             params=params or None,
             timeout=15,
         )
@@ -297,18 +305,16 @@ class CurrentRMSClient:
         return False
 
     def fetch_opportunity_items(self, opportunity_id):
-        response = requests.get(
-            f"{self.api_base}/opportunities/{opportunity_id}/opportunity_items",
-            headers=self.headers(),
+        response = self.get(
+            f"opportunities/{opportunity_id}/opportunity_items",
             timeout=15,
         )
         response.raise_for_status()
         return response.json().get("opportunity_items", [])
 
     def fetch_product(self, product_id):
-        response = requests.get(
-            f"{self.api_base}/products/{product_id}",
-            headers=self.headers(),
+        response = self.get(
+            f"products/{product_id}",
             timeout=15,
         )
         response.raise_for_status()
@@ -322,9 +328,8 @@ class CurrentRMSClient:
         page_limit = max(1, min(100, safe_int(max_pages, 20)))
 
         def fetch_page(page):
-            response = requests.get(
-                f"{self.api_base}/quarantines",
-                headers=self.headers(),
+            response = self.get(
+                "quarantines",
                 params={"page": page, "per_page": page_size},
                 timeout=15,
             )
@@ -363,7 +368,10 @@ class DashboardBuilder:
         self._new_job_snapshots = {}
         self._returned_job_ids = None
         self._item_snapshots = {}
+        self._webhook_item_snapshots = {}
         self._last_excluded_item_ids = None
+        self._webhook_announced_jobs = set()
+        self._webhook_returned_jobs = set()
         self._sound_gate_started_at = datetime.now()
         self._prep_metric_state = self._load_prep_metric_state()
         self._inspection_metrics = InspectionMetrics()
@@ -471,6 +479,172 @@ class DashboardBuilder:
             "sound": str(sound_name or "").strip(),
         }
 
+    def process_webhook(self, payload, settings):
+        """Translate a Current RMS opportunity webhook into the existing alert format."""
+        action = payload.get("action", {}) if isinstance(payload, dict) else {}
+        if not isinstance(action, dict):
+            return []
+        if str(action.get("subject_type") or "").strip().lower() != "opportunity":
+            return []
+
+        action_type = str(action.get("action_type") or action.get("type") or "").strip().lower()
+        opportunity = action.get("subject") if isinstance(action.get("subject"), dict) else {}
+        opportunity_id = str(action.get("subject_id") or opportunity.get("id") or "").strip()
+        if not opportunity_id:
+            return []
+
+        if action_type in {"create_item", "update_item", "destroy_item"}:
+            alerts = self._webhook_item_alerts(action_type, action, opportunity, opportunity_id, settings)
+        else:
+            if action_type in {"create", "update", "confirm", "convert_to_order", "reinstate"}:
+                try:
+                    client = CurrentRMSClient(settings)
+                    detail = client.fetch_opportunity(opportunity_id) if client._opportunity_needs_hydration(opportunity) else {}
+                    if detail:
+                        merged = dict(opportunity)
+                        merged.update(detail)
+                        opportunity = merged
+                except Exception:
+                    pass
+            alerts = self._webhook_job_alerts(action_type, opportunity, opportunity_id, settings)
+
+        if alerts and self._payloads is not None:
+            self._payloads["notifications"] = self._history_payload()
+        return alerts
+
+    def _webhook_job_alerts(self, action_type, opportunity, opportunity_id, settings):
+        alerts = []
+        job_key = str(self._opportunity_number(opportunity) or opportunity_id)
+        state_name = str(first_value(opportunity, "state_name", default="")).strip().lower()
+        state_id = safe_int(first_value(opportunity, "state", default=0), 0)
+        is_order = state_name == "order" or state_id == 3
+
+        if is_order and action_type in {"create", "update", "confirm", "convert_to_order", "reinstate"}:
+            for bucket, event_type in self._webhook_date_buckets(opportunity):
+                marker = (bucket, opportunity_id)
+                known_jobs = set(self._new_job_snapshots.get(bucket) or [])
+                already_known = job_key in known_jobs or marker in self._webhook_announced_jobs
+                self._webhook_announced_jobs.add(marker)
+                if already_known:
+                    continue
+                alert = self._emit_alert(event_type, self._new_job_popup(event_type, opportunity), settings)
+                if alert:
+                    alerts.append(alert)
+
+        returned = (
+            str(first_value(opportunity.get("custom_fields", {}), "job_returned_but_unchecked", default=""))
+            .strip()
+            .lower()
+            == "yes"
+        )
+        known_returned = set(str(value) for value in (self._returned_job_ids or []))
+        if returned and opportunity_id not in known_returned and opportunity_id not in self._webhook_returned_jobs:
+            self._webhook_returned_jobs.add(opportunity_id)
+            alert = self._emit_alert("job_returned", self._job_returned_popup(opportunity), settings)
+            if alert:
+                alerts.append(alert)
+        elif not returned:
+            self._webhook_returned_jobs.discard(opportunity_id)
+        return alerts
+
+    def _webhook_date_buckets(self, opportunity):
+        starts_at = parse_datetime(
+            first_value(opportunity, "deliver_starts_at", "load_starts_at", "starts_at", default="")
+        )
+        if not starts_at:
+            return []
+        days = (starts_at.date() - datetime.now().date()).days
+        if days == 0:
+            return [("today", "new_job_today")]
+        if days == 1:
+            return [("tomorrow", "new_job_tomorrow")]
+        if 2 <= days <= 7:
+            return [("next_7_days", "new_job_next_7_days")]
+        return []
+
+    def _webhook_item_alerts(self, action_type, action, opportunity, opportunity_id, settings):
+        source = action.get("source") if isinstance(action.get("source"), dict) else {}
+        source_id = str(action.get("source_id") or source.get("id") or "").strip()
+        bucket_events = {
+            "today": "job_changed_today",
+            "tomorrow": "job_changed_tomorrow",
+            "next_7_days": "job_changed_next_7_days",
+        }
+        buckets = [
+            bucket
+            for bucket in bucket_events
+            if opportunity_id in self._item_snapshots.get(bucket, {})
+        ]
+        if not buckets:
+            buckets = [bucket for bucket, _event_type in self._webhook_date_buckets(opportunity)]
+
+        alerts = []
+        for bucket in buckets:
+            webhook_bucket = self._webhook_item_snapshots.setdefault(bucket, {})
+            if opportunity_id not in webhook_bucket:
+                webhook_bucket[opportunity_id] = {
+                    key: dict(value)
+                    for key, value in self._item_snapshots.get(bucket, {}).get(opportunity_id, {}).items()
+                }
+            previous_items = webhook_bucket[opportunity_id]
+            previous = previous_items.get(source_id, {}) if source_id else {}
+            item = {}
+            if source:
+                item = self._item_snapshot(
+                    [source],
+                    self._excluded_item_ids(settings),
+                    settings,
+                    include_accessories=False,
+                ).get(source_id, {})
+            if not item and previous:
+                item = dict(previous)
+            if not item:
+                item = {
+                    "id": source_id,
+                    "item_id": first_value(source, "item_id", "resource_item_id", default=""),
+                    "name": action.get("description") or action.get("name") or "Item",
+                    "quantity": first_value(source, "quantity", default=0),
+                    "status": first_value(source, "status", default=5),
+                    "prep_departments": [],
+                }
+
+            if action_type == "create_item":
+                change = {"type": "added", "item": item}
+                if source_id:
+                    previous_items[source_id] = dict(item)
+            elif action_type == "update_item":
+                if previous and str(previous.get("quantity")) == str(item.get("quantity")):
+                    continue
+                change = {"type": "updated", "item": item, "old_quantity": previous.get("quantity", 0)}
+                if source_id:
+                    previous_items[source_id] = dict(item)
+            else:
+                change = {"type": "removed", "item": item}
+                if source_id:
+                    previous_items.pop(source_id, None)
+
+            if action_type != "destroy_item" and safe_int(item.get("quantity"), 0) == 0:
+                continue
+            changes = [change]
+            if not item.get("prep_departments") and item.get("item_id"):
+                self._enrich_change_departments(
+                    changes,
+                    CurrentRMSClient(settings),
+                    {},
+                    settings,
+                )
+            event_type = bucket_events[bucket]
+            for target_departments, routed_changes in self._department_change_groups(changes, settings):
+                alert = self._emit_alert(
+                    event_type,
+                    self._job_change_popup(event_type, self._opportunity_name(opportunity), routed_changes),
+                    settings,
+                    target_departments=target_departments,
+                )
+                if alert:
+                    alerts.append(alert)
+        return alerts
+
     def refresh_data(self, settings):
         self._reset_history_if_new_day(settings)
         self._roll_prep_metrics_if_new_day()
@@ -543,6 +717,7 @@ class DashboardBuilder:
             )
 
             payloads["notifications"] = self._history_payload()
+            self._webhook_item_snapshots = {}
             self._last_error = ""
             self._payloads = payloads
             return payloads, alerts

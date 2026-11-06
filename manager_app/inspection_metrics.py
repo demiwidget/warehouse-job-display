@@ -486,9 +486,8 @@ class InspectionMetrics:
         last_error = None
         for attempt in range(3):
             try:
-                response = requests.get(
-                    f"{client.api_base}/{path.lstrip('/')}",
-                    headers=client.headers(),
+                response = client.get(
+                    path,
                     params=params,
                     timeout=30,
                 )
