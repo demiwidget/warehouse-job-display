@@ -28,7 +28,7 @@ folder is ignored by Git.
 
 ## One-screen notification pilot
 
-1. Update the Manager Pi and the selected test dashboard to version 2.4.15.
+1. Update the Manager Pi and the selected test dashboard to version 2.4.16.
 2. In the PC remote manager, open `Notifications` and choose one screen under
    `Webhook Notification Pilot`.
 3. Enable the pilot, save it, and copy the displayed `Tester forwarding URL`.

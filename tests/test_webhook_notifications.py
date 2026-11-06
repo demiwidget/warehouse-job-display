@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta
+from threading import RLock
+from time import monotonic
 import unittest
 
 from manager_app.current_rms import DashboardBuilder
 from manager_app.settings_store import DEFAULT_SETTINGS, _migrate_settings
-from manager_app.state import ManagerState, webhook_payload_identity
+from manager_app.state import ManagerState, webhook_item_batch_key, webhook_payload_identity
 
 
 def opportunity(opportunity_id="123", days=0, returned="No"):
@@ -147,6 +149,86 @@ class WebhookNotificationTests(unittest.TestCase):
 
         self.assertNotEqual(webhook_payload_identity(first), webhook_payload_identity(second))
         self.assertEqual(webhook_payload_identity(first), webhook_payload_identity(first))
+
+    def test_repeated_updates_for_the_same_job_item_share_a_batch(self):
+        first = {
+            "action": {
+                "subject_id": "123",
+                "action_type": "update_item",
+                "source_id": "500",
+                "source": {"id": "500", "quantity": "2.0"},
+            }
+        }
+        second = {
+            "action": {
+                "subject_id": "123",
+                "action_type": "update_item",
+                "source_id": "500",
+                "source": {"id": "500", "quantity": "20.0"},
+            }
+        }
+        other_item = {
+            "action": {
+                "subject_id": "123",
+                "action_type": "update_item",
+                "source_id": "501",
+                "source": {"id": "501", "quantity": "1.0"},
+            }
+        }
+
+        self.assertEqual(webhook_item_batch_key(first), webhook_item_batch_key(second))
+        self.assertNotEqual(webhook_item_batch_key(first), webhook_item_batch_key(other_item))
+
+    def test_one_off_and_structural_events_are_not_delayed(self):
+        payload = {
+            "action": {
+                "subject_id": "123",
+                "action_type": "create_item",
+                "source_id": "500",
+            }
+        }
+        self.assertEqual(webhook_item_batch_key(payload), "")
+
+    def test_batch_keeps_only_the_latest_quantity_and_one_delivery(self):
+        state = ManagerState.__new__(ManagerState)
+        state.lock = RLock()
+        state.webhook_item_batches = {}
+        state.webhook_batch_generation = 0
+        processed = []
+        state._process_current_rms_webhook = (
+            lambda payload, batch_count=1: processed.append((payload, batch_count))
+        )
+        first = {
+            "action": {
+                "subject_id": "123",
+                "action_type": "update_item",
+                "source_id": "500",
+                "source": {"id": "500", "quantity": "2.0"},
+            }
+        }
+        final = {
+            "action": {
+                "subject_id": "123",
+                "action_type": "update_item",
+                "source_id": "500",
+                "source": {"id": "500", "quantity": "20.0"},
+            }
+        }
+        key = webhook_item_batch_key(first)
+
+        self.assertEqual(state._queue_current_rms_webhook_batch(key, first), 1)
+        self.assertEqual(state._queue_current_rms_webhook_batch(key, final), 2)
+        with state.lock:
+            batch = state.webhook_item_batches[key]
+            batch["timer"].cancel()
+            batch["due_at"] = monotonic() - 1
+            generation = batch["generation"]
+        state._flush_current_rms_webhook_batch(key, generation)
+
+        self.assertEqual(len(processed), 1)
+        self.assertEqual(processed[0][0]["action"]["source"]["quantity"], "20.0")
+        self.assertEqual(processed[0][1], 2)
+        self.assertNotIn(key, state.webhook_item_batches)
 
 
 if __name__ == "__main__":

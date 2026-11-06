@@ -12,7 +12,7 @@ import socket
 import subprocess
 import sys
 from pathlib import Path
-from threading import Event, Lock, RLock, Thread
+from threading import Event, Lock, RLock, Thread, Timer
 from time import monotonic, sleep
 import traceback
 
@@ -71,6 +71,8 @@ OS_UPDATE_START_TIMEOUT_SECONDS = 300
 OS_UPDATE_RUN_TIMEOUT_SECONDS = 4 * 60 * 60
 OS_UPDATE_ACTIVE_STATES = {"checking", "preparing", "updating", "finalising"}
 OS_UPDATE_TERMINAL_STATES = {"available", "current", "complete", "attention", "failed"}
+WEBHOOK_ITEM_BATCH_IDLE_SECONDS = 2.0
+WEBHOOK_ITEM_BATCH_MAX_SECONDS = 30.0
 
 
 def parse_iso(ts):
@@ -120,6 +122,23 @@ def webhook_payload_identity(payload):
     return f"body:{payload_hash}"
 
 
+def webhook_item_batch_key(payload):
+    """Group rapid quantity updates for one job item into one notification."""
+    action = payload.get("action", {}) if isinstance(payload, dict) else {}
+    if not isinstance(action, dict):
+        return ""
+    action_type = str(action.get("action_type") or action.get("type") or "").strip().lower()
+    if action_type != "update_item":
+        return ""
+    source = action.get("source") if isinstance(action.get("source"), dict) else {}
+    subject = action.get("subject") if isinstance(action.get("subject"), dict) else {}
+    opportunity_id = str(action.get("subject_id") or subject.get("id") or "").strip()
+    source_id = str(action.get("source_id") or source.get("id") or "").strip()
+    if not opportunity_id or not source_id:
+        return ""
+    return f"opportunity:{opportunity_id}:item:{source_id}"
+
+
 def parse_time_minutes(value, default="00:00"):
     match = re.match(r"^\s*(\d{1,2})[:.](\d{2})\s*$", str(value or default))
     if not match:
@@ -151,6 +170,8 @@ class ManagerState:
         self.commands = {}
         self.alerts = {device_id: [] for device_id in self.devices}
         self.webhook_events = {}
+        self.webhook_item_batches = {}
+        self.webhook_batch_generation = 0
         self.office_gift_last_sent = {}
         self.os_update_batch_lock = Lock()
         self.os_update_batch_cancel = Event()
@@ -1432,6 +1453,17 @@ class ManagerState:
         if duplicate:
             return {"ok": True, "accepted": False, "duplicate": True}
 
+        batch_key = webhook_item_batch_key(payload)
+        if batch_key:
+            batch_size = self._queue_current_rms_webhook_batch(batch_key, payload)
+            return {
+                "ok": True,
+                "accepted": True,
+                "duplicate": False,
+                "batched": True,
+                "batch_size": batch_size,
+            }
+
         Thread(
             target=self._process_current_rms_webhook,
             args=(deepcopy(payload),),
@@ -1440,7 +1472,73 @@ class ManagerState:
         ).start()
         return {"ok": True, "accepted": True, "duplicate": False}
 
-    def _process_current_rms_webhook(self, payload):
+    def _queue_current_rms_webhook_batch(self, batch_key, payload):
+        now = monotonic()
+        with self.lock:
+            batch = self.webhook_item_batches.get(batch_key)
+            if batch is None:
+                batch = {
+                    "first_at": now,
+                    "count": 0,
+                    "payload": {},
+                    "timer": None,
+                    "generation": 0,
+                    "due_at": now,
+                }
+                self.webhook_item_batches[batch_key] = batch
+            previous_timer = batch.get("timer")
+            if previous_timer is not None:
+                previous_timer.cancel()
+
+            batch["count"] = int(batch.get("count", 0) or 0) + 1
+            batch["payload"] = deepcopy(payload)
+            due_at = min(
+                now + WEBHOOK_ITEM_BATCH_IDLE_SECONDS,
+                float(batch.get("first_at", now)) + WEBHOOK_ITEM_BATCH_MAX_SECONDS,
+            )
+            self.webhook_batch_generation += 1
+            generation = self.webhook_batch_generation
+            batch["generation"] = generation
+            batch["due_at"] = due_at
+            timer = Timer(
+                max(0.01, due_at - now),
+                self._flush_current_rms_webhook_batch,
+                args=(batch_key, generation),
+            )
+            timer.daemon = True
+            batch["timer"] = timer
+            batch_size = batch["count"]
+        timer.start()
+        return batch_size
+
+    def _flush_current_rms_webhook_batch(self, batch_key, generation):
+        timer_to_start = None
+        payload = None
+        batch_count = 0
+        with self.lock:
+            batch = self.webhook_item_batches.get(batch_key)
+            if not batch or int(batch.get("generation", 0) or 0) != int(generation):
+                return
+            remaining = float(batch.get("due_at", 0) or 0) - monotonic()
+            if remaining > 0.02:
+                timer_to_start = Timer(
+                    remaining,
+                    self._flush_current_rms_webhook_batch,
+                    args=(batch_key, generation),
+                )
+                timer_to_start.daemon = True
+                batch["timer"] = timer_to_start
+            else:
+                payload = deepcopy(batch.get("payload") or {})
+                batch_count = max(1, int(batch.get("count", 1) or 1))
+                self.webhook_item_batches.pop(batch_key, None)
+        if timer_to_start is not None:
+            timer_to_start.start()
+            return
+        if payload:
+            self._process_current_rms_webhook(payload, batch_count=batch_count)
+
+    def _process_current_rms_webhook(self, payload, batch_count=1):
         action = payload.get("action", {}) if isinstance(payload, dict) else {}
         action_label = str(action.get("action_type") or "unknown")
         action_id = str(action.get("id") or "")
@@ -1476,10 +1574,16 @@ class ManagerState:
                         queued_count += 1
             self.log_activity(
                 "Webhooks",
-                f"Processed Current RMS {action_label}; queued {queued_count} test-screen notification(s).",
+                (
+                    f"Processed {batch_count} Current RMS {action_label} event(s) as one batch; "
+                    f"queued {queued_count} test-screen notification(s)."
+                    if batch_count > 1
+                    else f"Processed Current RMS {action_label}; queued {queued_count} test-screen notification(s)."
+                ),
                 details={
                     "action_id": action_id,
                     "alerts_detected": len(alerts),
+                    "batch_size": batch_count,
                     "target_ids": sorted(selected_targets),
                 },
             )
