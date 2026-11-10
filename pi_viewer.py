@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
     QStatusBar,
     QTableWidget,
     QTableWidgetItem,
@@ -835,69 +836,110 @@ class CompactOverviewPage(QScrollArea):
         self.daily_quote_banner.set_quote(status)
 
 
-class ScanPodiumCard(QFrame):
-    COLORS = {
-        1: ("#f4c95d", "#2d2308", "1ST"),
-        2: ("#c8d2dc", "#17212a", "2ND"),
-        3: ("#d59a6f", "#2b170c", "3RD"),
+class ScanLeaderboardBarRow(QFrame):
+    RANK_COLORS = {
+        1: "#f4c95d",
+        2: "#c8d2dc",
+        3: "#d59a6f",
     }
 
-    def __init__(self, rank, scale=1.0, compact=False):
+    def __init__(self, row, highest_score, scale=1.0, compact=False):
         super().__init__()
-        self.rank = rank
         self.ui_scale = float(scale or 1.0)
         self.compact = bool(compact)
-        self.setObjectName(f"scanPodium{rank}")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(
-            scaled(14, self.ui_scale),
-            scaled(12, self.ui_scale),
-            scaled(14, self.ui_scale),
-            scaled(12, self.ui_scale),
-        )
-        layout.setSpacing(scaled(4, self.ui_scale))
-        self.place_label = QLabel(self.COLORS[rank][2])
-        self.place_label.setAlignment(Qt.AlignCenter)
-        self.operator_label = QLabel("Waiting for scans")
-        self.operator_label.setAlignment(Qt.AlignCenter)
-        self.operator_label.setWordWrap(True)
-        self.count_label = QLabel("0")
-        self.count_label.setAlignment(Qt.AlignCenter)
-        self.caption_label = QLabel("SCANS")
-        self.caption_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.place_label)
-        layout.addWidget(self.operator_label, 1)
-        layout.addWidget(self.count_label)
-        layout.addWidget(self.caption_label)
-        self.apply_style()
+        rank = safe_int(row.get("Rank"), 0)
+        scans = max(0, safe_int(row.get("Scans"), 0))
+        accent = self.RANK_COLORS.get(rank, "#57d68d")
 
-    def apply_style(self):
-        background, foreground, _label = self.COLORS[self.rank]
-        self.setMinimumHeight(scaled(118 if self.compact else 155, self.ui_scale))
+        self.setObjectName("scanLeaderboardBarRow")
+        self.setMaximumWidth(scaled(1080, self.ui_scale))
+        self.setMinimumHeight(scaled(60 if self.compact else 76, self.ui_scale))
+        row_layout = QHBoxLayout(self)
+        row_layout.setContentsMargins(
+            scaled(12, self.ui_scale),
+            scaled(8, self.ui_scale),
+            scaled(12, self.ui_scale),
+            scaled(8, self.ui_scale),
+        )
+        row_layout.setSpacing(scaled(12, self.ui_scale))
+
+        rank_label = QLabel(f"#{rank}")
+        rank_label.setAlignment(Qt.AlignCenter)
+        rank_label.setFixedWidth(scaled(48 if self.compact else 58, self.ui_scale))
+
+        operator_widget = QWidget()
+        operator_widget.setStyleSheet("background:transparent;")
+        operator_widget.setFixedWidth(scaled(155 if self.compact else 250, self.ui_scale))
+        operator_layout = QVBoxLayout(operator_widget)
+        operator_layout.setContentsMargins(0, 0, 0, 0)
+        operator_layout.setSpacing(scaled(2, self.ui_scale))
+        operator_label = QLabel(str(row.get("Operator") or "Unknown operator"))
+        operator_label.setWordWrap(False)
+        workstation = str(row.get("Workstation") or "").strip()
+        last_scan = str(row.get("Last Scan") or "").strip()
+        if self.compact:
+            meta_text = f"Last scan {last_scan}" if last_scan else ""
+        else:
+            meta_parts = [part for part in (workstation, f"Last scan {last_scan}" if last_scan else "") if part]
+            meta_text = "  |  ".join(meta_parts)
+        meta_label = QLabel(meta_text)
+        meta_label.setWordWrap(False)
+        operator_layout.addWidget(operator_label)
+        operator_layout.addWidget(meta_label)
+
+        progress = QProgressBar()
+        progress.setRange(0, max(1, int(highest_score or 1)))
+        progress.setValue(scans)
+        progress.setTextVisible(False)
+        progress.setFixedHeight(scaled(18 if self.compact else 24, self.ui_scale))
+        progress.setMaximumWidth(scaled(360 if self.compact else 560, self.ui_scale))
+
+        count_widget = QWidget()
+        count_widget.setStyleSheet("background:transparent;")
+        count_widget.setFixedWidth(scaled(70 if self.compact else 90, self.ui_scale))
+        count_layout = QVBoxLayout(count_widget)
+        count_layout.setContentsMargins(0, 0, 0, 0)
+        count_layout.setSpacing(0)
+        count_label = QLabel(str(scans))
+        count_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        count_caption = QLabel("SCANS")
+        count_caption.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        count_layout.addWidget(count_label)
+        count_layout.addWidget(count_caption)
+
+        row_layout.addWidget(rank_label)
+        row_layout.addWidget(operator_widget)
+        row_layout.addWidget(progress, 1)
+        row_layout.addWidget(count_widget)
+
         self.setStyleSheet(
-            f"QFrame#{self.objectName()} {{ background:{background}; color:{foreground}; "
-            f"border:0; border-radius:{scaled(14, self.ui_scale)}px; }}"
+            f"QFrame#scanLeaderboardBarRow {{ background:#171c21; border:1px solid #29343d; "
+            f"border-radius:{scaled(10, self.ui_scale)}px; }}"
         )
-        self.place_label.setStyleSheet(
-            f"background:transparent; color:{foreground}; font-size:{scaled(11, self.ui_scale)}px; font-weight:1000; "
-            "letter-spacing:1px;"
-        )
-        self.operator_label.setStyleSheet(
-            f"background:transparent; color:{foreground}; font-size:{scaled(17 if self.compact else 23, self.ui_scale)}px; "
+        rank_label.setStyleSheet(
+            f"background:transparent; color:{accent}; font-size:{scaled(15 if self.compact else 18, self.ui_scale)}px; "
             "font-weight:1000;"
         )
-        self.count_label.setStyleSheet(
-            f"background:transparent; color:{foreground}; font-size:{scaled(29 if self.compact else 42, self.ui_scale)}px; "
+        operator_label.setStyleSheet(
+            f"background:transparent; color:#f4f7f9; font-size:{scaled(14 if self.compact else 18, self.ui_scale)}px; "
+            "font-weight:950;"
+        )
+        meta_label.setStyleSheet(
+            f"background:transparent; color:#8fa1ad; font-size:{scaled(9 if self.compact else 11, self.ui_scale)}px; "
+            "font-weight:700;"
+        )
+        progress.setStyleSheet(
+            f"QProgressBar {{ background:#263139; border:0; border-radius:{scaled(9, self.ui_scale)}px; }} "
+            f"QProgressBar::chunk {{ background:{accent}; border-radius:{scaled(9, self.ui_scale)}px; }}"
+        )
+        count_label.setStyleSheet(
+            f"background:transparent; color:#ffffff; font-size:{scaled(20 if self.compact else 26, self.ui_scale)}px; "
             "font-weight:1000;"
         )
-        self.caption_label.setStyleSheet(
-            f"background:transparent; color:{foreground}; font-size:{scaled(9, self.ui_scale)}px; font-weight:950;"
+        count_caption.setStyleSheet(
+            f"background:transparent; color:#71838f; font-size:{scaled(8 if self.compact else 9, self.ui_scale)}px; "
+            "font-weight:950; letter-spacing:1px;"
         )
-
-    def set_row(self, row=None):
-        row = row or {}
-        self.operator_label.setText(str(row.get("Operator") or "Waiting for scans"))
-        self.count_label.setText(str(row.get("Scans", 0) or 0))
 
 
 class ScanLeaderboardPage(QWidget):
@@ -945,24 +987,29 @@ class ScanLeaderboardPage(QWidget):
         hero_layout.addLayout(total_text)
         layout.addWidget(hero)
 
-        podium = QHBoxLayout()
-        podium.setSpacing(scaled(10, self.ui_scale))
-        self.podium_cards = [
-            ScanPodiumCard(rank, self.ui_scale, self.compact)
-            for rank in (1, 2, 3)
-        ]
-        for card in self.podium_cards:
-            podium.addWidget(card, 1)
-        layout.addLayout(podium)
-
-        self.empty_label = QLabel("Waiting for the first successful scan today")
-        self.empty_label.setAlignment(Qt.AlignCenter)
-        self.empty_label.setObjectName("scanLeaderboardEmpty")
-        layout.addWidget(self.empty_label)
-
-        self.table = DashboardTable(scale=self.ui_scale)
-        layout.addWidget(self.table, 1)
-        enable_click_drag_scroll(self.table)
+        self.chart_scroll = QScrollArea()
+        self.chart_scroll.setWidgetResizable(True)
+        self.chart_scroll.setFrameShape(QScrollArea.NoFrame)
+        self.chart_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        chart_canvas = QWidget()
+        chart_canvas.setStyleSheet("background:transparent;")
+        chart_canvas_layout = QHBoxLayout(chart_canvas)
+        chart_canvas_layout.setContentsMargins(0, 0, 0, 0)
+        chart_canvas_layout.addStretch(1)
+        self.chart_widget = QWidget()
+        self.chart_widget.setStyleSheet("background:transparent;")
+        self.chart_widget.setMinimumWidth(
+            scaled(590 if self.compact else 900, self.ui_scale)
+        )
+        self.chart_widget.setMaximumWidth(scaled(1120, self.ui_scale))
+        self.chart_layout = QVBoxLayout(self.chart_widget)
+        self.chart_layout.setContentsMargins(0, 0, 0, 0)
+        self.chart_layout.setSpacing(scaled(7, self.ui_scale))
+        chart_canvas_layout.addWidget(self.chart_widget)
+        chart_canvas_layout.addStretch(1)
+        self.chart_scroll.setWidget(chart_canvas)
+        layout.addWidget(self.chart_scroll, 1)
+        enable_click_drag_scroll(self.chart_scroll)
 
         hero.setStyleSheet(
             f"QFrame#scanLeaderboardHero {{ background:#102b36; border:1px solid #245165; "
@@ -984,10 +1031,13 @@ class ScanLeaderboardPage(QWidget):
             f"background:transparent; color:#9cc1c7; font-size:{scaled(9 if self.compact else 11, self.ui_scale)}px; "
             "font-weight:950; letter-spacing:1px;"
         )
-        self.empty_label.setStyleSheet(
-            f"background:transparent; color:#91a0aa; font-size:{scaled(13, self.ui_scale)}px; font-weight:800; "
-            f"padding:{scaled(12, self.ui_scale)}px;"
-        )
+
+    def clear_chart(self):
+        while self.chart_layout.count():
+            item = self.chart_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
 
     def set_data(self, payload):
         payload = payload or {}
@@ -995,28 +1045,28 @@ class ScanLeaderboardPage(QWidget):
         self.title_label.setText(str(payload.get("title") or "Scanned Leaderboard"))
         self.date_label.setText(str(payload.get("date_label") or "Today"))
         self.total_label.setText(str(payload.get("total", 0) or 0))
-        for index, card in enumerate(self.podium_cards):
-            card.set_row(rows[index] if index < len(rows) else None)
+        self.clear_chart()
+        if not rows:
+            empty_label = QLabel("Waiting for the first successful scan today")
+            empty_label.setAlignment(Qt.AlignCenter)
+            empty_label.setStyleSheet(
+                f"background:transparent; color:#91a0aa; font-size:{scaled(13, self.ui_scale)}px; "
+                f"font-weight:800; padding:{scaled(28, self.ui_scale)}px;"
+            )
+            self.chart_layout.addWidget(empty_label)
+            self.chart_layout.addStretch(1)
+            return
 
-        self.empty_label.setVisible(not rows)
-        table_rows = rows[3:]
-        if self.compact:
-            headers = ["Rank", "Operator", "Scans", "Last Scan"]
-        else:
-            headers = ["Rank", "Operator", "Scans", "Workstation", "Last Scan"]
-        self.table.set_rows(headers, table_rows)
-        self.table.setVisible(bool(table_rows))
-        if table_rows:
-            scan_column = headers.index("Scans")
-            operator_column = headers.index("Operator")
-            self.table.horizontalHeader().setSectionResizeMode(operator_column, QHeaderView.Stretch)
-            for row in range(self.table.rowCount()):
-                scan_item = self.table.item(row, scan_column)
-                if scan_item:
-                    font = scan_item.font()
-                    font.setBold(True)
-                    scan_item.setFont(font)
-                    scan_item.setForeground(QColor("#5de2a5"))
+        highest_score = max(max(0, safe_int(row.get("Scans"), 0)) for row in rows)
+        for row in rows:
+            bar_row = ScanLeaderboardBarRow(
+                row,
+                highest_score,
+                scale=self.ui_scale,
+                compact=self.compact,
+            )
+            self.chart_layout.addWidget(bar_row)
+        self.chart_layout.addStretch(1)
 
 
 class OfficeGiftPage(QWidget):
