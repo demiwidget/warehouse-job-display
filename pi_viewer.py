@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from html import escape
 from tempfile import NamedTemporaryFile
 import time
@@ -31,6 +32,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QHBoxLayout,
     QDialog,
+    QFrame,
     QGridLayout,
     QPushButton,
     QScrollArea,
@@ -833,6 +835,190 @@ class CompactOverviewPage(QScrollArea):
         self.daily_quote_banner.set_quote(status)
 
 
+class ScanPodiumCard(QFrame):
+    COLORS = {
+        1: ("#f4c95d", "#2d2308", "1ST"),
+        2: ("#c8d2dc", "#17212a", "2ND"),
+        3: ("#d59a6f", "#2b170c", "3RD"),
+    }
+
+    def __init__(self, rank, scale=1.0, compact=False):
+        super().__init__()
+        self.rank = rank
+        self.ui_scale = float(scale or 1.0)
+        self.compact = bool(compact)
+        self.setObjectName(f"scanPodium{rank}")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(
+            scaled(14, self.ui_scale),
+            scaled(12, self.ui_scale),
+            scaled(14, self.ui_scale),
+            scaled(12, self.ui_scale),
+        )
+        layout.setSpacing(scaled(4, self.ui_scale))
+        self.place_label = QLabel(self.COLORS[rank][2])
+        self.place_label.setAlignment(Qt.AlignCenter)
+        self.operator_label = QLabel("Waiting for scans")
+        self.operator_label.setAlignment(Qt.AlignCenter)
+        self.operator_label.setWordWrap(True)
+        self.count_label = QLabel("0")
+        self.count_label.setAlignment(Qt.AlignCenter)
+        self.caption_label = QLabel("SCANS")
+        self.caption_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.place_label)
+        layout.addWidget(self.operator_label, 1)
+        layout.addWidget(self.count_label)
+        layout.addWidget(self.caption_label)
+        self.apply_style()
+
+    def apply_style(self):
+        background, foreground, _label = self.COLORS[self.rank]
+        self.setMinimumHeight(scaled(118 if self.compact else 155, self.ui_scale))
+        self.setStyleSheet(
+            f"QFrame#{self.objectName()} {{ background:{background}; color:{foreground}; "
+            f"border:0; border-radius:{scaled(14, self.ui_scale)}px; }}"
+        )
+        self.place_label.setStyleSheet(
+            f"background:transparent; color:{foreground}; font-size:{scaled(11, self.ui_scale)}px; font-weight:1000; "
+            "letter-spacing:1px;"
+        )
+        self.operator_label.setStyleSheet(
+            f"background:transparent; color:{foreground}; font-size:{scaled(17 if self.compact else 23, self.ui_scale)}px; "
+            "font-weight:1000;"
+        )
+        self.count_label.setStyleSheet(
+            f"background:transparent; color:{foreground}; font-size:{scaled(29 if self.compact else 42, self.ui_scale)}px; "
+            "font-weight:1000;"
+        )
+        self.caption_label.setStyleSheet(
+            f"background:transparent; color:{foreground}; font-size:{scaled(9, self.ui_scale)}px; font-weight:950;"
+        )
+
+    def set_row(self, row=None):
+        row = row or {}
+        self.operator_label.setText(str(row.get("Operator") or "Waiting for scans"))
+        self.count_label.setText(str(row.get("Scans", 0) or 0))
+
+
+class ScanLeaderboardPage(QWidget):
+    def __init__(self, scale=1.0, compact=False):
+        super().__init__()
+        self.ui_scale = float(scale or 1.0)
+        self.compact = bool(compact)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(
+            scaled(8, self.ui_scale),
+            scaled(8, self.ui_scale),
+            scaled(8, self.ui_scale),
+            scaled(8, self.ui_scale),
+        )
+        layout.setSpacing(scaled(10, self.ui_scale))
+
+        hero = QFrame()
+        hero.setObjectName("scanLeaderboardHero")
+        hero_layout = QHBoxLayout(hero)
+        hero_layout.setContentsMargins(
+            scaled(18, self.ui_scale),
+            scaled(12, self.ui_scale),
+            scaled(18, self.ui_scale),
+            scaled(12, self.ui_scale),
+        )
+        hero_text = QVBoxLayout()
+        hero_text.setSpacing(scaled(2, self.ui_scale))
+        self.title_label = QLabel("Scanned Leaderboard")
+        self.title_label.setObjectName("scanLeaderboardTitle")
+        self.date_label = QLabel("Today")
+        self.date_label.setObjectName("scanLeaderboardDate")
+        hero_text.addWidget(self.title_label)
+        hero_text.addWidget(self.date_label)
+        hero_layout.addLayout(hero_text, 1)
+        total_text = QVBoxLayout()
+        total_text.setSpacing(0)
+        self.total_label = QLabel("0")
+        self.total_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.total_label.setObjectName("scanLeaderboardTotal")
+        total_caption = QLabel("SCANS TODAY")
+        total_caption.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        total_caption.setObjectName("scanLeaderboardTotalCaption")
+        total_text.addWidget(self.total_label)
+        total_text.addWidget(total_caption)
+        hero_layout.addLayout(total_text)
+        layout.addWidget(hero)
+
+        podium = QHBoxLayout()
+        podium.setSpacing(scaled(10, self.ui_scale))
+        self.podium_cards = [
+            ScanPodiumCard(rank, self.ui_scale, self.compact)
+            for rank in (1, 2, 3)
+        ]
+        for card in self.podium_cards:
+            podium.addWidget(card, 1)
+        layout.addLayout(podium)
+
+        self.empty_label = QLabel("Waiting for the first successful scan today")
+        self.empty_label.setAlignment(Qt.AlignCenter)
+        self.empty_label.setObjectName("scanLeaderboardEmpty")
+        layout.addWidget(self.empty_label)
+
+        self.table = DashboardTable(scale=self.ui_scale)
+        layout.addWidget(self.table, 1)
+        enable_click_drag_scroll(self.table)
+
+        hero.setStyleSheet(
+            f"QFrame#scanLeaderboardHero {{ background:#102b36; border:1px solid #245165; "
+            f"border-radius:{scaled(14, self.ui_scale)}px; }}"
+        )
+        self.title_label.setStyleSheet(
+            f"background:transparent; color:#ffffff; font-size:{scaled(22 if self.compact else 31, self.ui_scale)}px; "
+            "font-weight:1000;"
+        )
+        self.date_label.setStyleSheet(
+            f"background:transparent; color:#8fd8dc; font-size:{scaled(10 if self.compact else 13, self.ui_scale)}px; "
+            "font-weight:850;"
+        )
+        self.total_label.setStyleSheet(
+            f"background:transparent; color:#5de2a5; font-size:{scaled(32 if self.compact else 48, self.ui_scale)}px; "
+            "font-weight:1000;"
+        )
+        total_caption.setStyleSheet(
+            f"background:transparent; color:#9cc1c7; font-size:{scaled(9 if self.compact else 11, self.ui_scale)}px; "
+            "font-weight:950; letter-spacing:1px;"
+        )
+        self.empty_label.setStyleSheet(
+            f"background:transparent; color:#91a0aa; font-size:{scaled(13, self.ui_scale)}px; font-weight:800; "
+            f"padding:{scaled(12, self.ui_scale)}px;"
+        )
+
+    def set_data(self, payload):
+        payload = payload or {}
+        rows = list(payload.get("rows") or [])
+        self.title_label.setText(str(payload.get("title") or "Scanned Leaderboard"))
+        self.date_label.setText(str(payload.get("date_label") or "Today"))
+        self.total_label.setText(str(payload.get("total", 0) or 0))
+        for index, card in enumerate(self.podium_cards):
+            card.set_row(rows[index] if index < len(rows) else None)
+
+        self.empty_label.setVisible(not rows)
+        table_rows = rows[3:]
+        if self.compact:
+            headers = ["Rank", "Operator", "Scans", "Last Scan"]
+        else:
+            headers = ["Rank", "Operator", "Scans", "Workstation", "Last Scan"]
+        self.table.set_rows(headers, table_rows)
+        self.table.setVisible(bool(table_rows))
+        if table_rows:
+            scan_column = headers.index("Scans")
+            operator_column = headers.index("Operator")
+            self.table.horizontalHeader().setSectionResizeMode(operator_column, QHeaderView.Stretch)
+            for row in range(self.table.rowCount()):
+                scan_item = self.table.item(row, scan_column)
+                if scan_item:
+                    font = scan_item.font()
+                    font.setBold(True)
+                    scan_item.setFont(font)
+                    scan_item.setForeground(QColor("#5de2a5"))
+
+
 class OfficeGiftPage(QWidget):
     gift_requested = Signal()
 
@@ -1131,6 +1317,15 @@ class ViewerWindow(QMainWindow):
             self.notifications_table,
             "Alerts" if self.compact_display else "Notification History",
         )
+        self.scan_leaderboard_page = ScanLeaderboardPage(
+            scale=self.ui_scale,
+            compact=self.compact_display,
+        )
+        self.screen_tab_indexes["scan_leaderboard"] = self.tabs.addTab(
+            self.scan_leaderboard_page,
+            "Scans" if self.compact_display else "Scanned Leaderboard",
+        )
+        self.tabs.setTabVisible(self.screen_tab_indexes["scan_leaderboard"], False)
         self.office_gift_page = OfficeGiftPage(scale=self.ui_scale)
         self.office_gift_page.gift_requested.connect(self.send_office_gift)
         self.screen_tab_indexes["office_gift"] = self.tabs.addTab(
@@ -1736,6 +1931,18 @@ class ViewerWindow(QMainWindow):
         except Exception:
             return {}
 
+    def fetch_scan_leaderboard(self):
+        try:
+            device_id = registration_id(self.config)
+            response = requests.get(
+                self.server_url(f"/scan-leaderboard/{quote(device_id, safe='')}"),
+                timeout=5,
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception:
+            return {}
+
     def send_office_gift(self):
         if self.office_gift_in_progress:
             return
@@ -1779,13 +1986,19 @@ class ViewerWindow(QMainWindow):
         Thread(target=self._refresh_worker, daemon=True).start()
 
     def _refresh_worker(self):
-        bundle = self.fetch_screen_bundle()
-        office_gift = self.fetch_office_gift_config()
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            bundle_future = executor.submit(self.fetch_screen_bundle)
+            gift_future = executor.submit(self.fetch_office_gift_config)
+            scan_future = executor.submit(self.fetch_scan_leaderboard)
+            bundle = bundle_future.result()
+            office_gift = gift_future.result()
+            scan_leaderboard = scan_future.result()
         self.refresh_result_ready.emit(
             {
                 "ok": bool(bundle),
                 "bundle": bundle,
                 "office_gift": office_gift,
+                "scan_leaderboard": scan_leaderboard,
             }
         )
 
@@ -1796,6 +2009,15 @@ class ViewerWindow(QMainWindow):
         self.tabs.setTabVisible(self.screen_tab_indexes["office_gift"], gift_visible)
         if gift_visible:
             self.office_gift_page.apply_config(office_gift)
+        scan_leaderboard = result.get("scan_leaderboard") or {}
+        scan_visible = bool(scan_leaderboard.get("visible"))
+        scan_index = self.screen_tab_indexes["scan_leaderboard"]
+        if not scan_visible and self.tabs.currentIndex() == scan_index:
+            fallback = "overview" if self.compact_display else "today"
+            self.tabs.setCurrentIndex(self.screen_tab_indexes[fallback])
+        self.tabs.setTabVisible(scan_index, scan_visible)
+        if scan_visible:
+            self.scan_leaderboard_page.set_data(scan_leaderboard)
         if result.get("ok"):
             self.apply_screen_bundle(result.get("bundle") or {})
         if self.refresh_queued:

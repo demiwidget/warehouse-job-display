@@ -47,6 +47,13 @@ DEFAULT_SETTINGS = {
             "office-gift-06.wav",
         ],
     },
+    "scan_leaderboard": {
+        "enabled": False,
+        "title": "Scanned Leaderboard",
+        "visible_device_ids": ["*"],
+        "signing_secret": "",
+        "max_rows": 12,
+    },
     "daily_quote": {
         "enabled": True,
         "api_key": "",
@@ -276,6 +283,32 @@ def _route_key_lookup(value):
 
 
 def _migrate_settings(settings):
+    scan_leaderboard = settings.get("scan_leaderboard", {})
+    if not isinstance(scan_leaderboard, dict):
+        scan_leaderboard = {}
+    scan_leaderboard["enabled"] = bool(scan_leaderboard.get("enabled", False))
+    scan_leaderboard["title"] = (
+        str(scan_leaderboard.get("title") or "Scanned Leaderboard").strip()
+        or "Scanned Leaderboard"
+    )
+    visible_device_ids = scan_leaderboard.get("visible_device_ids", [])
+    if isinstance(visible_device_ids, str):
+        visible_device_ids = [visible_device_ids]
+    if not isinstance(visible_device_ids, list):
+        visible_device_ids = []
+    scan_leaderboard["visible_device_ids"] = list(
+        dict.fromkeys(str(value).strip() for value in visible_device_ids if str(value).strip())
+    )
+    scan_leaderboard["signing_secret"] = str(scan_leaderboard.get("signing_secret") or "").strip()
+    try:
+        scan_leaderboard["max_rows"] = max(
+            3,
+            min(50, int(scan_leaderboard.get("max_rows", 12) or 12)),
+        )
+    except (TypeError, ValueError):
+        scan_leaderboard["max_rows"] = 12
+    settings["scan_leaderboard"] = scan_leaderboard
+
     office_gift = settings.get("office_gift", {})
     if not isinstance(office_gift, dict):
         office_gift = {}

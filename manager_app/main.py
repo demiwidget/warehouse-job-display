@@ -2303,6 +2303,351 @@ class OverviewPage(QWidget):
         QTimer.singleShot(0, self.refresh)
 
 
+class ScanLeaderboardTab(QWidget):
+    refresh_result_ready = Signal(object)
+    action_result_ready = Signal(object)
+
+    def __init__(self, state):
+        super().__init__()
+        self.state = state
+        self.active = False
+        self.refresh_in_progress = False
+        self.settings_dirty = False
+        self.table_loading = False
+
+        layout = make_scroll_page(self, margins=(12, 12, 12, 18), spacing=10)
+        add_page_heading(
+            layout,
+            "Scanned Leaderboard",
+            "Receive successful scans from the Zebra bridge and show a live operator leaderboard on selected dashboards.",
+        )
+        self.status = make_status_label("Loading scan leaderboard settings...")
+        layout.addWidget(self.status)
+
+        settings_panel, settings_layout = make_panel(
+            "Leaderboard Display",
+            "The dashboard tab is optional and only appears on the screens selected below.",
+        )
+        settings_form = QGridLayout()
+        self.enabled_input = QCheckBox("Enable the Scanned Leaderboard webhook and dashboard tab")
+        self.title_input = QLineEdit("Scanned Leaderboard")
+        self.max_rows_input = QSpinBox()
+        self.max_rows_input.setRange(3, 50)
+        self.max_rows_input.setValue(12)
+        settings_form.addWidget(self.enabled_input, 0, 0, 1, 3)
+        settings_form.addWidget(QLabel("Dashboard title"), 1, 0)
+        settings_form.addWidget(self.title_input, 1, 1, 1, 2)
+        settings_form.addWidget(QLabel("Maximum leaderboard rows"), 2, 0)
+        settings_form.addWidget(self.max_rows_input, 2, 1)
+        settings_form.setColumnStretch(2, 1)
+        settings_layout.addLayout(settings_form)
+        layout.addWidget(settings_panel)
+
+        webhook_panel, webhook_layout = make_panel(
+            "Zebra Webhook Connection",
+            "Paste this address into the Zebra bridge. Events are stored before confirmation and repeated event IDs are ignored safely.",
+        )
+        webhook_grid = QGridLayout()
+        self.webhook_url_input = QLineEdit()
+        self.webhook_url_input.setReadOnly(True)
+        self.signature_enabled_input = QCheckBox("Require signed webhooks (recommended)")
+        self.signature_secret_input = QLineEdit()
+        self.signature_secret_input.setReadOnly(True)
+        copy_url_btn = QPushButton("Copy Address")
+        copy_secret_btn = QPushButton("Copy Secret")
+        regenerate_secret_btn = QPushButton("Generate New Secret")
+        copy_url_btn.clicked.connect(
+            lambda: self.copy_value(self.webhook_url_input.text(), "Webhook address copied.")
+        )
+        copy_secret_btn.clicked.connect(
+            lambda: self.copy_value(self.signature_secret_input.text(), "Signing secret copied.")
+        )
+        regenerate_secret_btn.clicked.connect(self.regenerate_secret)
+        webhook_grid.addWidget(QLabel("Webhook address"), 0, 0)
+        webhook_grid.addWidget(self.webhook_url_input, 0, 1)
+        webhook_grid.addWidget(copy_url_btn, 0, 2)
+        webhook_grid.addWidget(self.signature_enabled_input, 1, 0, 1, 3)
+        webhook_grid.addWidget(QLabel("Signing secret"), 2, 0)
+        webhook_grid.addWidget(self.signature_secret_input, 2, 1)
+        secret_buttons = QHBoxLayout()
+        secret_buttons.addWidget(copy_secret_btn)
+        secret_buttons.addWidget(regenerate_secret_btn)
+        webhook_grid.addLayout(secret_buttons, 2, 2)
+        webhook_grid.setColumnStretch(1, 1)
+        webhook_layout.addLayout(webhook_grid)
+        help_label = QLabel(
+            "In the Zebra bridge, use HMAC-SHA256 with this secret and send the signature in "
+            "X-Zebra-Signature. Leave barcode and job data disabled; the leaderboard only needs "
+            "eventId, operator, workstation and acceptedQuantity."
+        )
+        help_label.setObjectName("SectionSubtitle")
+        help_label.setWordWrap(True)
+        webhook_layout.addWidget(help_label)
+        layout.addWidget(webhook_panel)
+
+        screens_panel, screens_layout = make_panel(
+            "Dashboard Visibility",
+            "Tick every dashboard that should show the Scanned Leaderboard tab.",
+        )
+        self.device_table = QTableWidget(0, 3)
+        self.device_table.setHorizontalHeaderLabels(["Device ID", "Dashboard", "Show Tab"])
+        self.device_table.setColumnHidden(0, True)
+        self.device_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.device_table.setSelectionMode(QTableWidget.NoSelection)
+        self.device_table.setMinimumHeight(220)
+        tune_table(self.device_table)
+        self.device_table.itemChanged.connect(self.mark_dirty)
+        screens_layout.addWidget(self.device_table)
+        layout.addWidget(screens_panel)
+
+        tools_panel, tools_layout = make_panel(
+            "Test And Reset",
+            "Add one test scan to confirm the selected dashboards update. Clearing only affects today's leaderboard.",
+        )
+        tools_row = QHBoxLayout()
+        self.test_operator_input = QLineEdit("Manager Test")
+        self.test_operator_input.setPlaceholderText("Test operator name")
+        test_btn = mark_primary(QPushButton("Add Test Scan"))
+        reset_btn = mark_danger(QPushButton("Clear Today's Scores"))
+        save_btn = mark_primary(QPushButton("Save Leaderboard Settings"))
+        test_btn.clicked.connect(self.add_test_scan)
+        reset_btn.clicked.connect(self.reset_today)
+        save_btn.clicked.connect(self.save)
+        tools_row.addWidget(QLabel("Test operator"))
+        tools_row.addWidget(self.test_operator_input, 1)
+        tools_row.addWidget(test_btn)
+        tools_row.addStretch(1)
+        tools_row.addWidget(reset_btn)
+        tools_layout.addLayout(tools_row)
+        tools_layout.addWidget(save_btn)
+        layout.addWidget(tools_panel)
+        layout.addStretch(1)
+
+        self.enabled_input.toggled.connect(self.mark_dirty)
+        self.title_input.textChanged.connect(self.mark_dirty)
+        self.max_rows_input.valueChanged.connect(self.mark_dirty)
+        self.signature_enabled_input.toggled.connect(self.update_secret_controls)
+        self.refresh_result_ready.connect(self.handle_refresh_result)
+        self.action_result_ready.connect(self.handle_action_result)
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.refresh)
+        self.update_webhook_address()
+        QTimer.singleShot(0, self.refresh)
+
+    def update_webhook_address(self):
+        if getattr(self.state, "is_remote", False):
+            base_url = str(getattr(self.state, "base_url", "") or "").rstrip("/")
+        else:
+            settings = self.state.get_settings(include_secret=True)
+            server = settings.get("server", {}) or {}
+            base_url = f"http://{pi_install_host(settings)}:{int(server.get('port', 8765) or 8765)}"
+        self.webhook_url_input.setText(base_url + "/webhooks/zebra-scans")
+
+    def mark_dirty(self, *_args):
+        if not self.table_loading:
+            self.settings_dirty = True
+
+    def update_secret_controls(self, checked):
+        self.signature_secret_input.setEnabled(bool(checked))
+        self.mark_dirty()
+
+    def regenerate_secret(self):
+        self.signature_enabled_input.setChecked(True)
+        self.signature_secret_input.setText(secrets.token_urlsafe(32))
+        self.settings_dirty = True
+        self.status.setText("New signing secret generated. Save settings, then update the Zebra bridge.")
+
+    def copy_value(self, value, message):
+        value = str(value or "").strip()
+        if not value:
+            self.status.setText("There is nothing to copy yet.")
+            return
+        QApplication.clipboard().setText(value)
+        self.status.setText(message)
+
+    def set_active(self, active):
+        self.active = bool(active)
+        if self.active:
+            self.timer.start(8000)
+            self.refresh()
+        else:
+            self.timer.stop()
+
+    def refresh(self):
+        if self.refresh_in_progress or self.settings_dirty:
+            return
+        self.refresh_in_progress = True
+
+        def worker():
+            try:
+                result = {
+                    "ok": True,
+                    "settings": self.state.get_settings(include_secret=True).get("scan_leaderboard", {}),
+                    "devices": self.state.list_devices(),
+                }
+            except Exception as error:
+                result = {"ok": False, "error": str(error)}
+            safe_emit(self.refresh_result_ready, result)
+
+        Thread(target=worker, daemon=True).start()
+
+    def handle_refresh_result(self, result):
+        self.refresh_in_progress = False
+        if not result.get("ok"):
+            self.status.setText(f"Could not load leaderboard settings: {result.get('error', 'unknown error')}")
+            return
+        if not self.settings_dirty:
+            self.apply_settings(result.get("settings") or {}, result.get("devices") or [])
+
+    def apply_settings(self, settings, devices):
+        self.table_loading = True
+        try:
+            self.enabled_input.setChecked(bool(settings.get("enabled", False)))
+            self.title_input.setText(str(settings.get("title") or "Scanned Leaderboard"))
+            self.max_rows_input.setValue(int(settings.get("max_rows", 12) or 12))
+            secret = str(settings.get("signing_secret") or "")
+            self.signature_enabled_input.setChecked(bool(secret))
+            self.signature_secret_input.setText(secret)
+            visible_ids = {
+                str(value).strip()
+                for value in (settings.get("visible_device_ids") or [])
+                if str(value).strip()
+            }
+            all_visible = "*" in visible_ids
+            self.device_table.setRowCount(len(devices))
+            for row, device in enumerate(devices):
+                device_id = str(device.get("id") or "")
+                id_item = QTableWidgetItem(device_id)
+                name_item = QTableWidgetItem(str(device.get("name") or device_id))
+                visible_item = QTableWidgetItem("")
+                visible_item.setFlags((visible_item.flags() | Qt.ItemIsUserCheckable) & ~Qt.ItemIsEditable)
+                visible_item.setCheckState(
+                    Qt.Checked if all_visible or device_id in visible_ids else Qt.Unchecked
+                )
+                self.device_table.setItem(row, 0, id_item)
+                self.device_table.setItem(row, 1, name_item)
+                self.device_table.setItem(row, 2, visible_item)
+            self.device_table.resizeColumnsToContents()
+            self.device_table.horizontalHeader().setStretchLastSection(True)
+            self.update_secret_controls(bool(secret))
+        finally:
+            self.table_loading = False
+        self.settings_dirty = False
+        self.update_webhook_address()
+        selected_count = sum(
+            1
+            for row in range(self.device_table.rowCount())
+            if self.device_table.item(row, 2)
+            and self.device_table.item(row, 2).checkState() == Qt.Checked
+        )
+        state_text = "enabled" if settings.get("enabled") else "disabled"
+        self.status.setText(
+            f"Scanned Leaderboard is {state_text}; the tab is selected for {selected_count} dashboard(s)."
+        )
+
+    def selected_device_ids(self):
+        selected = []
+        all_ids = []
+        for row in range(self.device_table.rowCount()):
+            id_item = self.device_table.item(row, 0)
+            visible_item = self.device_table.item(row, 2)
+            if not id_item:
+                continue
+            device_id = id_item.text().strip()
+            if not device_id:
+                continue
+            all_ids.append(device_id)
+            if visible_item and visible_item.checkState() == Qt.Checked:
+                selected.append(device_id)
+        return ["*"] if all_ids and set(selected) == set(all_ids) else selected
+
+    def save(self):
+        visible_ids = self.selected_device_ids()
+        if self.enabled_input.isChecked() and not visible_ids:
+            QMessageBox.warning(
+                self,
+                "Select Dashboards",
+                "Select at least one dashboard before enabling the Scanned Leaderboard.",
+            )
+            return
+        secret = self.signature_secret_input.text().strip()
+        if self.signature_enabled_input.isChecked() and not secret:
+            secret = secrets.token_urlsafe(32)
+            self.signature_secret_input.setText(secret)
+        if not self.signature_enabled_input.isChecked():
+            secret = ""
+        payload = {
+            "enabled": self.enabled_input.isChecked(),
+            "title": self.title_input.text().strip() or "Scanned Leaderboard",
+            "visible_device_ids": visible_ids,
+            "signing_secret": secret,
+            "max_rows": self.max_rows_input.value(),
+        }
+        self.status.setText("Saving Scanned Leaderboard settings...")
+
+        def worker():
+            try:
+                saved = self.state.save_settings({"scan_leaderboard": payload})
+                result = {
+                    "ok": True,
+                    "action": "save",
+                    "settings": saved.get("scan_leaderboard", payload),
+                    "devices": self.state.list_devices(),
+                }
+            except Exception as error:
+                result = {"ok": False, "action": "save", "error": str(error)}
+            safe_emit(self.action_result_ready, result)
+
+        Thread(target=worker, daemon=True).start()
+
+    def add_test_scan(self):
+        operator = self.test_operator_input.text().strip() or "Manager Test"
+        self.status.setText("Adding a test scan...")
+        Thread(
+            target=lambda: self.run_action(
+                "test",
+                lambda: self.state.add_scan_leaderboard_test(operator),
+            ),
+            daemon=True,
+        ).start()
+
+    def reset_today(self):
+        choice = QMessageBox.question(
+            self,
+            "Clear Today's Scores?",
+            "Clear every operator score from today's scanned leaderboard? This cannot be undone.",
+        )
+        if choice != QMessageBox.Yes:
+            return
+        self.status.setText("Clearing today's scanned leaderboard...")
+        Thread(
+            target=lambda: self.run_action("reset", self.state.reset_scan_leaderboard_today),
+            daemon=True,
+        ).start()
+
+    def run_action(self, action, callback):
+        try:
+            result = {"ok": True, "action": action, "result": callback()}
+        except Exception as error:
+            result = {"ok": False, "action": action, "error": str(error)}
+        safe_emit(self.action_result_ready, result)
+
+    def handle_action_result(self, result):
+        action = result.get("action")
+        if not result.get("ok"):
+            self.status.setText(f"Leaderboard {action} failed: {result.get('error', 'unknown error')}")
+            return
+        if action == "save":
+            self.settings_dirty = False
+            self.apply_settings(result.get("settings") or {}, result.get("devices") or [])
+            self.status.setText("Scanned Leaderboard settings saved.")
+        elif action == "test":
+            self.status.setText("Test scan added. Selected dashboards will show it on their next refresh.")
+        elif action == "reset":
+            previous_total = int((result.get("result") or {}).get("previous_total", 0) or 0)
+            self.status.setText(f"Cleared {previous_total} scan(s) from today's leaderboard.")
+
+
 class ManagerPiTab(QWidget):
     command_finished = Signal(str)
     refresh_result_ready = Signal(object)
@@ -2682,6 +3027,7 @@ class PiScreensTab(QWidget):
             ("Show Outstanding", "outstanding"),
             ("Show Unreturned", "unreturned"),
             ("Show Quarantines", "quarantines"),
+            ("Show Scanned Leaderboard", "scan_leaderboard"),
             ("Show Notification History", "notifications"),
             ("Show Office Gift", "office_gift"),
         )
@@ -4045,6 +4391,7 @@ class ActivityConsoleTab(QWidget):
                 "Audio",
                 "Notifications",
                 "Office Gift",
+                "Scans",
                 "Updates",
                 "OS Updates",
                 "Commands",
@@ -4182,6 +4529,7 @@ class ManagerWindow(QMainWindow):
         ("overview", "Overview", "Live status and quick actions", OverviewPage),
         ("setup", "Setup", "Connection and install commands", ConnectionTab),
         ("data", "Data Source", "Current RMS views and API", CurrentRMSTab),
+        ("scan_leaderboard", "Scan Leaderboard", "Zebra webhook and operator rankings", ScanLeaderboardTab),
         ("daily_quote", "Daily Quote", "OpenAI quote and joke settings", DailyQuoteTab),
         ("notifications", "Notifications", "Alerts, routing, email, sounds", AlertsTab),
         ("manager", "Manager Pi", "Backend services and security", ManagerPiTab),

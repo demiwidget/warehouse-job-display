@@ -130,6 +130,12 @@ class RemoteManagerState:
         self._post("/api/dashboard/refresh")
         return None
 
+    def add_scan_leaderboard_test(self, operator="Manager test"):
+        return self._post("/api/scan-leaderboard/test", {"operator": operator})
+
+    def reset_scan_leaderboard_today(self):
+        return self._post("/api/scan-leaderboard/reset")
+
     def daily_quote_status(self):
         return self._get("/api/daily-quote")
 

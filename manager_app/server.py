@@ -78,6 +78,30 @@ def create_app(state):
         except ValueError as error:
             return jsonify({"ok": False, "error": str(error)}), 400
 
+    @app.post("/webhooks/zebra-scans")
+    def zebra_scan_webhook():
+        if request.content_length is not None and request.content_length > 64 * 1024:
+            return jsonify({"accepted": False, "error": "Webhook body is too large."}), 413
+        raw_body = request.get_data(cache=True)
+        payload = request.get_json(silent=True)
+        try:
+            result = state.accept_zebra_scan(
+                payload,
+                raw_body=raw_body,
+                signature=request.headers.get("X-Zebra-Signature", ""),
+                header_event_id=request.headers.get("X-Zebra-Event-Id", ""),
+                header_event_type=request.headers.get("X-Zebra-Event-Type", ""),
+            )
+            return jsonify(result), 200
+        except PermissionError as error:
+            return jsonify({"accepted": False, "error": str(error)}), 401
+        except ValueError as error:
+            return jsonify({"accepted": False, "error": str(error)}), 400
+
+    @app.get("/scan-leaderboard/<device_id>")
+    def scan_leaderboard(device_id):
+        return jsonify(state.scan_leaderboard_payload(device_id))
+
     @app.get("/office-gift/<device_id>")
     def office_gift_config(device_id):
         return jsonify(state.office_gift_config(device_id))
@@ -155,6 +179,18 @@ def create_app(state):
     def refresh_dashboard():
         state.refresh_dashboard()
         return jsonify({"ok": True})
+
+    @app.post("/api/scan-leaderboard/test")
+    def test_scan_leaderboard():
+        payload = request.get_json(silent=True) or {}
+        try:
+            return jsonify(state.add_scan_leaderboard_test(payload.get("operator", "")))
+        except (ValueError, RuntimeError) as error:
+            return jsonify({"accepted": False, "error": str(error)}), 400
+
+    @app.post("/api/scan-leaderboard/reset")
+    def reset_scan_leaderboard():
+        return jsonify(state.reset_scan_leaderboard_today())
 
     @app.get("/api/daily-quote")
     def daily_quote_status():

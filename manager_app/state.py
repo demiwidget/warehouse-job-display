@@ -23,6 +23,7 @@ from manager_app.api_metrics import CURRENT_RMS_API_COUNTER
 from manager_app.daily_quote import DailyQuoteService
 from manager_app.email_alerts import alert_email_enabled, send_alert_email, send_test_email
 from manager_app.security import security_status, set_admin_password
+from manager_app.scan_leaderboard import ScanLeaderboardStore
 from manager_app.settings_store import PROJECT_ROOT, SettingsStore
 from pi_os_update import read_os_update_status
 
@@ -190,6 +191,7 @@ class ManagerState:
         }
         self.dashboard = DashboardBuilder()
         self.daily_quote = DailyQuoteService()
+        self.scan_leaderboard = ScanLeaderboardStore()
         self.night_sleep_active = None
         self.night_sleep_payload_signature = ""
         self.update_status_checked_at = 0
@@ -509,12 +511,17 @@ class ManagerState:
                 "server": dict(settings.get("server", {})),
                 "current_rms": dict(settings.get("current_rms", {})),
                 "daily_quote": dict(settings.get("daily_quote", {})),
+                "scan_leaderboard": dict(settings.get("scan_leaderboard", {})),
             }
             api_key = sanitized["current_rms"].get("api_key", "")
             sanitized["current_rms"]["api_key"] = "*" * min(len(api_key), 10) if api_key else ""
             quote_api_key = sanitized["daily_quote"].get("api_key", "")
             sanitized["daily_quote"]["api_key"] = (
                 "*" * min(len(quote_api_key), 10) if quote_api_key else ""
+            )
+            signing_secret = sanitized["scan_leaderboard"].get("signing_secret", "")
+            sanitized["scan_leaderboard"]["signing_secret"] = (
+                "*" * min(len(signing_secret), 10) if signing_secret else ""
             )
             return sanitized
 
@@ -931,6 +938,145 @@ class ManagerState:
             "ready": bool(recipients and sounds_ready),
             "cooldown_seconds": int(gift.get("cooldown_seconds", 10) or 10),
         }
+
+    def scan_leaderboard_payload(self, device_id):
+        with self.lock:
+            settings = self.store.load_settings()
+            self.settings = settings
+            config = deepcopy(settings.get("scan_leaderboard", {}) or {})
+        return self.scan_leaderboard.payload(config, device_id=device_id)
+
+    def accept_zebra_scan(
+        self,
+        payload,
+        raw_body=b"",
+        signature="",
+        header_event_id="",
+        header_event_type="",
+    ):
+        with self.lock:
+            settings = self.store.load_settings()
+            self.settings = settings
+            config = settings.get("scan_leaderboard", {}) or {}
+
+        if not config.get("enabled", False):
+            raise PermissionError("The scanned leaderboard webhook is not enabled.")
+        if not isinstance(payload, dict):
+            raise ValueError("A JSON scan event is required.")
+
+        signing_secret = str(config.get("signing_secret") or "").strip()
+        if signing_secret:
+            expected = "sha256=" + hmac.new(
+                signing_secret.encode("utf-8"),
+                bytes(raw_body or b""),
+                hashlib.sha256,
+            ).hexdigest()
+            if not hmac.compare_digest(str(signature or "").strip().lower(), expected):
+                raise PermissionError("The Zebra webhook signature is invalid.")
+
+        event_id = str(payload.get("eventId") or "").strip()
+        if not event_id:
+            raise ValueError("eventId is required.")
+        if len(event_id) > 200:
+            raise ValueError("eventId is too long.")
+        header_event_id = str(header_event_id or "").strip()
+        if header_event_id and not hmac.compare_digest(header_event_id, event_id):
+            raise ValueError("X-Zebra-Event-Id does not match the JSON eventId.")
+
+        event_type = str(payload.get("eventType") or "").strip()
+        if event_type not in {"scan.completed", "scan.test"}:
+            raise ValueError("eventType must be scan.completed or scan.test.")
+        header_event_type = str(header_event_type or "").strip()
+        if header_event_type and not hmac.compare_digest(header_event_type, event_type):
+            raise ValueError("X-Zebra-Event-Type does not match the JSON eventType.")
+        raw_accepted_quantity = payload.get("acceptedQuantity", 0) or 0
+        try:
+            accepted_quantity = int(raw_accepted_quantity)
+        except (TypeError, ValueError):
+            raise ValueError("acceptedQuantity must be a whole number.") from None
+        if isinstance(raw_accepted_quantity, float) and not raw_accepted_quantity.is_integer():
+            raise ValueError("acceptedQuantity must be a whole number.")
+        if accepted_quantity < 0 or accepted_quantity > 1000:
+            raise ValueError("acceptedQuantity must be between 0 and 1000.")
+
+        occurred_at = str(payload.get("occurredAt") or "").strip()
+        if occurred_at:
+            parsed = parse_iso(occurred_at.replace("Z", "+00:00"))
+            if parsed is None:
+                raise ValueError("occurredAt must be an ISO-8601 date and time.")
+
+        clean_payload = {
+            "eventId": event_id,
+            "eventType": event_type,
+            "occurredAt": occurred_at,
+            "operator": str(payload.get("operator") or "Unknown operator").strip()[:160]
+            or "Unknown operator",
+            "workstation": str(payload.get("workstation") or "").strip()[:160],
+            "result": str(payload.get("result") or "").strip()[:64],
+            "acceptedQuantity": accepted_quantity,
+            "scannerId": str(payload.get("scannerId") or "").strip()[:80],
+            "source": str(payload.get("source") or "").strip()[:120],
+        }
+        result = self.scan_leaderboard.record(clean_payload)
+        if not result.get("duplicate"):
+            if event_type == "scan.test":
+                self.log_activity("Scans", "Zebra webhook test received successfully.")
+            elif clean_payload["source"] == "manager-test":
+                self.log_activity(
+                    "Scans",
+                    (
+                        f"Added a test scan for {clean_payload['operator']}."
+                    ),
+                    details={
+                        "event_id": event_id,
+                        "workstation": clean_payload["workstation"],
+                        "day": result.get("day"),
+                    },
+                )
+        return result
+
+    def add_scan_leaderboard_test(self, operator="Manager test"):
+        with self.lock:
+            settings = self.store.load_settings()
+            config = settings.get("scan_leaderboard", {}) or {}
+        if not config.get("enabled", False):
+            raise RuntimeError("Enable the scanned leaderboard before adding a test scan.")
+
+        payload = {
+            "eventId": f"manager-test-{os.urandom(16).hex()}",
+            "eventType": "scan.completed",
+            "occurredAt": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "operator": str(operator or "Manager test").strip()[:160] or "Manager test",
+            "workstation": "Warehouse Manager",
+            "result": "success",
+            "acceptedQuantity": 1,
+            "scannerId": "manager-test",
+            "source": "manager-test",
+        }
+        raw_body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        signing_secret = str(config.get("signing_secret") or "").strip()
+        signature = ""
+        if signing_secret:
+            signature = "sha256=" + hmac.new(
+                signing_secret.encode("utf-8"),
+                raw_body,
+                hashlib.sha256,
+            ).hexdigest()
+        return self.accept_zebra_scan(
+            payload,
+            raw_body=raw_body,
+            signature=signature,
+            header_event_id=payload["eventId"],
+            header_event_type=payload["eventType"],
+        )
+
+    def reset_scan_leaderboard_today(self):
+        result = self.scan_leaderboard.reset_today()
+        self.log_activity(
+            "Scans",
+            f"Cleared today's scanned leaderboard ({result['previous_total']} scan(s)).",
+        )
+        return result
 
     def send_office_gift(self, sender_device_id, remote_addr=""):
         sender_device_id = str(sender_device_id or "").strip()
