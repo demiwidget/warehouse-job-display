@@ -1,4 +1,4 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
@@ -149,6 +149,7 @@ class CurrentRMSClient:
             includes = [includes]
         self.opportunity_includes = [str(value).strip() for value in includes or [] if str(value).strip()]
         self._opportunity_detail_cache = {}
+        self._opportunity_detail_inflight = {}
         self._opportunity_detail_lock = Lock()
 
     @property
@@ -192,13 +193,15 @@ class CurrentRMSClient:
         meta = {"total_row_count": 0}
 
         for page in range(1, self.max_pages + 1):
+            params = [
+                ("page", page),
+                ("per_page", self.per_page),
+                ("view_id", str(view_id).strip()),
+            ]
+            params.extend(("include[]", include) for include in self.opportunity_includes)
             response = self.get(
                 "opportunities",
-                params={
-                    "page": page,
-                    "per_page": self.per_page,
-                    "view_id": str(view_id).strip(),
-                },
+                params=params,
                 timeout=15,
             )
             response.raise_for_status()
@@ -280,13 +283,30 @@ class CurrentRMSClient:
 
         with self._opportunity_detail_lock:
             cached = self._opportunity_detail_cache.get(key)
-        if cached is not None:
-            return cached
+            if cached is not None:
+                return cached
+            future = self._opportunity_detail_inflight.get(key)
+            owns_request = future is None
+            if owns_request:
+                future = Future()
+                self._opportunity_detail_inflight[key] = future
 
-        detail = self.fetch_opportunity(key)
-        with self._opportunity_detail_lock:
-            self._opportunity_detail_cache[key] = detail
-        return detail
+        if not owns_request:
+            return future.result()
+
+        try:
+            detail = self.fetch_opportunity(key)
+            with self._opportunity_detail_lock:
+                self._opportunity_detail_cache[key] = detail
+            future.set_result(detail)
+            return detail
+        except Exception as error:
+            future.set_exception(error)
+            raise
+        finally:
+            with self._opportunity_detail_lock:
+                if self._opportunity_detail_inflight.get(key) is future:
+                    self._opportunity_detail_inflight.pop(key, None)
 
     def _opportunity_summary_needs_detail(self, opportunity):
         if not isinstance(opportunity, dict):

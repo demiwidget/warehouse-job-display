@@ -872,7 +872,12 @@ class ManagerStatusWindow(QMainWindow):
         api_calls = manager_status.get("api_calls", {}) if isinstance(manager_status.get("api_calls"), dict) else {}
         self.version_metric.set_content(
             f"v{CURRENT_VERSION}",
-            f"GitHub latest: v{latest_version}  |  API calls today: {int(api_calls.get('today', 0) or 0)}",
+            (
+                f"GitHub latest: v{latest_version}  |  Current RMS: "
+                f"{int(api_calls.get('today', 0) or 0):,} today  |  "
+                f"{int(api_calls.get('last_minute', 0) or 0)}/"
+                f"{int(api_calls.get('rate_limit', 60) or 60)} rolling 60s"
+            ),
             "warn" if latest_version != CURRENT_VERSION else "good",
         )
 

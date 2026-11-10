@@ -2229,6 +2229,8 @@ class OverviewPage(QWidget):
         latest_version = str(update_status.get("latest_version") or "unknown")
         local_version = str(update_status.get("local_version") or manager_status.get("version") or "unknown")
         api_calls = manager_status.get("api_calls", {}) if isinstance(manager_status.get("api_calls"), dict) else {}
+        api_recent = int(api_calls.get("last_minute", 0) or 0)
+        api_limit = int(api_calls.get("rate_limit", 60) or 60)
         manager_problem = str(manager_status.get("backend_service", "")).lower() in {"failed", "inactive"}
         sleep_active = bool((manager_status.get("night_sleep") or {}).get("active"))
 
@@ -2256,7 +2258,8 @@ class OverviewPage(QWidget):
             "Update Available" if update_status.get("manager_update_available") else "Current",
             (
                 f"GitHub v{latest_version} | Manager v{local_version}\n"
-                f"Current RMS API: {int(api_calls.get('today', 0) or 0)} calls today"
+                f"Current RMS: {int(api_calls.get('today', 0) or 0):,} requests today | "
+                f"{api_recent}/{api_limit} rolling 60s"
             ),
             "warn" if update_status.get("manager_update_available") else "good",
         )
@@ -2875,7 +2878,9 @@ class ManagerPiTab(QWidget):
             f"v{local}",
             (
                 f"GitHub latest: v{latest}\n"
-                f"Current RMS API: {int((status.get('api_calls') or {}).get('today', 0) or 0)} calls today"
+                f"Current RMS: {int((status.get('api_calls') or {}).get('today', 0) or 0):,} requests today | "
+                f"{int((status.get('api_calls') or {}).get('last_minute', 0) or 0)}/"
+                f"{int((status.get('api_calls') or {}).get('rate_limit', 60) or 60)} rolling 60s"
             ),
             "warn" if update_status.get("manager_update_available") else "good",
         )

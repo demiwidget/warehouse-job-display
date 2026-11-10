@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 from threading import Lock
-from time import monotonic, time
+from time import monotonic, sleep, time
 
 from manager_app.settings_store import PROJECT_ROOT
 
@@ -15,9 +15,12 @@ COUNTER_PATH = PROJECT_ROOT / "manager_data" / "current_rms_api_calls.json"
 class CurrentRMSApiCounter:
     """Small, process-wide counter for requests sent to Current RMS."""
 
-    def __init__(self, path=COUNTER_PATH):
+    def __init__(self, path=COUNTER_PATH, rate_limit=55, rate_window_seconds=60):
         self.path = Path(path)
         self.lock = Lock()
+        self.rate_limit = max(1, int(rate_limit))
+        self.rate_window_seconds = max(1, int(rate_window_seconds))
+        self.rate_window = deque()
         self.day = date.today().isoformat()
         self.today = 0
         self.session = 0
@@ -47,20 +50,35 @@ class CurrentRMSApiCounter:
             self._dirty = True
 
     def record(self):
-        now = time()
-        with self.lock:
-            self._roll_day()
-            self.today += 1
-            self.session += 1
-            self.recent.append(now)
-            self.updated_at = datetime.now().isoformat(timespec="seconds")
-            self._dirty = True
-            self._trim_recent(now)
-            self._save_if_due()
+        while True:
+            slot_time = monotonic()
+            with self.lock:
+                cutoff = slot_time - self.rate_window_seconds
+                while self.rate_window and self.rate_window[0] <= cutoff:
+                    self.rate_window.popleft()
+
+                if len(self.rate_window) < self.rate_limit:
+                    self.rate_window.append(slot_time)
+                    now = time()
+                    self._roll_day()
+                    self.today += 1
+                    self.session += 1
+                    self.recent.append(now)
+                    self.updated_at = datetime.now().isoformat(timespec="seconds")
+                    self._dirty = True
+                    self._trim_recent(now)
+                    self._save_if_due()
+                    return
+
+                wait_seconds = max(
+                    0.05,
+                    self.rate_window[0] + self.rate_window_seconds - slot_time,
+                )
+            sleep(wait_seconds)
 
     def _trim_recent(self, now):
         cutoff = now - 60
-        while self.recent and self.recent[0] < cutoff:
+        while self.recent and self.recent[0] <= cutoff:
             self.recent.popleft()
 
     def snapshot(self):
@@ -74,6 +92,8 @@ class CurrentRMSApiCounter:
                 "today": self.today,
                 "session": self.session,
                 "last_minute": len(self.recent),
+                "rate_limit": self.rate_limit,
+                "rate_window_seconds": self.rate_window_seconds,
                 "updated_at": self.updated_at,
             }
 

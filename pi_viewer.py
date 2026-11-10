@@ -1393,7 +1393,7 @@ class ViewerWindow(QMainWindow):
         status = QStatusBar()
         self.setStatusBar(status)
         self.version_label = QLabel(f"v{self.config.get('version', 'unknown')}")
-        self.api_calls_label = QLabel("API calls today: 0")
+        self.api_calls_label = QLabel("Current RMS requests: 0 today")
         self.last_refresh = QLabel("Last refresh: never")
         status.addPermanentWidget(self.version_label)
         status.addPermanentWidget(self.api_calls_label)
@@ -1669,7 +1669,7 @@ class ViewerWindow(QMainWindow):
         self.compact_screen_label.setText(screen_title)
         parts = [f"v{self.config.get('version', 'unknown')}"]
         api_calls = getattr(self, "current_api_calls", {}) or {}
-        parts.append(f"API {int(api_calls.get('today', 0) or 0)} today")
+        parts.append(f"RMS {int(api_calls.get('today', 0) or 0):,} today")
         if refreshed_at:
             parts.append(refreshed_at)
         if self.compact_layout_mode == "auto":
@@ -2079,7 +2079,11 @@ class ViewerWindow(QMainWindow):
         if hasattr(self, "api_calls_label"):
             today_calls = int(self.current_api_calls.get("today", 0) or 0)
             minute_calls = int(self.current_api_calls.get("last_minute", 0) or 0)
-            self.api_calls_label.setText(f"API calls today: {today_calls}  |  last minute: {minute_calls}")
+            rate_limit = int(self.current_api_calls.get("rate_limit", 60) or 60)
+            self.api_calls_label.setText(
+                f"Current RMS requests: {today_calls:,} today  |  "
+                f"{minute_calls}/{rate_limit} rolling 60s"
+            )
         today = bundle.get("today", {"title": "Today", "summary": {}, "out_rows": [], "in_rows": []})
         tomorrow = bundle.get("tomorrow", {"title": "Tomorrow", "summary": {}, "out_rows": [], "in_rows": []})
         prep = bundle.get("prep", {"title": "Prep", "summary": {}, "rows": []})
