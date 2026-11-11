@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from webhook_tester.app import (
+    ACTIVE_NOTIFICATION_EVENTS,
     EventStore,
     DOCUMENTED_EVENTS,
     event_identity,
@@ -91,6 +92,13 @@ class WebhookTesterTests(unittest.TestCase):
         self.assertIn("eraser_erase", event_names)
         self.assertIn("purchase_order_create", event_names)
         self.assertIn("stock_level_book_out_serialised_component", event_names)
+
+    def test_active_notification_webhooks_are_a_small_documented_subset(self):
+        documented = {event for event, _label in DOCUMENTED_EVENTS}
+        self.assertEqual(len(ACTIVE_NOTIFICATION_EVENTS), 9)
+        self.assertTrue(ACTIVE_NOTIFICATION_EVENTS <= documented)
+        self.assertIn("opportunity_update_item", ACTIVE_NOTIFICATION_EVENTS)
+        self.assertNotIn("opportunity_check_in_item", ACTIVE_NOTIFICATION_EVENTS)
 
 
 if __name__ == "__main__":

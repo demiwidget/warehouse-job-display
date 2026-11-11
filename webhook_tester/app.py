@@ -66,6 +66,22 @@ DEFAULT_EVENTS = (
     ("opportunity_destroy_item", "Item removed"),
 )
 
+# These are the only Current RMS events translated into live warehouse
+# notifications by manager_app.current_rms.DashboardBuilder.
+ACTIVE_NOTIFICATION_EVENTS = frozenset(
+    {
+        "opportunity_create",
+        "opportunity_update",
+        "opportunity_destroy",
+        "opportunity_confirm",
+        "opportunity_convert_to_order",
+        "opportunity_reinstate",
+        "opportunity_create_item",
+        "opportunity_update_item",
+        "opportunity_destroy_item",
+    }
+)
+
 GENERIC_ACTIONS = (
     "create",
     "update",
@@ -879,7 +895,7 @@ class MainWindow(QMainWindow):
 
     def _add_registration_choice(self, event: str, label: str) -> None:
         checkbox = QCheckBox(f"{label}  ({event})")
-        checkbox.setChecked(True)
+        checkbox.setChecked(event in ACTIVE_NOTIFICATION_EVENTS)
         self.event_checks[event] = checkbox
         index = self.registration_choice_slot
         self.registration_choice_slot += 1
