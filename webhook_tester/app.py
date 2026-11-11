@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSplitter,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -649,17 +650,29 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         central = QWidget()
         outer = QVBoxLayout(central)
-        outer.setContentsMargins(16, 16, 16, 16)
-        outer.setSpacing(12)
+        outer.setContentsMargins(14, 14, 14, 14)
+        outer.setSpacing(10)
 
         title = QLabel("Current RMS Warehouse Webhook Tester")
         title.setStyleSheet("font-size: 24px; font-weight: 700;")
         subtitle = QLabel(
-            "Receives job and item events without changing the live dashboard notification system."
+            "Receive, inspect and relay Current RMS warehouse events."
         )
         subtitle.setStyleSheet("color: #52606d;")
         outer.addWidget(title)
         outer.addWidget(subtitle)
+
+        self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        self.tabs.setStyleSheet(
+            "QTabBar::tab { min-width: 125px; padding: 10px 16px; font-weight: 600; }"
+        )
+        outer.addWidget(self.tabs, 1)
+
+        connection_page = QWidget()
+        connection_page_layout = QVBoxLayout(connection_page)
+        connection_page_layout.setContentsMargins(10, 12, 10, 10)
+        connection_page_layout.setSpacing(12)
 
         top_grid = QGridLayout()
         connection_group = QGroupBox("Current RMS connection")
@@ -720,16 +733,40 @@ class MainWindow(QMainWindow):
         top_grid.addWidget(relay_group, 1, 0, 1, 2)
         top_grid.setColumnStretch(0, 1)
         top_grid.setColumnStretch(1, 1)
-        outer.addLayout(top_grid)
+        connection_page_layout.addLayout(top_grid)
+        connection_page_layout.addStretch(1)
+        self.tabs.addTab(connection_page, "Connection + Relay")
+
+        hooks_page = QWidget()
+        hooks_page_layout = QVBoxLayout(hooks_page)
+        hooks_page_layout.setContentsMargins(10, 12, 10, 10)
+        hooks_page_layout.setSpacing(12)
 
         events_group = QGroupBox("Current RMS test webhooks")
         events_layout = QVBoxLayout(events_group)
+
+        active_group = QGroupBox("Warehouse notification hooks")
+        active_layout = QVBoxLayout(active_group)
+        active_help = QLabel(
+            "These nine events power the warehouse dashboard notifications and are selected by default."
+        )
+        active_help.setWordWrap(True)
+        active_help.setStyleSheet("color: #52606d;")
+        active_layout.addWidget(active_help)
+        active_checks_widget = QWidget()
+        self.active_registration_checks_layout = QGridLayout(active_checks_widget)
+        self.active_registration_choice_slot = 0
+        active_layout.addWidget(active_checks_widget)
+        events_layout.addWidget(active_group)
+
+        additional_group = QGroupBox("Additional Current RMS events")
+        additional_layout = QVBoxLayout(additional_group)
         self.registration_search = QLineEdit()
         self.registration_search.setPlaceholderText(
-            "Search the complete Current RMS webhook catalogue"
+            "Search additional webhook events"
         )
         self.registration_search.textChanged.connect(self.search_registration_choices)
-        events_layout.addWidget(self.registration_search)
+        additional_layout.addWidget(self.registration_search)
         registration_checks_widget = QWidget()
         self.registration_checks_layout = QGridLayout(registration_checks_widget)
         self.registration_choice_slot = 0
@@ -738,8 +775,9 @@ class MainWindow(QMainWindow):
         registration_scroll = QScrollArea()
         registration_scroll.setWidgetResizable(True)
         registration_scroll.setWidget(registration_checks_widget)
-        registration_scroll.setMaximumHeight(210)
-        events_layout.addWidget(registration_scroll)
+        registration_scroll.setMinimumHeight(160)
+        additional_layout.addWidget(registration_scroll)
+        events_layout.addWidget(additional_group, 1)
 
         custom_group = QGroupBox("Add an event not listed in the official catalogue")
         custom_form = QFormLayout(custom_group)
@@ -773,7 +811,6 @@ class MainWindow(QMainWindow):
         custom_help.setWordWrap(True)
         custom_help.setStyleSheet("color: #52606d;")
         custom_form.addRow("", custom_help)
-        events_layout.addWidget(custom_group)
         self._refresh_custom_remove_choices()
         hook_buttons = QHBoxLayout()
         self.list_hooks_button = QPushButton("Check existing webhooks")
@@ -793,7 +830,47 @@ class MainWindow(QMainWindow):
         self.hook_status_label = QLabel("No Current RMS changes have been made.")
         self.hook_status_label.setWordWrap(True)
         events_layout.addWidget(self.hook_status_label)
-        outer.addWidget(events_group)
+        hooks_page_layout.addWidget(events_group, 3)
+        hooks_page_layout.addWidget(custom_group, 1)
+        self.tabs.addTab(hooks_page, "Webhook Setup")
+
+        received_page = QWidget()
+        received_page_layout = QVBoxLayout(received_page)
+        received_page_layout.setContentsMargins(10, 12, 10, 10)
+        received_page_layout.setSpacing(8)
+
+        received_help = QLabel(
+            "Newest events appear first. Select a row to inspect the complete payload."
+        )
+        received_help.setStyleSheet("color: #52606d;")
+        received_page_layout.addWidget(received_help)
+
+        splitter = QSplitter(Qt.Horizontal)
+        self.event_table = QTableWidget(0, 6)
+        self.event_table.setHorizontalHeaderLabels(
+            ["Received", "Event", "Job", "Item/source", "Action ID", "Duplicate"]
+        )
+        self.event_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.event_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.event_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.event_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.event_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.event_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.event_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        self.event_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.event_table.itemSelectionChanged.connect(self.show_selected_event)
+        self.event_detail = QTextEdit()
+        self.event_detail.setReadOnly(True)
+        self.event_detail.setPlaceholderText("Select an event to inspect the complete JSON payload.")
+        splitter.addWidget(self.event_table)
+        splitter.addWidget(self.event_detail)
+        splitter.setSizes([760, 400])
+        received_page_layout.addWidget(splitter, 1)
+        self.tabs.addTab(received_page, "Received Events")
+
+        filters_page = QWidget()
+        filters_page_layout = QVBoxLayout(filters_page)
+        filters_page_layout.setContentsMargins(10, 12, 10, 10)
 
         filters_group = QGroupBox("Visible event types")
         filters_layout = QVBoxLayout(filters_group)
@@ -829,11 +906,10 @@ class MainWindow(QMainWindow):
         self.visibility_checks["__other__"] = other_checkbox
         other_index = self.filter_choice_slot
         self.filter_choice_slot += 1
-        self.filter_checks_layout.addWidget(other_checkbox, other_index // 5, other_index % 5)
+        self.filter_checks_layout.addWidget(other_checkbox, other_index // 3, other_index % 3)
         filters_scroll = QScrollArea()
         filters_scroll.setWidgetResizable(True)
         filters_scroll.setWidget(filter_checks_widget)
-        filters_scroll.setMaximumHeight(145)
         filters_layout.addWidget(filters_scroll)
         filter_footer = QHBoxLayout()
         show_all_button = QPushButton("Show all event types")
@@ -843,35 +919,24 @@ class MainWindow(QMainWindow):
         filter_footer.addWidget(self.filter_status_label)
         filter_footer.addStretch(1)
         filters_layout.addLayout(filter_footer)
-        outer.addWidget(filters_group)
+        filters_page_layout.addWidget(filters_group, 1)
+        self.tabs.addTab(filters_page, "Display Filters")
 
-        splitter = QSplitter(Qt.Horizontal)
-        self.event_table = QTableWidget(0, 6)
-        self.event_table.setHorizontalHeaderLabels(
-            ["Received", "Event", "Job", "Item/source", "Action ID", "Duplicate"]
+        log_page = QWidget()
+        log_page_layout = QVBoxLayout(log_page)
+        log_page_layout.setContentsMargins(10, 12, 10, 10)
+        log_help = QLabel(
+            "Tunnel, relay and Current RMS registration messages appear here."
         )
-        self.event_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.event_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.event_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.event_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.event_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        self.event_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        self.event_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self.event_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        self.event_table.itemSelectionChanged.connect(self.show_selected_event)
-        self.event_detail = QTextEdit()
-        self.event_detail.setReadOnly(True)
-        self.event_detail.setPlaceholderText("Select an event to inspect the complete JSON payload.")
-        splitter.addWidget(self.event_table)
-        splitter.addWidget(self.event_detail)
-        splitter.setSizes([760, 400])
-        outer.addWidget(splitter, 1)
+        log_help.setStyleSheet("color: #52606d;")
+        log_page_layout.addWidget(log_help)
 
         self.log_box = QTextEdit()
         self.log_box.setReadOnly(True)
-        self.log_box.setMaximumHeight(105)
         self.log_box.setPlaceholderText("Tunnel and application messages appear here.")
-        outer.addWidget(self.log_box)
+        log_page_layout.addWidget(self.log_box, 1)
+        self.tabs.addTab(log_page, "Activity Log")
+        self.tabs.setCurrentIndex(0)
         self.setCentralWidget(central)
 
     def event_definitions(self) -> list[tuple[str, str]]:
@@ -882,6 +947,8 @@ class MainWindow(QMainWindow):
     def search_registration_choices(self, text: str) -> None:
         query = str(text).strip().lower()
         for event, checkbox in self.event_checks.items():
+            if event in ACTIVE_NOTIFICATION_EVENTS:
+                continue
             checkbox.setVisible(
                 not query or query in event.lower() or query in checkbox.text().lower()
             )
@@ -897,9 +964,14 @@ class MainWindow(QMainWindow):
         checkbox = QCheckBox(f"{label}  ({event})")
         checkbox.setChecked(event in ACTIVE_NOTIFICATION_EVENTS)
         self.event_checks[event] = checkbox
-        index = self.registration_choice_slot
-        self.registration_choice_slot += 1
-        self.registration_checks_layout.addWidget(checkbox, index // 2, index % 2)
+        if event in ACTIVE_NOTIFICATION_EVENTS:
+            index = self.active_registration_choice_slot
+            self.active_registration_choice_slot += 1
+            self.active_registration_checks_layout.addWidget(checkbox, index // 3, index % 3)
+        else:
+            index = self.registration_choice_slot
+            self.registration_choice_slot += 1
+            self.registration_checks_layout.addWidget(checkbox, index // 2, index % 2)
 
     def _add_visibility_choice(
         self, event: str, label: str, checked: bool = True
@@ -910,7 +982,7 @@ class MainWindow(QMainWindow):
         self.visibility_checks[event] = checkbox
         index = self.filter_choice_slot
         self.filter_choice_slot += 1
-        self.filter_checks_layout.addWidget(checkbox, index // 5, index % 5)
+        self.filter_checks_layout.addWidget(checkbox, index // 3, index % 3)
 
     def _refresh_custom_remove_choices(self) -> None:
         self.custom_remove_combo.clear()
