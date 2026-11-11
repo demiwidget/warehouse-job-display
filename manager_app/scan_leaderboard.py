@@ -163,23 +163,21 @@ class ScanLeaderboardStore:
             (day_key, reset_after_rowid),
         ).fetchall()
 
-    def payload(self, config, device_id=""):
-        config = config if isinstance(config, dict) else {}
-        enabled = bool(config.get("enabled", False))
-        visible_ids = {
-            str(value).strip()
-            for value in (config.get("visible_device_ids") or [])
-            if str(value).strip()
-        }
-        device_id = str(device_id or "").strip()
-        visible = enabled and ("*" in visible_ids or device_id in visible_ids)
-        today = self.now_provider().date()
-        day_key = today.isoformat()
-        max_rows = max(3, min(50, int(config.get("max_rows", 12) or 12)))
+    def _period_rows(self, connection, start_day, end_day):
+        return connection.execute(
+            """
+            SELECT rowid, event_id, operator, workstation, accepted_quantity, occurred_at, received_at
+            FROM scan_events
+            WHERE occurred_day BETWEEN ? AND ?
+              AND event_type = 'scan.completed'
+              AND accepted_quantity > 0
+            ORDER BY rowid ASC
+            """,
+            (start_day, end_day),
+        ).fetchall()
 
-        with self.lock, self._connection() as connection:
-            events = self._day_rows(connection, day_key)
-
+    @staticmethod
+    def _rank_events(events, max_rows, last_scan_format="%H:%M"):
         operators = {}
         total = 0
         last_scan_at = ""
@@ -208,12 +206,60 @@ class ScanLeaderboardStore:
                     "Operator": operator,
                     "Scans": operator_data["count"],
                     "Workstation": ", ".join(operator_data["workstations"][-8:]),
-                    "Last Scan": parsed.strftime("%H:%M") if parsed else "",
+                    "Last Scan": parsed.strftime(last_scan_format) if parsed else "",
                 }
             )
         rows.sort(key=lambda row: (-row["Scans"], row["Operator"].casefold()))
         for rank, row in enumerate(rows, start=1):
             row["Rank"] = rank
+        return {
+            "total": total,
+            "operator_count": len(rows),
+            "last_scan_at": last_scan_at,
+            "rows": rows[:max_rows],
+        }
+
+    @staticmethod
+    def _week_label(start_day, end_day):
+        if start_day.year == end_day.year and start_day.month == end_day.month:
+            return f"This week, {start_day:%d}-{end_day:%d %b %Y}"
+        if start_day.year == end_day.year:
+            return f"This week, {start_day:%d %b}-{end_day:%d %b %Y}"
+        return f"This week, {start_day:%d %b %Y}-{end_day:%d %b %Y}"
+
+    def payload(self, config, device_id=""):
+        config = config if isinstance(config, dict) else {}
+        enabled = bool(config.get("enabled", False))
+        visible_ids = {
+            str(value).strip()
+            for value in (config.get("visible_device_ids") or [])
+            if str(value).strip()
+        }
+        device_id = str(device_id or "").strip()
+        visible = enabled and ("*" in visible_ids or device_id in visible_ids)
+        today = self.now_provider().date()
+        day_key = today.isoformat()
+        week_start = today - timedelta(days=today.weekday())
+        week_end = week_start + timedelta(days=6)
+        max_rows = max(3, min(50, int(config.get("max_rows", 12) or 12)))
+
+        with self.lock, self._connection() as connection:
+            daily_events = self._day_rows(connection, day_key)
+            weekly_events = self._period_rows(
+                connection,
+                week_start.isoformat(),
+                week_end.isoformat(),
+            )
+
+        daily = self._rank_events(daily_events, max_rows)
+        weekly = self._rank_events(weekly_events, max_rows, "%a %H:%M")
+        weekly.update(
+            {
+                "start_date": week_start.isoformat(),
+                "end_date": week_end.isoformat(),
+                "date_label": self._week_label(week_start, week_end),
+            }
+        )
 
         return {
             "enabled": enabled,
@@ -221,10 +267,11 @@ class ScanLeaderboardStore:
             "title": str(config.get("title") or "Scanned Leaderboard"),
             "date": day_key,
             "date_label": today.strftime("Today, %d %b %Y"),
-            "total": total,
-            "operator_count": len(rows),
-            "last_scan_at": last_scan_at,
-            "rows": rows[:max_rows],
+            "total": daily["total"],
+            "operator_count": daily["operator_count"],
+            "last_scan_at": daily["last_scan_at"],
+            "rows": daily["rows"],
+            "weekly": weekly,
             "max_rows": max_rows,
         }
 

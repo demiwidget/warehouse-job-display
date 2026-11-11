@@ -35,11 +35,18 @@ class ScanLeaderboardTests(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def event(self, event_id="event-1", operator="Alice", quantity=1, workstation="PC-01"):
+    def event(
+        self,
+        event_id="event-1",
+        operator="Alice",
+        quantity=1,
+        workstation="PC-01",
+        occurred_at="2026-11-10T10:30:00+00:00",
+    ):
         return {
             "eventId": event_id,
             "eventType": "scan.completed",
-            "occurredAt": "2026-11-10T10:30:00+00:00",
+            "occurredAt": occurred_at,
             "operator": operator,
             "workstation": workstation,
             "result": "success",
@@ -80,6 +87,64 @@ class ScanLeaderboardTests(unittest.TestCase):
         self.assertEqual(payload["total"], 10)
         self.assertEqual([row["Operator"] for row in payload["rows"]], ["Alice", "Bob"])
         self.assertEqual(payload["rows"][0]["Workstation"], "PC-01, PC-03")
+
+    def test_weekly_scores_cover_monday_to_sunday(self):
+        self.store.record(
+            self.event(
+                "previous-sunday",
+                "Alice",
+                20,
+                occurred_at="2026-11-08T18:00:00+00:00",
+            )
+        )
+        self.store.record(
+            self.event(
+                "monday",
+                "Alice",
+                3,
+                occurred_at="2026-11-09T09:00:00+00:00",
+            )
+        )
+        self.store.record(self.event("tuesday", "Bob", 5))
+
+        payload = self.store.payload(
+            {"enabled": True, "visible_device_ids": ["*"], "max_rows": 12},
+            "screen-1",
+        )
+
+        self.assertEqual(payload["total"], 5)
+        self.assertEqual(payload["weekly"]["total"], 8)
+        self.assertEqual(payload["weekly"]["start_date"], "2026-11-09")
+        self.assertEqual(payload["weekly"]["end_date"], "2026-11-15")
+        self.assertEqual(
+            [row["Operator"] for row in payload["weekly"]["rows"]],
+            ["Bob", "Alice"],
+        )
+
+    def test_weekly_scores_reset_when_monday_starts(self):
+        self.store.record(self.event("old-week", "Alice", 4))
+        self.now = datetime(2026, 11, 16, 0, 1, tzinfo=timezone.utc)
+
+        payload = self.store.payload(
+            {"enabled": True, "visible_device_ids": ["*"], "max_rows": 12},
+            "screen-1",
+        )
+
+        self.assertEqual(payload["total"], 0)
+        self.assertEqual(payload["weekly"]["total"], 0)
+        self.assertEqual(payload["weekly"]["start_date"], "2026-11-16")
+
+    def test_clearing_today_does_not_remove_weekly_scores(self):
+        self.store.record(self.event("today", "Alice", 4))
+        self.store.reset_today()
+
+        payload = self.store.payload(
+            {"enabled": True, "visible_device_ids": ["*"], "max_rows": 12},
+            "screen-1",
+        )
+
+        self.assertEqual(payload["total"], 0)
+        self.assertEqual(payload["weekly"]["total"], 4)
 
     def test_visibility_is_limited_to_selected_dashboards(self):
         config = {"enabled": True, "visible_device_ids": ["screen-1"], "max_rows": 12}

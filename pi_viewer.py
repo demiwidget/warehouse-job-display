@@ -942,6 +942,124 @@ class ScanLeaderboardBarRow(QFrame):
         )
 
 
+class ScanLeaderboardBoard(QFrame):
+    def __init__(self, title, scale=1.0, compact=False, accent="#5de2a5"):
+        super().__init__()
+        self.ui_scale = float(scale or 1.0)
+        self.compact = bool(compact)
+        self.accent = accent
+        self.setObjectName("scanLeaderboardPanel")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(
+            scaled(10, self.ui_scale),
+            scaled(10, self.ui_scale),
+            scaled(10, self.ui_scale),
+            scaled(10, self.ui_scale),
+        )
+        layout.setSpacing(scaled(8, self.ui_scale))
+
+        header = QHBoxLayout()
+        header_text = QVBoxLayout()
+        header_text.setSpacing(0)
+        self.heading_label = QLabel(title)
+        self.period_label = QLabel("")
+        header_text.addWidget(self.heading_label)
+        header_text.addWidget(self.period_label)
+        header.addLayout(header_text, 1)
+
+        total_text = QVBoxLayout()
+        total_text.setSpacing(0)
+        self.total_label = QLabel("0")
+        self.total_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        total_caption = QLabel("SCANS")
+        total_caption.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        total_text.addWidget(self.total_label)
+        total_text.addWidget(total_caption)
+        header.addLayout(total_text)
+        layout.addLayout(header)
+
+        self.chart_scroll = QScrollArea()
+        self.chart_scroll.setWidgetResizable(True)
+        self.chart_scroll.setFrameShape(QScrollArea.NoFrame)
+        self.chart_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        chart_canvas = QWidget()
+        chart_canvas.setStyleSheet("background:transparent;")
+        chart_canvas_layout = QHBoxLayout(chart_canvas)
+        chart_canvas_layout.setContentsMargins(0, 0, 0, 0)
+        chart_canvas_layout.addStretch(1)
+        self.chart_widget = QWidget()
+        self.chart_widget.setStyleSheet("background:transparent;")
+        self.chart_widget.setMinimumWidth(scaled(390 if self.compact else 520, self.ui_scale))
+        self.chart_widget.setMaximumWidth(scaled(780, self.ui_scale))
+        self.chart_layout = QVBoxLayout(self.chart_widget)
+        self.chart_layout.setContentsMargins(0, 0, 0, 0)
+        self.chart_layout.setSpacing(scaled(7, self.ui_scale))
+        chart_canvas_layout.addWidget(self.chart_widget)
+        chart_canvas_layout.addStretch(1)
+        self.chart_scroll.setWidget(chart_canvas)
+        layout.addWidget(self.chart_scroll, 1)
+        enable_click_drag_scroll(self.chart_scroll)
+
+        self.setStyleSheet(
+            f"QFrame#scanLeaderboardPanel {{ background:#11171c; border:1px solid #293943; "
+            f"border-radius:{scaled(12, self.ui_scale)}px; }}"
+        )
+        self.heading_label.setStyleSheet(
+            f"background:transparent; color:{self.accent}; "
+            f"font-size:{scaled(16 if self.compact else 21, self.ui_scale)}px; font-weight:1000;"
+        )
+        self.period_label.setStyleSheet(
+            f"background:transparent; color:#8fa1ad; "
+            f"font-size:{scaled(9 if self.compact else 11, self.ui_scale)}px; font-weight:750;"
+        )
+        self.total_label.setStyleSheet(
+            f"background:transparent; color:#ffffff; "
+            f"font-size:{scaled(24 if self.compact else 34, self.ui_scale)}px; font-weight:1000;"
+        )
+        total_caption.setStyleSheet(
+            f"background:transparent; color:#71838f; "
+            f"font-size:{scaled(8 if self.compact else 9, self.ui_scale)}px; "
+            "font-weight:950; letter-spacing:1px;"
+        )
+
+    def clear_chart(self):
+        while self.chart_layout.count():
+            item = self.chart_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+    def set_data(self, rows, total, period_label, empty_text):
+        rows = list(rows or [])
+        self.total_label.setText(f"{safe_int(total, 0):,}")
+        self.period_label.setText(str(period_label or ""))
+        self.clear_chart()
+        if not rows:
+            empty_label = QLabel(empty_text)
+            empty_label.setAlignment(Qt.AlignCenter)
+            empty_label.setWordWrap(True)
+            empty_label.setStyleSheet(
+                f"background:transparent; color:#91a0aa; font-size:{scaled(12, self.ui_scale)}px; "
+                f"font-weight:800; padding:{scaled(24, self.ui_scale)}px;"
+            )
+            self.chart_layout.addWidget(empty_label)
+            self.chart_layout.addStretch(1)
+            return
+
+        highest_score = max(max(0, safe_int(row.get("Scans"), 0)) for row in rows)
+        for row in rows:
+            self.chart_layout.addWidget(
+                ScanLeaderboardBarRow(
+                    row,
+                    highest_score,
+                    scale=self.ui_scale,
+                    compact=self.compact,
+                )
+            )
+        self.chart_layout.addStretch(1)
+
+
 class ScanLeaderboardPage(QWidget):
     def __init__(self, scale=1.0, compact=False):
         super().__init__()
@@ -969,47 +1087,46 @@ class ScanLeaderboardPage(QWidget):
         hero_text.setSpacing(scaled(2, self.ui_scale))
         self.title_label = QLabel("Scanned Leaderboard")
         self.title_label.setObjectName("scanLeaderboardTitle")
-        self.date_label = QLabel("Today")
+        self.date_label = QLabel("Daily and weekly operator totals")
         self.date_label.setObjectName("scanLeaderboardDate")
         hero_text.addWidget(self.title_label)
         hero_text.addWidget(self.date_label)
         hero_layout.addLayout(hero_text, 1)
-        total_text = QVBoxLayout()
-        total_text.setSpacing(0)
-        self.total_label = QLabel("0")
-        self.total_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.total_label.setObjectName("scanLeaderboardTotal")
-        total_caption = QLabel("SCANS TODAY")
-        total_caption.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        total_caption.setObjectName("scanLeaderboardTotalCaption")
-        total_text.addWidget(self.total_label)
-        total_text.addWidget(total_caption)
-        hero_layout.addLayout(total_text)
         layout.addWidget(hero)
 
-        self.chart_scroll = QScrollArea()
-        self.chart_scroll.setWidgetResizable(True)
-        self.chart_scroll.setFrameShape(QScrollArea.NoFrame)
-        self.chart_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        chart_canvas = QWidget()
-        chart_canvas.setStyleSheet("background:transparent;")
-        chart_canvas_layout = QHBoxLayout(chart_canvas)
-        chart_canvas_layout.setContentsMargins(0, 0, 0, 0)
-        chart_canvas_layout.addStretch(1)
-        self.chart_widget = QWidget()
-        self.chart_widget.setStyleSheet("background:transparent;")
-        self.chart_widget.setMinimumWidth(
-            scaled(590 if self.compact else 900, self.ui_scale)
+        self.daily_board = ScanLeaderboardBoard(
+            "Today",
+            scale=self.ui_scale,
+            compact=self.compact,
+            accent="#5de2a5",
         )
-        self.chart_widget.setMaximumWidth(scaled(1120, self.ui_scale))
-        self.chart_layout = QVBoxLayout(self.chart_widget)
-        self.chart_layout.setContentsMargins(0, 0, 0, 0)
-        self.chart_layout.setSpacing(scaled(7, self.ui_scale))
-        chart_canvas_layout.addWidget(self.chart_widget)
-        chart_canvas_layout.addStretch(1)
-        self.chart_scroll.setWidget(chart_canvas)
-        layout.addWidget(self.chart_scroll, 1)
-        enable_click_drag_scroll(self.chart_scroll)
+        self.weekly_board = ScanLeaderboardBoard(
+            "This Week",
+            scale=self.ui_scale,
+            compact=self.compact,
+            accent="#62d6e8",
+        )
+        if self.compact:
+            self.period_tabs = QTabWidget()
+            self.period_tabs.addTab(self.daily_board, "Today")
+            self.period_tabs.addTab(self.weekly_board, "This Week")
+            self.period_tabs.setStyleSheet(
+                f"QTabWidget::pane {{ border:0; background:transparent; }} "
+                f"QTabBar::tab {{ background:#172129; color:#aebbc4; border:1px solid #2b3b45; "
+                f"padding:{scaled(8, self.ui_scale)}px {scaled(16, self.ui_scale)}px; "
+                f"font-size:{scaled(11, self.ui_scale)}px; font-weight:900; }} "
+                "QTabBar::tab:selected { background:#245165; color:#ffffff; }"
+            )
+            layout.addWidget(self.period_tabs, 1)
+        else:
+            boards = QWidget()
+            boards.setStyleSheet("background:transparent;")
+            boards_layout = QHBoxLayout(boards)
+            boards_layout.setContentsMargins(0, 0, 0, 0)
+            boards_layout.setSpacing(scaled(10, self.ui_scale))
+            boards_layout.addWidget(self.daily_board, 1)
+            boards_layout.addWidget(self.weekly_board, 1)
+            layout.addWidget(boards, 1)
 
         hero.setStyleSheet(
             f"QFrame#scanLeaderboardHero {{ background:#102b36; border:1px solid #245165; "
@@ -1023,50 +1140,29 @@ class ScanLeaderboardPage(QWidget):
             f"background:transparent; color:#8fd8dc; font-size:{scaled(10 if self.compact else 13, self.ui_scale)}px; "
             "font-weight:850;"
         )
-        self.total_label.setStyleSheet(
-            f"background:transparent; color:#5de2a5; font-size:{scaled(32 if self.compact else 48, self.ui_scale)}px; "
-            "font-weight:1000;"
-        )
-        total_caption.setStyleSheet(
-            f"background:transparent; color:#9cc1c7; font-size:{scaled(9 if self.compact else 11, self.ui_scale)}px; "
-            "font-weight:950; letter-spacing:1px;"
-        )
-
-    def clear_chart(self):
-        while self.chart_layout.count():
-            item = self.chart_layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
 
     def set_data(self, payload):
         payload = payload or {}
-        rows = list(payload.get("rows") or [])
+        weekly = payload.get("weekly") if isinstance(payload.get("weekly"), dict) else {}
+        daily_total = safe_int(payload.get("total"), 0)
+        weekly_total = safe_int(weekly.get("total"), 0)
         self.title_label.setText(str(payload.get("title") or "Scanned Leaderboard"))
-        self.date_label.setText(str(payload.get("date_label") or "Today"))
-        self.total_label.setText(str(payload.get("total", 0) or 0))
-        self.clear_chart()
-        if not rows:
-            empty_label = QLabel("Waiting for the first successful scan today")
-            empty_label.setAlignment(Qt.AlignCenter)
-            empty_label.setStyleSheet(
-                f"background:transparent; color:#91a0aa; font-size:{scaled(13, self.ui_scale)}px; "
-                f"font-weight:800; padding:{scaled(28, self.ui_scale)}px;"
-            )
-            self.chart_layout.addWidget(empty_label)
-            self.chart_layout.addStretch(1)
-            return
-
-        highest_score = max(max(0, safe_int(row.get("Scans"), 0)) for row in rows)
-        for row in rows:
-            bar_row = ScanLeaderboardBarRow(
-                row,
-                highest_score,
-                scale=self.ui_scale,
-                compact=self.compact,
-            )
-            self.chart_layout.addWidget(bar_row)
-        self.chart_layout.addStretch(1)
+        self.date_label.setText("Daily scores reset at midnight  |  Weekly scores reset Monday at 00:00")
+        self.daily_board.set_data(
+            payload.get("rows") or [],
+            daily_total,
+            payload.get("date_label") or "Today",
+            "Waiting for the first successful scan today",
+        )
+        self.weekly_board.set_data(
+            weekly.get("rows") or [],
+            weekly_total,
+            weekly.get("date_label") or "This week",
+            "Waiting for the first successful scan this week",
+        )
+        if self.compact:
+            self.period_tabs.setTabText(0, f"Today  {daily_total:,}")
+            self.period_tabs.setTabText(1, f"This Week  {weekly_total:,}")
 
 
 class OfficeGiftPage(QWidget):

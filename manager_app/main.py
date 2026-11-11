@@ -2322,14 +2322,14 @@ class ScanLeaderboardTab(QWidget):
         add_page_heading(
             layout,
             "Scanned Leaderboard",
-            "Receive successful scans from the Zebra bridge and show a live operator leaderboard on selected dashboards.",
+            "Receive successful scans from the Zebra bridge and show separate daily and Monday-to-Sunday operator leaderboards.",
         )
         self.status = make_status_label("Loading scan leaderboard settings...")
         layout.addWidget(self.status)
 
         settings_panel, settings_layout = make_panel(
             "Leaderboard Display",
-            "The dashboard tab is optional and only appears on the screens selected below.",
+            "The dashboard tab is optional and only appears on the screens selected below. The row limit applies to both leaderboards.",
         )
         settings_form = QGridLayout()
         self.enabled_input = QCheckBox("Enable the Scanned Leaderboard webhook and dashboard tab")
@@ -2405,7 +2405,7 @@ class ScanLeaderboardTab(QWidget):
 
         tools_panel, tools_layout = make_panel(
             "Test And Reset",
-            "Add one test scan to confirm the selected dashboards update. Clearing only affects today's leaderboard.",
+            "A test scan appears in both current periods. Clear Today's Scores resets only the daily board; the weekly total is preserved.",
         )
         tools_row = QHBoxLayout()
         self.test_operator_input = QLineEdit("Manager Test")
@@ -2618,7 +2618,7 @@ class ScanLeaderboardTab(QWidget):
         choice = QMessageBox.question(
             self,
             "Clear Today's Scores?",
-            "Clear every operator score from today's scanned leaderboard? This cannot be undone.",
+            "Clear every operator score from today's scanned leaderboard? The weekly leaderboard will not be changed. This cannot be undone.",
         )
         if choice != QMessageBox.Yes:
             return
@@ -2648,7 +2648,9 @@ class ScanLeaderboardTab(QWidget):
             self.status.setText("Test scan added. Selected dashboards will show it on their next refresh.")
         elif action == "reset":
             previous_total = int((result.get("result") or {}).get("previous_total", 0) or 0)
-            self.status.setText(f"Cleared {previous_total} scan(s) from today's leaderboard.")
+            self.status.setText(
+                f"Cleared {previous_total} scan(s) from today's leaderboard. Weekly scores were preserved."
+            )
 
 
 class ManagerPiTab(QWidget):
