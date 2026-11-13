@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
@@ -7,8 +8,14 @@ from threading import RLock
 from manager_app.settings_store import DATA_DIR
 
 
-SCAN_LEADERBOARD_FILE = DATA_DIR / "scan_leaderboard.sqlite3"
+LEGACY_SCAN_LEADERBOARD_FILE = DATA_DIR / "scan_leaderboard.sqlite3"
+PERSISTENT_DATA_DIR = Path(
+    os.environ.get("WAREHOUSE_PERSISTENT_DATA_DIR")
+    or (Path.home() / ".local" / "share" / "warehouse-dashboard")
+)
+SCAN_LEADERBOARD_FILE = PERSISTENT_DATA_DIR / "scan_leaderboard.sqlite3"
 RETENTION_DAYS = 31
+PAYLOAD_SCHEMA_VERSION = 2
 
 
 def _parse_timestamp(value):
@@ -24,11 +31,56 @@ def _parse_timestamp(value):
 
 
 class ScanLeaderboardStore:
-    def __init__(self, data_file=SCAN_LEADERBOARD_FILE, now_provider=None):
-        self.data_file = Path(data_file)
+    def __init__(self, data_file=None, now_provider=None, legacy_data_file=None):
+        using_default_path = data_file is None
+        self.data_file = Path(data_file) if data_file is not None else SCAN_LEADERBOARD_FILE
+        if legacy_data_file is not None:
+            self.legacy_data_file = Path(legacy_data_file)
+        elif using_default_path:
+            self.legacy_data_file = LEGACY_SCAN_LEADERBOARD_FILE
+        else:
+            self.legacy_data_file = None
         self.now_provider = now_provider or (lambda: datetime.now().astimezone())
         self.lock = RLock()
+        self.migrated_legacy_data = self._migrate_legacy_database()
         self._initialize()
+
+    def _migrate_legacy_database(self):
+        legacy = self.legacy_data_file
+        if (
+            legacy is None
+            or self.data_file.exists()
+            or not legacy.is_file()
+            or legacy.resolve() == self.data_file.resolve()
+        ):
+            return False
+
+        temporary = self.data_file.with_suffix(self.data_file.suffix + ".migrating")
+        try:
+            self.data_file.parent.mkdir(parents=True, exist_ok=True)
+            temporary.unlink(missing_ok=True)
+            source = None
+            destination = None
+            try:
+                source = sqlite3.connect(legacy, timeout=10)
+                destination = sqlite3.connect(temporary, timeout=10)
+                source.backup(destination)
+                destination.commit()
+            finally:
+                if destination is not None:
+                    destination.close()
+                if source is not None:
+                    source.close()
+            os.replace(temporary, self.data_file)
+            return True
+        except (OSError, sqlite3.Error):
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            # Keeping the legacy path is safer than starting with an empty score history.
+            self.data_file = legacy
+            return False
 
     def _connect(self):
         self.data_file.parent.mkdir(parents=True, exist_ok=True)
@@ -262,6 +314,7 @@ class ScanLeaderboardStore:
         )
 
         return {
+            "schema_version": PAYLOAD_SCHEMA_VERSION,
             "enabled": enabled,
             "visible": visible,
             "title": str(config.get("title") or "Scanned Leaderboard"),

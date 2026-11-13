@@ -1143,7 +1143,11 @@ class ScanLeaderboardPage(QWidget):
 
     def set_data(self, payload):
         payload = payload or {}
-        weekly = payload.get("weekly") if isinstance(payload.get("weekly"), dict) else {}
+        weekly_supported = (
+            safe_int(payload.get("schema_version"), 1) >= 2
+            and isinstance(payload.get("weekly"), dict)
+        )
+        weekly = payload.get("weekly") if weekly_supported else {}
         daily_total = safe_int(payload.get("total"), 0)
         weekly_total = safe_int(weekly.get("total"), 0)
         self.title_label.setText(str(payload.get("title") or "Scanned Leaderboard"))
@@ -1158,7 +1162,11 @@ class ScanLeaderboardPage(QWidget):
             weekly.get("rows") or [],
             weekly_total,
             weekly.get("date_label") or "This week",
-            "Waiting for the first successful scan this week",
+            (
+                "Waiting for the first successful scan this week"
+                if weekly_supported
+                else "Manager update required for weekly scores"
+            ),
         )
         if self.compact:
             self.period_tabs.setTabText(0, f"Today  {daily_total:,}")

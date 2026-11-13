@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 VENV_DIR="$APP_DIR/.venv"
 PYTHON_BIN="/usr/bin/python3"
-VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.4.20')"
+VERSION="$(tr -d '[:space:]' < "$APP_DIR/version.txt" 2>/dev/null || printf '2.4.21')"
 SYSTEMCTL_BIN="$(command -v systemctl 2>/dev/null || printf '/usr/bin/systemctl')"
 REBOOT_BIN="$(command -v reboot 2>/dev/null || printf '/usr/sbin/reboot')"
 
@@ -32,6 +32,7 @@ fi
 
 APP_HOME="$(getent passwd "$APP_USER" | cut -d: -f6)"
 APP_UID="$(id -u "$APP_USER")"
+PERSISTENT_DATA_DIR="$APP_HOME/.local/share/warehouse-dashboard"
 
 if [[ -z "$APP_HOME" || ! -d "$APP_HOME" ]]; then
     fail "Could not determine the home directory for user '$APP_USER'."
@@ -131,10 +132,12 @@ while IFS= read -r line; do
 done <<< "$security_message"
 
 log "Writing service environment..."
+run_as_app_user mkdir -p "$PERSISTENT_DATA_DIR"
 "${SUDO[@]}" tee /etc/default/warehouse-manager-pi >/dev/null <<ENVFILE
 WAREHOUSE_APP_DIR=$APP_DIR
 WAREHOUSE_APP_USER=$APP_USER
 WAREHOUSE_BACKEND_URL=http://127.0.0.1:8765
+WAREHOUSE_PERSISTENT_DATA_DIR=$PERSISTENT_DATA_DIR
 ENVFILE
 
 log "Writing limited manager control permissions..."

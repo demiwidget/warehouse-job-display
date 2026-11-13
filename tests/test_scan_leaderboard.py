@@ -71,6 +71,7 @@ class ScanLeaderboardTests(unittest.TestCase):
         )
         self.assertEqual(payload["total"], 1)
         self.assertEqual(payload["rows"][0]["Scans"], 1)
+        self.assertEqual(payload["weekly"]["total"], 1)
 
     def test_groups_quantities_by_operator_and_sorts_highest_first(self):
         self.store.record(self.event("event-1", "Alice", 2, "PC-01"))
@@ -112,6 +113,7 @@ class ScanLeaderboardTests(unittest.TestCase):
             "screen-1",
         )
 
+        self.assertEqual(payload["schema_version"], 2)
         self.assertEqual(payload["total"], 5)
         self.assertEqual(payload["weekly"]["total"], 8)
         self.assertEqual(payload["weekly"]["start_date"], "2026-11-09")
@@ -145,6 +147,30 @@ class ScanLeaderboardTests(unittest.TestCase):
 
         self.assertEqual(payload["total"], 0)
         self.assertEqual(payload["weekly"]["total"], 4)
+
+    def test_legacy_database_is_migrated_to_persistent_storage(self):
+        legacy_file = Path(self.temp_dir.name) / "legacy" / "scan_leaderboard.sqlite3"
+        persistent_file = Path(self.temp_dir.name) / "persistent" / "scan_leaderboard.sqlite3"
+        legacy_store = ScanLeaderboardStore(
+            data_file=legacy_file,
+            now_provider=lambda: self.now,
+        )
+        legacy_store.record(self.event("saved-before-update", "Alice", 7))
+
+        migrated_store = ScanLeaderboardStore(
+            data_file=persistent_file,
+            legacy_data_file=legacy_file,
+            now_provider=lambda: self.now,
+        )
+        payload = migrated_store.payload(
+            {"enabled": True, "visible_device_ids": ["*"], "max_rows": 12},
+            "screen-1",
+        )
+
+        self.assertTrue(migrated_store.migrated_legacy_data)
+        self.assertTrue(persistent_file.is_file())
+        self.assertEqual(payload["total"], 7)
+        self.assertEqual(payload["weekly"]["total"], 7)
 
     def test_visibility_is_limited_to_selected_dashboards(self):
         config = {"enabled": True, "visible_device_ids": ["screen-1"], "max_rows": 12}
