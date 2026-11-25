@@ -180,6 +180,22 @@ def create_app(state):
         state.refresh_dashboard()
         return jsonify({"ok": True})
 
+    @app.get("/api/scan-leaderboard/operators")
+    def scan_leaderboard_operators():
+        return jsonify({"operators": state.scan_leaderboard_operators()})
+
+    @app.post("/api/scan-leaderboard/manual")
+    def add_manual_scans():
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"accepted": False, "error": "A JSON object is required."}), 400
+        try:
+            return jsonify(state.add_scan_leaderboard_manual(
+                payload.get("operator"), payload.get("quantity"), payload.get("request_id")
+            ))
+        except ValueError as error:
+            return jsonify({"accepted": False, "error": str(error)}), 400
+
     @app.post("/api/scan-leaderboard/test")
     def test_scan_leaderboard():
         payload = request.get_json(silent=True) or {}

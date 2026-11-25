@@ -16,6 +16,8 @@ PERSISTENT_DATA_DIR = Path(
 SCAN_LEADERBOARD_FILE = PERSISTENT_DATA_DIR / "scan_leaderboard.sqlite3"
 RETENTION_DAYS = 31
 PAYLOAD_SCHEMA_VERSION = 2
+MAX_MANUAL_SCAN_QUANTITY = 1000
+MANUAL_SCAN_ID_PREFIX = "manager-manual-"
 
 
 def _parse_timestamp(value):
@@ -195,6 +197,18 @@ class ScanLeaderboardStore:
             "day": day_key,
             "counted_quantity": counted_quantity,
         }
+
+    def operator_names(self):
+        cutoff = (self.now_provider().date() - timedelta(days=RETENTION_DAYS - 1)).isoformat()
+        with self.lock, self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT operator FROM scan_events
+                WHERE occurred_day >= ? AND event_type = 'scan.completed' AND accepted_quantity > 0
+                """,
+                (cutoff,),
+            ).fetchall()
+        return sorted((row["operator"] for row in rows), key=str.casefold)
 
     def _day_rows(self, connection, day_key):
         reset = connection.execute(

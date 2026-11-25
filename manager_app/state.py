@@ -15,6 +15,7 @@ from pathlib import Path
 from threading import Event, Lock, RLock, Thread, Timer
 from time import monotonic, sleep
 import traceback
+from uuid import UUID
 
 from app_version import CURRENT_VERSION
 from manager_app.activity_log import ActivityLog
@@ -23,7 +24,7 @@ from manager_app.api_metrics import CURRENT_RMS_API_COUNTER
 from manager_app.daily_quote import DailyQuoteService
 from manager_app.email_alerts import alert_email_enabled, send_alert_email, send_test_email
 from manager_app.security import security_status, set_admin_password
-from manager_app.scan_leaderboard import ScanLeaderboardStore
+from manager_app.scan_leaderboard import MANUAL_SCAN_ID_PREFIX, MAX_MANUAL_SCAN_QUANTITY, ScanLeaderboardStore
 from manager_app.settings_store import PROJECT_ROOT, SettingsStore
 from pi_os_update import read_os_update_status
 
@@ -979,6 +980,8 @@ class ManagerState:
             raise ValueError("eventId is required.")
         if len(event_id) > 200:
             raise ValueError("eventId is too long.")
+        if event_id.startswith(MANUAL_SCAN_ID_PREFIX):
+            raise ValueError("This event ID is reserved for manual scan additions.")
         header_event_id = str(header_event_id or "").strip()
         if header_event_id and not hmac.compare_digest(header_event_id, event_id):
             raise ValueError("X-Zebra-Event-Id does not match the JSON eventId.")
@@ -1034,6 +1037,54 @@ class ManagerState:
                     },
                 )
         return result
+
+    def scan_leaderboard_operators(self):
+        return self.scan_leaderboard.operator_names()
+
+    def add_scan_leaderboard_manual(self, operator, quantity, request_id):
+        if not isinstance(operator, str) or not 1 <= len(operator.strip()) <= 160:
+            raise ValueError("Enter an operator name between 1 and 160 characters.")
+        if type(quantity) is not int or not 1 <= quantity <= MAX_MANUAL_SCAN_QUANTITY:
+            raise ValueError(f"Enter a whole number of scans from 1 to {MAX_MANUAL_SCAN_QUANTITY}.")
+        if not isinstance(request_id, str):
+            raise ValueError("A valid manual scan request ID is required.")
+        try:
+            event_id = MANUAL_SCAN_ID_PREFIX + UUID(request_id).hex
+        except ValueError:
+            raise ValueError("A valid manual scan request ID is required.") from None
+
+        with self.lock:
+            config = self.store.load_settings().get("scan_leaderboard", {}) or {}
+        if not config.get("enabled", False):
+            raise ValueError("Enable the scanned leaderboard before adding scans.")
+
+        operator = operator.strip()
+        known_names = self.scan_leaderboard_operators()
+        if operator not in known_names:
+            matches = [name for name in known_names if name.casefold() == operator.casefold()]
+            if len(matches) > 1:
+                raise ValueError("Select the operator's exact name from the list.")
+            if matches:
+                operator = matches[0]
+
+        result = self.scan_leaderboard.record({
+            "eventId": event_id,
+            "eventType": "scan.completed",
+            "operator": operator,
+            "acceptedQuantity": quantity,
+        })
+        if not result["duplicate"]:
+            self.log_activity(
+                "Scans",
+                f"Manually added {quantity} scan(s) for {operator}.",
+                details={
+                    "event_id": event_id,
+                    "operator": operator,
+                    "quantity": quantity,
+                    "day": result["day"],
+                },
+            )
+        return {**result, "operator": operator}
 
     def add_scan_leaderboard_test(self, operator="Manager test"):
         with self.lock:

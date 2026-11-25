@@ -130,6 +130,22 @@ class RemoteManagerState:
         self._post("/api/dashboard/refresh")
         return None
 
+    def scan_leaderboard_operators(self):
+        return self._get("/api/scan-leaderboard/operators").get("operators", [])
+
+    def add_scan_leaderboard_manual(self, operator, quantity, request_id):
+        try:
+            return self._post(
+                "/api/scan-leaderboard/manual",
+                {"operator": operator, "quantity": quantity, "request_id": request_id},
+            )
+        except requests.HTTPError as error:
+            if error.response.status_code == 404:
+                raise RuntimeError("Update the Manager Pi to add scans manually.") from error
+            if error.response.status_code == 400:
+                raise ValueError(error.response.json().get("error", str(error))) from error
+            raise
+
     def add_scan_leaderboard_test(self, operator="Manager test"):
         return self._post("/api/scan-leaderboard/test", {"operator": operator})
 

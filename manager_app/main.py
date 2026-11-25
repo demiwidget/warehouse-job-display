@@ -6,6 +6,7 @@ import threading
 import traceback
 from pathlib import Path
 from threading import Event, Thread
+from uuid import uuid4
 
 from PySide6.QtCore import QTimer, Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices
@@ -35,6 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from manager_app.scan_leaderboard import MAX_MANUAL_SCAN_QUANTITY
 from manager_app.server import ServerThread
 from manager_app.settings_store import DATA_DIR, DEFAULT_SETTINGS, PROJECT_ROOT
 from manager_app.state import ManagerState
@@ -2317,6 +2319,7 @@ class ScanLeaderboardTab(QWidget):
         self.refresh_in_progress = False
         self.settings_dirty = False
         self.table_loading = False
+        self.manual_request = None
 
         layout = make_scroll_page(self, margins=(12, 12, 12, 18), spacing=10)
         add_page_heading(
@@ -2326,6 +2329,31 @@ class ScanLeaderboardTab(QWidget):
         )
         self.status = make_status_label("Loading scan leaderboard settings...")
         layout.addWidget(self.status)
+
+        manual_panel, manual_layout = make_panel(
+            "Add Scans Manually",
+            "Credit an operator on today's and this week's leaderboards.",
+        )
+        manual_row = QHBoxLayout()
+        self.manual_operator = QComboBox()
+        self.manual_operator.setEditable(True)
+        self.manual_operator.setInsertPolicy(QComboBox.NoInsert)
+        self.manual_operator.lineEdit().setPlaceholderText("Select or type an operator name")
+        self.manual_operator.lineEdit().setMaxLength(160)
+        self.manual_quantity = QSpinBox()
+        self.manual_quantity.setRange(1, MAX_MANUAL_SCAN_QUANTITY)
+        self.manual_add_button = mark_primary(QPushButton("Add Scans"))
+        self.manual_add_button.clicked.connect(self.add_manual_scans)
+        manual_row.addWidget(QLabel("Operator"))
+        manual_row.addWidget(self.manual_operator, 1)
+        manual_row.addWidget(QLabel("Quantity"))
+        manual_row.addWidget(self.manual_quantity)
+        manual_row.addWidget(self.manual_add_button)
+        manual_layout.addLayout(manual_row)
+        self.manual_status = make_status_label("")
+        self.manual_status.setTextFormat(Qt.PlainText)
+        manual_layout.addWidget(self.manual_status)
+        layout.addWidget(manual_panel)
 
         settings_panel, settings_layout = make_panel(
             "Leaderboard Display",
@@ -2488,6 +2516,11 @@ class ScanLeaderboardTab(QWidget):
                     "settings": self.state.get_settings(include_secret=True).get("scan_leaderboard", {}),
                     "devices": self.state.list_devices(),
                 }
+                try:
+                    result["operators"] = self.state.scan_leaderboard_operators()
+                except Exception:
+                    # An older Manager Pi can still use the existing settings and test controls.
+                    pass
             except Exception as error:
                 result = {"ok": False, "error": str(error)}
             safe_emit(self.refresh_result_ready, result)
@@ -2499,6 +2532,11 @@ class ScanLeaderboardTab(QWidget):
         if not result.get("ok"):
             self.status.setText(f"Could not load leaderboard settings: {result.get('error', 'unknown error')}")
             return
+        if "operators" in result:
+            operator = self.manual_operator.currentText()
+            self.manual_operator.clear()
+            self.manual_operator.addItems(result["operators"])
+            self.manual_operator.setEditText(operator)
         if not self.settings_dirty:
             self.apply_settings(result.get("settings") or {}, result.get("devices") or [])
 
@@ -2603,6 +2641,28 @@ class ScanLeaderboardTab(QWidget):
 
         Thread(target=worker, daemon=True).start()
 
+    def add_manual_scans(self):
+        operator = self.manual_operator.currentText().strip()
+        quantity = self.manual_quantity.value()
+        if not operator:
+            self.manual_status.setText("Select or enter an operator name.")
+            self.manual_operator.setFocus()
+            return
+        if self.manual_request is None or self.manual_request[:2] != (operator, quantity):
+            self.manual_request = (operator, quantity, uuid4().hex)
+        request_id = self.manual_request[2]
+        self.manual_add_button.setEnabled(False)
+        self.manual_operator.setEnabled(False)
+        self.manual_quantity.setEnabled(False)
+        self.manual_status.setText(f"Adding {quantity} scan(s) for {operator}...")
+        Thread(
+            target=lambda: self.run_action(
+                "manual",
+                lambda: self.state.add_scan_leaderboard_manual(operator, quantity, request_id),
+            ),
+            daemon=True,
+        ).start()
+
     def add_test_scan(self):
         operator = self.test_operator_input.text().strip() or "Manager Test"
         self.status.setText("Adding a test scan...")
@@ -2637,6 +2697,24 @@ class ScanLeaderboardTab(QWidget):
 
     def handle_action_result(self, result):
         action = result.get("action")
+        if action == "manual":
+            self.manual_add_button.setEnabled(True)
+            self.manual_operator.setEnabled(True)
+            self.manual_quantity.setEnabled(True)
+            if not result.get("ok"):
+                self.manual_status.setText(f"Could not add scans: {result.get('error', 'unknown error')}")
+                return
+            recorded = result["result"]
+            self.manual_request = None
+            if recorded["duplicate"]:
+                self.manual_status.setText("This addition was already recorded.")
+            else:
+                self.manual_status.setText(
+                    f"Added {recorded['counted_quantity']} scan(s) for {recorded['operator']}."
+                )
+            self.manual_quantity.setValue(1)
+            self.refresh()
+            return
         if not result.get("ok"):
             self.status.setText(f"Leaderboard {action} failed: {result.get('error', 'unknown error')}")
             return

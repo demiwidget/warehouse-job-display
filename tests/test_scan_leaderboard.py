@@ -7,8 +7,11 @@ from pathlib import Path
 from threading import RLock
 import tempfile
 import unittest
+from unittest.mock import patch
+from uuid import uuid4
 
 from manager_app.scan_leaderboard import ScanLeaderboardStore
+from manager_app.security import TOKEN_HEADER
 from manager_app.server import create_app
 from manager_app.settings_store import DEFAULT_SETTINGS, _migrate_settings
 from manager_app.state import ManagerState
@@ -257,6 +260,48 @@ class ScanLeaderboardTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()["accepted"])
         self.assertTrue(self.data_file.is_file())
+
+    def test_admin_can_add_scans_once_to_an_existing_operator(self):
+        settings = deepcopy(DEFAULT_SETTINGS)
+        settings["scan_leaderboard"].update({"enabled": True, "signing_secret": "test-secret"})
+        state = ManagerState.__new__(ManagerState)
+        state.lock = RLock()
+        state.store = FakeStore(settings)
+        state.scan_leaderboard = self.store
+        activity = []
+        state.log_activity = lambda *args, **kwargs: activity.append((args, kwargs))
+        self.store.record(self.event("existing-alice", "Alice", 2))
+        self.store.record(self.event("existing-bob", "Bob", 1))
+        app = create_app(state)
+        request_id = uuid4().hex
+        manual = {"operator": " alice ", "quantity": 7, "request_id": request_id}
+        remote = {"REMOTE_ADDR": "192.0.2.5"}
+        admin = {"environ_overrides": remote, "headers": {TOKEN_HEADER: "example-admin"}}
+
+        with patch("manager_app.server.token_matches", side_effect=lambda token: token == "example-admin"), app.test_client() as client:
+            url = "/api/scan-leaderboard/manual"
+            self.assertEqual(client.post(url, json=manual, environ_overrides=remote).status_code, 401)
+            operators = client.get("/api/scan-leaderboard/operators", **admin)
+            self.assertEqual(operators.get_json(), {"operators": ["Alice", "Bob"]})
+            for invalid in (0, -2, 1001, True, 2.5, "3"):
+                response = client.post(url, json={**manual, "quantity": invalid}, **admin)
+                self.assertEqual(response.status_code, 400)
+
+            response = client.post(url, json=manual, **admin)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.get_json()["operator"], "Alice")
+            self.assertEqual(response.get_json()["counted_quantity"], 7)
+            retry = client.post(url, json=manual, **admin)
+            self.assertTrue(retry.get_json()["duplicate"])
+
+        totals = self.store.payload(settings["scan_leaderboard"])
+        self.assertEqual(totals["total"], 10)
+        self.assertEqual(totals["weekly"]["total"], 10)
+        self.assertEqual(totals["rows"][0]["Scans"], 9)
+        self.assertEqual(totals["rows"][0]["Workstation"], "PC-01")
+        self.assertEqual(len(activity), 1)
+        self.assertEqual(activity[0][1]["details"]["quantity"], 7)
+        self.assertEqual(activity[0][1]["details"]["operator"], "Alice")
 
     def test_settings_migration_normalizes_leaderboard_values(self):
         migrated = _migrate_settings(
